@@ -146,9 +146,6 @@ struct PWIZ_API_DECL IsolationInfo
     double isolationMz;
     IsolationMode isolationMode;
     double collisionEnergy;
-    double inverseReducedIonMobility;
-    double collisionalCrossSectionalArea;
-    double intensity;
 };
 
 struct PWIZ_API_DECL MSSpectrumParameter

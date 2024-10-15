@@ -24,12 +24,12 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using pwiz.Common.Chemistry;
+using pwiz.Common.Collections;
 using pwiz.Common.Spectra;
 using pwiz.Common.SystemUtil;
 using pwiz.ProteowizardWrapper;
 using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.Results.Spectra;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 using pwiz.Skyline.Util.Extensions;
 
@@ -50,6 +50,7 @@ namespace pwiz.Skyline.Model.Results
         private bool _isSingleMzMatch;
         private bool _sourceHasPositivePolarityData;
         private bool _sourceHasNegativePolarityData;
+        private Predicate<SpectrumMetadata> _globalSpectrumClassFilter;
         private double? _ticArea;
 
         private readonly ChromatogramLoadingStatus.TransitionData _allChromData;
@@ -124,6 +125,7 @@ namespace pwiz.Skyline.Model.Results
 
             if (NeedMaxIonMobilityValue(dataFile))
                 _maxIonMobilityValue = dataFile.GetMaxIonMobility();
+            _globalSpectrumClassFilter = _document.Settings.TransitionSettings.FullScan.SpectrumClassFilter.MakePredicate();
 
             // Create the filter responsible for chromatogram extraction
             bool firstPass = (_retentionTimePredictor != null);
@@ -150,7 +152,7 @@ namespace pwiz.Skyline.Model.Results
             }
             catch(Exception)
             {
-                // If exception thrown before construction is complete than Dispose will not be called.
+                // If exception thrown before construction is complete then Dispose will not be called.
                 if (_spectra == null)
                     dataFile.Dispose();
                 else
@@ -291,10 +293,13 @@ namespace pwiz.Skyline.Model.Results
                 }
 
                 UpdatePercentComplete();
-
+                var dataSpectrum = _spectra.CurrentSpectrum;
+                if (!_globalSpectrumClassFilter(dataSpectrum.Metadata))
+                {
+                    continue;
+                }
                 if (_spectra.HasSrmSpectra)
                 {
-                    var dataSpectrum = _spectra.CurrentSpectrum;
 
                     var precursorMz = dataSpectrum.Precursors[0].PrecursorMz ?? SignedMz.ZERO;
                     int filterIndex;
@@ -318,7 +323,6 @@ namespace pwiz.Skyline.Model.Results
                 }
                 else if (_filter.EnabledMsMs || _filter.EnabledMs)
                 {
-                    var dataSpectrum = _spectra.CurrentSpectrum;
                     var spectra = _spectra.CurrentSpectra;
 
                     // FAIMS chromatogram extraction is a special case for non-contiguous scans
@@ -555,12 +559,26 @@ namespace pwiz.Skyline.Model.Results
                 var chromIds = new List<ChromKeyProviderIdPair>(_collectors.ChromKeys.Count);
                 for (int i = 0; i < _collectors.ChromKeys.Count; i++)
                     chromIds.Add(new ChromKeyProviderIdPair(_collectors.ChromKeys[i], i));
-
-                _globalChromatogramExtractor.IndexOffset =
-                    chromIds.Count - _globalChromatogramExtractor.GlobalChromatogramIndexes.Count -
-                    _globalChromatogramExtractor.QcTraceByIndex.Count;
-
+                VerifyGlobalChromatograms(chromIds);
                 return chromIds;
+            }
+        }
+
+        private void VerifyGlobalChromatograms(IList<ChromKeyProviderIdPair> chromIds)
+        {
+            var globalChromKeys = _globalChromatogramExtractor.ListChromKeys();
+            int indexFirstGlobalChromatogram = chromIds.Count - globalChromKeys.Count;
+            for (int relativeIndex = 0; relativeIndex < globalChromKeys.Count; relativeIndex++)
+            {
+                int absoluteIndex = indexFirstGlobalChromatogram + relativeIndex;
+                var expectedChromKey = globalChromKeys[relativeIndex];
+                var actualChromKey = chromIds[absoluteIndex].Key;
+                if (!Equals(expectedChromKey, actualChromKey))
+                {
+                    var message = string.Format(@"ChromKey mismatch at position {0}. Expected: {1} Actual: {2}",
+                        absoluteIndex, expectedChromKey, actualChromKey);
+                    Assume.Fail(message);
+                }
             }
         }
 
@@ -608,7 +626,10 @@ namespace pwiz.Skyline.Model.Results
             extra = null;
             if (SignedMz.ZERO.Equals(chromKey?.Precursor ?? SignedMz.ZERO))
             {
-                if (_globalChromatogramExtractor.GetChromatogram(id, out float[] times, out float[] intensities))
+                int indexFirstGlobalChromatogram =
+                    _collectors.ChromKeys.Count - _globalChromatogramExtractor.ChromatogramCount;
+                int indexInGlobalChromatogramExtractor = id - indexFirstGlobalChromatogram;
+                if (_globalChromatogramExtractor.GetChromatogramAt(indexInGlobalChromatogramExtractor, out float[] times, out float[] intensities))
                 {
                     timeIntensities = new TimeIntensities(times, intensities, null, null);
                     extra = new ChromExtra(0, 0);
@@ -1028,14 +1049,14 @@ namespace pwiz.Skyline.Model.Results
                             if (!nextSpectrum.RetentionTime.HasValue)
                             {
                                 throw new InvalidDataException(
-                                string.Format(Resources.SpectraChromDataProvider_SpectraChromDataProvider_Scan__0__found_without_scan_time,
+                                string.Format(ResultsResources.SpectraChromDataProvider_SpectraChromDataProvider_Scan__0__found_without_scan_time,
                                     _dataFile.GetSpectrumId(i)));
                             }
                             var precursors = nextSpectrum.Precursors;
                             if (precursors.Count < 1 || !precursors[0].PrecursorMz.HasValue)
                             {
                             throw new InvalidDataException(
-                                string.Format(Resources.SpectraChromDataProvider_SpectraChromDataProvider_Scan__0__found_without_precursor_mz,
+                                string.Format(ResultsResources.SpectraChromDataProvider_SpectraChromDataProvider_Scan__0__found_without_precursor_mz,
                                     _dataFile.GetSpectrumId(i)));
                             }
                             return new SpectrumInfo(i, new[] {nextSpectrum}, (float) nextSpectrum.RetentionTime.Value);
@@ -1209,32 +1230,21 @@ namespace pwiz.Skyline.Model.Results
             {
                 IsRunningAsync = runningAsync;
 
-                // Sort ChromKeys in order of max retention time, and note the sort order.
-                var chromKeyArray = chromKeys.ToArray();
-                if (chromKeyArray.Length > 1)
+                var chromKeyIndexes = chromKeys.Select((chromKey, index) => Tuple.Create(chromKey, index));
+                var groupedByEndTime = chromKeyIndexes.GroupBy(tuple => tuple.Item1.OptionalMaxTime ?? float.MaxValue)
+                    .OrderBy(group => group.Key).ToList();
+                ChromKeys = ImmutableList.ValueOf(groupedByEndTime.SelectMany(group => group.Select(tuple => tuple.Item1)));
+                if (groupedByEndTime.Count > 1)
                 {
-                    var lastMaxTime = chromKeyArray[0].OptionalMaxTime ?? float.MaxValue;
-                    for (int i = 1; i < chromKeyArray.Length; i++)
-                    {
-                        var maxTime = chromKeyArray[i].OptionalMaxTime ?? float.MaxValue;
-                        if (maxTime < lastMaxTime)
-                        {
-                            int[] sortIndexes;
-                            ArrayUtil.Sort(chromKeyArray, out sortIndexes);
-                            // The sort indexes tell us where the keys used to live. For lookup, we need
-                            // to go the other way. Chromatograms will come in indexed by where they used to
-                            // be, and we need to put them into the _chromList array in the new location of
-                            // the ChromKey.
-                            _chromKeyLookup = new int[sortIndexes.Length];
-                            for (int j = 0; j < sortIndexes.Length; j++)
-                                _chromKeyLookup[sortIndexes[j]] = j;
-                            break;
-                        }
-                        lastMaxTime = maxTime;
-                    }
+                    var sortIndexes = groupedByEndTime.SelectMany(group => group.Select(tuple => tuple.Item2)).ToArray();
+                    // The sort indexes tell us where the keys used to live. For lookup, we need
+                    // to go the other way. Chromatograms will come in indexed by where they used to
+                    // be, and we need to put them into the _chromList array in the new location of
+                    // the ChromKey.
+                    _chromKeyLookup = new int[sortIndexes.Length];
+                    for (int j = 0; j < sortIndexes.Length; j++)
+                        _chromKeyLookup[sortIndexes[j]] = j;
                 }
-                ChromKeys = chromKeyArray;
-
                 // Create empty chromatograms for each ChromKey.
                 _collectors = new ChromCollector[chromKeys.Count];
             }
@@ -1581,13 +1591,23 @@ namespace pwiz.Skyline.Model.Results
         public eIonMobilityUnits IonMobilityUnits { get { return _dataFile.IonMobilityUnits; } }
         public bool HasCombinedIonMobility { get { return _dataFile.HasCombinedIonMobilitySpectra; } } // When true, data source provides IMS data in 3-array format, which affects spectrum ID format
 
-        public IonMobilityValue IonMobilityFromCCS(double ccs, double mz, int charge)
+        public IonMobilityValue IonMobilityFromCCS(double ccs, double mz, int charge, object obj)
         {
-            return _dataFile.IonMobilityFromCCS(ccs, mz, charge);
+            var im = _dataFile.IonMobilityFromCCS(ccs, mz, charge);
+            if (!im.HasValue)
+            {
+                Messages.WriteAsyncUserMessage(ResultsResources.DataFileInstrumentInfo_IonMobilityFromCCS_no_conversion, obj, ccs, mz, charge);
+            }
+            return im;
         }
-        public double CCSFromIonMobility(IonMobilityValue im, double mz, int charge)
+        public double CCSFromIonMobility(IonMobilityValue im, double mz, int charge, object obj)
         {
-            return _dataFile.CCSFromIonMobilityValue(im, mz, charge);
+            var ccs = _dataFile.CCSFromIonMobilityValue(im, mz, charge);
+            if (double.IsNaN(ccs))
+            {
+                Messages.WriteAsyncUserMessage(ResultsResources.DataFileInstrumentInfo_CCSFromIonMobility_no_conversion, obj, im, mz, charge);
+            }
+            return ccs;
         }
 
         public bool IsWatersSonarData { get { return _dataFile.IsWatersSonarData(); } }

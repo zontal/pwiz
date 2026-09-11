@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -22,17 +22,22 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using pwiz.Skyline.Controls.Graphs;
 using System.Windows.Forms;
 using System.Xml.Serialization;
+using DigitalRune.Windows.Docking;
 using pwiz.Common.DataBinding;
 using pwiz.Common.DataBinding.Controls.Editor;
+using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.MSGraph;
 using pwiz.ProteowizardWrapper;
+using pwiz.Skyline;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Controls.Databinding;
+using pwiz.Skyline.Controls.Graphs;
 using pwiz.Skyline.Controls.GroupComparison;
 using pwiz.Skyline.FileUI;
 using pwiz.Skyline.Model;
@@ -40,11 +45,12 @@ using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.DocSettings.Extensions;
 using pwiz.Skyline.Model.GroupComparison;
 using pwiz.Skyline.Model.Lib;
-using pwiz.Skyline.Model.Results;
 using pwiz.Skyline.Model.Tools;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.SettingsUI;
 using pwiz.Skyline.ToolsUI;
+using pwiz.Skyline.Util;
+using pwiz.Skyline.Util.Extensions;
 using ZedGraph;
 
 namespace pwiz.SkylineTestUtil
@@ -69,10 +75,28 @@ namespace pwiz.SkylineTestUtil
         /// Open a document and wait for loading completion.
         /// </summary>
         /// <param name="documentPath">File path of document</param>
-        public void OpenDocument(string documentPath)
+        public SrmDocument OpenDocument(string documentPath)
         {
-            var documentFile = TestFilesDir.GetTestPath(documentPath);
-            WaitForCondition(() => File.Exists(documentFile));
+            // In a test it's possible to programatically open a document while forms like
+            // PeptideSettingsUI or TransitionSettingsUI are open, but this isn't possible
+            // in actual UI use and will doubtless lead to confusing test behavior.
+            var unexpectedOpenForms = FindOpenForms<Form>().Where(f => f.Modal).Select(form => form.Name).ToList();
+            AssertEx.AreEqual(0, unexpectedOpenForms.Count, $@"Can't open a document when other dialogs are still open: {CommonTextUtil.LineSeparate(unexpectedOpenForms)}");
+
+            string documentFile = documentPath; // Default to assuming an absolute path
+            if (!Path.IsPathRooted(documentFile))
+            {
+                // Check for relative path in test files dirs
+                foreach (var testFileDir in TestFilesDirs)
+                {
+                    documentFile = testFileDir.GetTestPath(documentPath);
+                    if (File.Exists(documentFile))
+                    {
+                        break;
+                    }
+                }
+            }
+
             if (documentPath.EndsWith(@".zip", true, CultureInfo.InvariantCulture))
             {
                 RunUI(() => SkylineWindow.OpenSharedFile(documentFile));
@@ -81,7 +105,7 @@ namespace pwiz.SkylineTestUtil
             {
                 RunUI(() => SkylineWindow.OpenFile(documentFile));
             }
-            WaitForDocumentLoaded();
+            return WaitForDocumentLoaded();
         }
 
         public void OpenDocumentNoWait(string documentPath)
@@ -89,6 +113,17 @@ namespace pwiz.SkylineTestUtil
             var documentFile = TestFilesDir.GetTestPath(documentPath);
             WaitForCondition(() => File.Exists(documentFile));
             SkylineWindow.BeginInvoke((Action) (() => SkylineWindow.OpenFile(documentFile)));
+        }
+
+        /// <summary>
+        /// Restore the document to its original state using the undo buffer.
+        /// Much faster than reopening from disk since it swaps in-memory immutable trees.
+        /// </summary>
+        public SrmDocument RestoreOriginalDocument(int version = 0)
+        {
+            using var _ = new WaitDocumentChange(null, true);
+            RunUI(() => SkylineWindow.UndoAll(version));
+            return SkylineWindow.Document;
         }
 
         public static void CheckConsistentLibraryInfo(SrmDocument doc = null)
@@ -166,8 +201,7 @@ namespace pwiz.SkylineTestUtil
         {
             var doc = SkylineWindow.Document;
             ImportResultsDlg importResultsDlg;
-            if (!Equals(doc.Settings.TransitionSettings.FullScan.AcquisitionMethod, FullScanAcquisitionMethod.DIA) ||
-                doc.MoleculeGroups.Any(nodeGroup => nodeGroup.IsDecoy))
+            if (!SkylineWindow.ShouldPromptForDecoys(SkylineWindow.Document))
             {
                 importResultsDlg = ShowDialog<ImportResultsDlg>(SkylineWindow.ImportResults);
             }
@@ -186,7 +220,7 @@ namespace pwiz.SkylineTestUtil
             {
                 var dlg = WaitForOpenForm<MessageDlg>();
                 Assert.IsTrue(dlg.DetailMessage.Contains(expectedErrorMessage));
-                dlg.CancelDialog();
+                dlg.CancelButton.PerformClick();
             }
             else if (lockMassParameters == null)
             {
@@ -220,13 +254,6 @@ namespace pwiz.SkylineTestUtil
             }
             if (expectedErrorMessage == null)
                 WaitForDocumentChange(doc);
-        }
-
-        public void WaitForRegression()
-        {
-            WaitForGraphs();
-            WaitForConditionUI(() => SkylineWindow.RTGraphController != null);
-            WaitForPaneCondition<RTLinearRegressionGraphPane>(SkylineWindow.RTGraphController.GraphSummary, pane => !pane.IsCalculating);
         }
 
         /// <summary>
@@ -282,13 +309,13 @@ namespace pwiz.SkylineTestUtil
             return documentGrid.FindColumn(PropertyPath.Parse(colName));
         }
 
-        public void EnableDocumentGridColumns(DocumentGridForm documentGrid, string viewName, int expectedRowsInitial, 
+        public void EnableDocumentGridColumns(DocumentGridForm documentGrid, string viewName, int? expectedRowsInitial, 
             string[] additionalColNames = null,
             string newViewName = null,
             int? expectedRowsFinal = null)
         {
             RunUI(() => documentGrid.ChooseView(viewName));
-            WaitForCondition(() => (documentGrid.RowCount >= expectedRowsInitial)); // Let it initialize
+            WaitForCondition(() => (documentGrid.RowCount >= (expectedRowsInitial??0))); // Let it initialize
             if (additionalColNames != null)
             {
                 RunDlg<ViewEditor>(documentGrid.NavBar.CustomizeView,
@@ -302,7 +329,7 @@ namespace pwiz.SkylineTestUtil
                         viewEditor.ViewName = newViewName ?? viewName;
                         viewEditor.OkDialog();
                     });
-                WaitForCondition(() => (documentGrid.RowCount == (expectedRowsFinal??expectedRowsInitial))); // Let it initialize
+                WaitForCondition(() => (documentGrid.RowCount == (expectedRowsFinal??expectedRowsInitial??0))); // Let it initialize
             }
         }
 
@@ -361,7 +388,7 @@ namespace pwiz.SkylineTestUtil
 
         public void WaitForVolcanoPlotPointCount(FoldChangeGrid grid, int expected)
         {
-            WaitForConditionUI(() => expected == grid.DataboundGridControl.RowCount && grid.DataboundGridControl.IsComplete,
+            WaitForConditionUI(() => expected == grid.DataboundGridControl.RowCount && grid.IsComplete,
                 string.Format("Expecting {0} points found {1}", expected, GetRowCount(grid)));
         }
 
@@ -377,48 +404,26 @@ namespace pwiz.SkylineTestUtil
             return def;
         }
 
-        public GroupComparisonDef CreateGroupComparison(string name, string controlGroupAnnotation, string controlGroupValue, string compareValue)
+        public GroupComparisonDef CreateGroupComparison(string name, string controlGroupAnnotation, string controlGroupValue, string compareValue, string identityAnnotation = null)
         {
             var dialog = ShowDialog<EditGroupComparisonDlg>(SkylineWindow.AddGroupComparison);
 
             RunUI(() =>
             {
                 dialog.TextBoxName.Text = name;
-                dialog.ComboControlAnnotation.SelectedItem = controlGroupAnnotation;
+                dialog.ControlAnnotation = controlGroupAnnotation;
             });
 
-            WaitForConditionUI(() => dialog.ComboControlValue.Items.Count > 0);
+            WaitForConditionUI(() => dialog.ControlValueOptions.Any());
 
             RunUI(() =>
             {
-                dialog.ComboControlValue.SelectedItem = controlGroupValue;
-                dialog.ComboCaseValue.SelectedItem = compareValue;
-                dialog.RadioScopePerProtein.Checked = false;
-            });
-
-            OkDialog(dialog, dialog.OkDialog);
-
-            return FindGroupComparison(name);
-        }
-
-        public GroupComparisonDef CreateGroupComparison(string name, string controlGroupAnnotation,
-            string controlGroupValue, string compareValue, string identityAnnotation)
-        {
-            var dialog = ShowDialog<EditGroupComparisonDlg>(SkylineWindow.AddGroupComparison);
-
-            RunUI(() =>
-            {
-                dialog.TextBoxName.Text = name;
-                dialog.ComboControlAnnotation.SelectedItem = controlGroupAnnotation;
-            });
-
-            WaitForConditionUI(() => dialog.ComboControlValue.Items.Count > 0);
-
-            RunUI(() =>
-            {
-                dialog.ComboControlValue.SelectedItem = controlGroupValue;
-                dialog.ComboCaseValue.SelectedItem = compareValue;
-                dialog.ComboIdentityAnnotation.SelectedItem = identityAnnotation;
+                dialog.ControlValue = controlGroupValue;
+                dialog.CaseValue = compareValue;
+                if (identityAnnotation != null)
+                {
+                    dialog.IdentityAnnotation = identityAnnotation;
+                }
                 dialog.RadioScopePerProtein.Checked = false;
             });
 
@@ -463,6 +468,75 @@ namespace pwiz.SkylineTestUtil
             WaitForDocumentLoaded();
         }
 
+        public static void TestHttpClientCancellation(Action actionToCancel)
+        {
+            // This should get canceled silently without showing a MessageDlg.
+            // While it is difficult to test for not showing something without waiting,
+            // if a MessageDlg were shown, that would cause a failure in subsequent tests.
+            using (HttpClientTestHelper.SimulateCancellationClickWithException())
+            {
+                TestCancellationWithoutMessageDlg(actionToCancel);
+            }
+        }
+
+        public static void TestCancellationWithoutMessageDlg(Action actionToCancel)
+        {
+            SkylineWindow.BeginInvoke(actionToCancel);
+            // This wait triggered reliably with a failure that showed a message.
+            // Even if it does not, the test will fail later, but may be more confusing
+            // to debug, which is the reason for adding this assertion.
+            var messageDlg = TryWaitForOpenForm<MessageDlg>(200);
+            Assert.IsNull(messageDlg, string.Format("Unexpected MessageDlg: {0}", messageDlg?.Message));
+        }
+
+
+        public static void TestHttpClientWithNoNetwork(Action actionToFail, string prefix = null)
+        {
+            TestHttpClientWithNoNetwork(actionToFail, (expectedMessage, actualMessage) =>
+            {
+                if (prefix != null)
+                    expectedMessage = TextUtil.LineSeparate(prefix, expectedMessage);
+
+                Assert.AreEqual(expectedMessage, actualMessage);
+            });
+        }
+
+        public static void TestHttpClientWithNoNetworkEx(Action actionToFail, params string[] extraParts)
+        {
+            TestHttpClientWithNoNetwork(actionToFail, (expectedMessage, actualMessage) =>
+            {
+                AssertEx.Contains(actualMessage, expectedMessage);
+                AssertEx.Contains(actualMessage, extraParts);
+            });
+        }
+
+        public static void TestHttpClientWithNoNetwork(Action actionToFail, Action<string, string> validateMessage)
+        {
+            using var helper = HttpClientTestHelper.SimulateNoNetworkInterface();
+            var expectedMessage = helper.GetExpectedMessage();
+            TestMessageDlgShown(actionToFail, actualMessage => validateMessage(expectedMessage, actualMessage));
+        }
+
+        public static void TestMessageDlgShown(Action actionToShow, string expectedMessage)
+        {
+            TestMessageDlgShown(actionToShow, actualMessage =>
+                Assert.AreEqual(expectedMessage, actualMessage));
+        }
+
+        public static void TestMessageDlgShownContaining(Action actionToShow, params string[] parts)
+        {
+            TestMessageDlgShown(actionToShow, actualMessage =>
+                AssertEx.Contains(actualMessage, parts));
+        }
+
+        public static void TestMessageDlgShown(Action actionToShow, Action<string> validateMessage)
+        {
+            // Cannot use RunDlg here because it requires actionShow to complete.
+            var errDlg = ShowDialog<MessageDlg>(actionToShow);
+            RunUI(() => validateMessage(errDlg.Message));
+            OkDialog(errDlg, errDlg.OkDialog);
+        }
+
         public class Tool : IDisposable
         {
             private readonly MovedDirectory _movedDirectory;
@@ -479,7 +553,7 @@ namespace pwiz.SkylineTestUtil
             {
                 Settings.Default.ToolList.Clear();
 
-                _movedDirectory = new MovedDirectory(ToolDescriptionHelpers.GetToolsDirectory(), Skyline.Program.StressTest);
+                _movedDirectory = new MovedDirectory(ToolDescriptionHelpers.GetToolsDirectory(), Program.StressTest);
                 _toolPath = toolPath;
                 RunDlg<ConfigureToolsDlg>(SkylineWindow.ShowConfigureToolsDlg, configureToolsDlg =>
                 {
@@ -522,10 +596,55 @@ namespace pwiz.SkylineTestUtil
             ClickChromatogram(null, x, y, paneKey);
         }
 
-        public static void ClickChromatogram(string graphName, double x, double y, PaneKey? paneKey = null)
+        public static void ClickChromatogram(string graphName, double x, double y, PaneKey? paneKey = null, double? titleTime = null)
         {
             WaitForGraphs();
             var graphChromatogram = GetGraphChrom(graphName);
+            // Move the mouse and click in a single UI action, and click only if that move produced
+            // the tracking dot. The clicked time comes from the dot rather than from these
+            // coordinates, and a graph update landing between the move and the click recreates the
+            // curve holding it, which resets its position and leaves the click nothing to read.
+            bool clicked = false;
+            const int sleepCycles = 20;
+            const int sleepInterval = 100;
+            for (int i = 0; i < sleepCycles && !clicked; i++)
+            {
+                RunUI(() =>
+                {
+                    graphChromatogram.TestMouseMove(x, y, paneKey);
+                    if (!graphChromatogram.IsOverHighlightPoint(x, y, paneKey))
+                        return;
+                    graphChromatogram.TestMouseDown(x, y, paneKey);
+                    // Release at the same point, completing the gesture. A press that no handler claims
+                    // arms a zoom drag which only a mouse-up disarms, and leaving it armed makes every
+                    // later move draw a rubber band instead of tracking. The release itself does nothing:
+                    // ZedGraph ignores a zoom drag shorter than 5 pixels.
+                    graphChromatogram.TestMouseUp(x, y, paneKey);
+                    clicked = true;
+                });
+                if (!clicked)
+                    Thread.Sleep(sleepInterval);
+            }
+            AssertEx.IsTrue(clicked, string.Format("Full-scan dot not present after {0} tries in {1} seconds",
+                sleepCycles, sleepInterval * sleepCycles / 1000.0));
+            WaitForGraphs();
+            CheckFullScanSelection(graphName, x, y, paneKey, titleTime);
+        }
+
+        public static void MouseOverChromatogram(double x, double y, PaneKey? paneKey = null)
+        {
+            MouseOverChromatogram(null, x, y, paneKey);
+        }
+
+        public static void MouseOverChromatogram(string graphName, double x, double y, PaneKey? paneKey = null)
+        {
+            WaitForGraphs();
+            var graphChromatogram = GetGraphChrom(graphName);
+            MouseOverChromatogramInternal(graphChromatogram, x, y, paneKey);
+        }
+
+        private static void MouseOverChromatogramInternal(GraphChromatogram graphChromatogram, double x, double y, PaneKey? paneKey)
+        {
             // Wait as long as 2 seconds for mouse move to produce a highlight point
             bool overHighlight = false;
             const int sleepCycles = 20;
@@ -538,22 +657,28 @@ namespace pwiz.SkylineTestUtil
                     break;
                 Thread.Sleep(sleepInterval);
             }
+
             RunUI(() => AssertEx.IsTrue(graphChromatogram.IsOverHighlightPoint(x, y, paneKey),
-                string.Format("Full-scan dot not present after {0} tries in {1} seconds", sleepCycles, sleepInterval*sleepCycles/1000.0)));
-            RunUI(() => graphChromatogram.TestMouseDown(x, y, paneKey));
-            WaitForGraphs();
-            CheckFullScanSelection(graphName, x, y, paneKey);
+                string.Format("Full-scan dot not present after {0} tries in {1} seconds", sleepCycles,
+                    sleepInterval * sleepCycles / 1000.0)));
         }
 
-        public static void CheckFullScanSelection(double x, double y, PaneKey? paneKey = null)
+        public static void CheckFullScanSelection(double x, double y, PaneKey? paneKey = null, double? titleTime = null)
         {
-            CheckFullScanSelection(null, x, y, paneKey);
+            CheckFullScanSelection(null, x, y, paneKey, titleTime);
         }
 
-        public static void CheckFullScanSelection(string graphName, double x, double y, PaneKey? paneKey = null)
+        public static void CheckFullScanSelection(string graphName, double x, double y, PaneKey? paneKey = null, double? titleTime = null)
         {
             var graphChromatogram = GetGraphChrom(graphName);
             WaitForConditionUI(() => SkylineWindow.GraphFullScan != null && SkylineWindow.GraphFullScan.IsLoaded);
+            if (titleTime.HasValue)
+            {
+                // Good idea to check the title for a tutorial screenshot
+                var matchTime = Regex.Match(SkylineWindow.GraphFullScan.TitleText, @".([0-9.,]+) [\w]+.$");
+                Assert.IsTrue(matchTime.Success);
+                Assert.AreEqual(titleTime.Value, double.Parse(matchTime.Groups[1].Value));
+            }
             Assert.AreEqual(string.Empty, graphChromatogram.TestFullScanSelection(x, y, paneKey));
         }
 
@@ -592,6 +717,26 @@ namespace pwiz.SkylineTestUtil
             graphControl.Refresh();
         }
 
+        protected static void ResizeFloatingFrame(DockableForm dockableForm, int? width, int? height)
+        {
+            Assert.AreEqual(DockState.Floating, dockableForm.DockState);
+            var parentForm = dockableForm.ParentForm;
+            Assert.IsNotNull(parentForm);
+            ResizeFormOnScreen(parentForm, width, height);
+        }
+
+        protected static void ResizeFormOnScreen(Form parentForm, int? width, int? height)
+        {
+            if (Program.SkylineOffscreen)
+                return;
+
+            if (width.HasValue)
+                parentForm.Width = width.Value;
+            if (height.HasValue)
+                parentForm.Height = height.Value;
+            FormEx.ForceOnScreen(parentForm);
+        }
+
         public void AddFastaToBackgroundProteome(BuildBackgroundProteomeDlg proteomeDlg, string fastaFile, int repeats)
         {
             RunDlg<MessageDlg>(
@@ -610,11 +755,11 @@ namespace pwiz.SkylineTestUtil
                                             string annotationName,
                                             AnnotationDef.AnnotationType annotationType = AnnotationDef.AnnotationType.text,
                                             IList<string> annotationValues = null,
-                                            int? pausePage = null)
+                                            bool pause = false)
         {
             AddAnnotation(documentSettingsDlg, annotationName, annotationType, annotationValues,
                     AnnotationDef.AnnotationTargetSet.Singleton(AnnotationDef.AnnotationTarget.replicate),
-                    pausePage);
+                    pause);
         }
 
         public void AddAnnotation(DocumentSettingsDlg documentSettingsDlg,
@@ -622,7 +767,7 @@ namespace pwiz.SkylineTestUtil
                                             AnnotationDef.AnnotationType annotationType,
                                             IList<string> annotationValues,
                                             AnnotationDef.AnnotationTargetSet annotationTargets,
-                                            int? pausePage = null)
+                                            bool pause = false)
         {
             var annotationsListDlg = ShowDialog<EditListDlg<SettingsListBase<AnnotationDef>, AnnotationDef>>
                 (documentSettingsDlg.EditAnnotationList);
@@ -638,26 +783,14 @@ namespace pwiz.SkylineTestUtil
                 annotationDefDlg.AnnotationTargets = annotationTargets;
             });
 
-            if (pausePage.HasValue)
+            if (pause)
             {
                 RunUI(() => annotationDefDlg.Height = 442);  // Shorter for screenshots
-                PauseForScreenShot<DefineAnnotationDlg>("Define Annotation form - " + annotationName, pausePage.Value);
+                PauseForScreenShot<DefineAnnotationDlg>("Define Annotation form - " + annotationName);
             }
 
             OkDialog(annotationDefDlg, annotationDefDlg.OkDialog);
             OkDialog(annotationsListDlg, annotationsListDlg.OkDialog);
-        }
-
-        protected IEnumerable<string> GetCoefficientStrings(EditPeakScoringModelDlg editDlg)
-        {
-            for (int i = 0; i < editDlg.PeakCalculatorsGrid.Items.Count; i++)
-            {
-                double? weight = editDlg.PeakCalculatorsGrid.Items[i].Weight;
-                if (weight.HasValue)
-                    yield return string.Format(CultureInfo.InvariantCulture, "{0:F04}", weight.Value);
-                else
-                    yield return " null ";  // To help values line up
-            }
         }
 
         public static int CheckDocumentResultsGridValuesRecordedCount;
@@ -698,14 +831,22 @@ namespace pwiz.SkylineTestUtil
             }
         }
 
-        public void CheckDocumentResultsGridFieldByName(DocumentGridForm documentGrid, string name, int row, string expected, string msg = null)
+        public void CheckDocumentResultsGridFieldByName(DocumentGridForm documentGrid, string name, int row, string expected, string msg = null, bool recordValues = false)
         {
             var col = FindDocumentGridColumn(documentGrid, "Results!*.Value." + name);
+            string actual = null;
             RunUI(() =>
             {
-                var val = documentGrid.DataGridView.Rows[row].Cells[col.Index].Value as string;
-                AssertEx.AreEqual(expected, val, name + (msg ?? string.Empty));
+                actual = documentGrid.DataGridView.Rows[row].Cells[col.Index].Value as string;
             });
+            if (recordValues)
+            {
+                Console.Write($@",{actual}");
+            }
+            else
+            {
+                AssertEx.AreEqual(expected, actual, name + (msg ?? string.Empty));
+            }
         }
 
         protected const string MIXED_TRANSITION_LIST_REPORT_NAME = "Mixed Transition List";
@@ -786,7 +927,18 @@ namespace pwiz.SkylineTestUtil
                 expectedRowCount ?? SkylineWindow.Document.MoleculeTransitionCount * (SkylineWindow.Document.MeasuredResults?.Chromatograms.Count ?? 1));
             return documentGrid;
         }
-        
+
+        public static void SetIonMobilityResolvingPowerUI(TransitionSettingsUI transitionSettingsUi, double rp)
+        {
+            RunUI(() =>
+            {
+                transitionSettingsUi.SelectedTab = TransitionSettingsUI.TABS.IonMobility;
+                transitionSettingsUi.IonMobilityControl.WindowWidthType =
+                    IonMobilityWindowWidthCalculator.IonMobilityWindowWidthType.resolving_power;
+                transitionSettingsUi.IonMobilityControl.IonMobilityFilterResolvingPower = rp;
+            });
+        }
+
         protected static void RenameReplicate(ManageResultsDlg manageResultsDlg, int replicateIndex, string newName)
         {
             RunUI(() => manageResultsDlg.SelectedChromatograms = new[]
@@ -857,6 +1009,67 @@ namespace pwiz.SkylineTestUtil
             OkDialog(viewLibraryDlg, viewLibraryDlg.Close);
 
             return docAfterAdd;
+        }
+
+
+        /// <summary>
+        /// Helper class for tests to show and dispose of a <see cref="DocumentationViewer"/>.
+        /// </summary>
+        public class DocumentationViewerHelper : IDisposable
+        {
+            private readonly string _originalDirectory;
+
+            public DocumentationViewerHelper(TestContext testContext, Action showViewer)
+            {
+                _originalDirectory = DocumentationViewer.TestWebView2EnvironmentDirectory;
+                DocumentationViewer.TestWebView2EnvironmentDirectory = testContext.GetTestResultsPath(@"WebView2");
+                Directory.CreateDirectory(DocumentationViewer.TestWebView2EnvironmentDirectory);
+
+                DocViewer = ShowDialog<DocumentationViewer>(showViewer);
+
+                // Wait for the document to load completely in WebView2
+                WaitForConditionUI(() => DocViewer.GetWebView2HtmlContent(100).Contains("<table"));
+            }
+            
+            public DocumentationViewer DocViewer { get; }
+
+            public void Dispose()
+            {
+                OkDialog(DocViewer, DocViewer.Close);
+                
+                // Give folder clean-up an extra 2 seconds to complete
+                TryWaitForCondition(2000, CleanupTestDataFolder);
+                DocumentationViewer.TestWebView2EnvironmentDirectory = _originalDirectory;
+            }
+
+            private bool CleanupTestDataFolder()
+            {
+                var testDataFolder = DocumentationViewer.TestWebView2EnvironmentDirectory;
+                // Clean up test data folder if it was created
+                if (Directory.Exists(testDataFolder))
+                {
+                    // Give WebView2 more time to release file handles
+                    Thread.Sleep(200);
+
+                    // Force garbage collection to help release any remaining handles
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+
+                    // Try to delete with retry logic for locked files
+                    try
+                    {
+                        TryHelper.TryTwice(() => Directory.Delete(testDataFolder, true), 5, 200, @"Failed to cleanup WebView2 test folder");
+                    }
+                    catch
+                    {
+                        // Ignore and expect the test to fail with a useful message about why this folder cannot be removed
+                        return false;
+                    }
+                }
+
+                return true;
+            }
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -20,6 +20,7 @@
 using System;
 using System.Threading;
 using System.Windows.Forms;
+using JetBrains.Annotations;
 using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Model;
 using pwiz.Skyline.Properties;
@@ -28,9 +29,14 @@ using pwiz.Skyline.Util.Extensions;
 
 namespace pwiz.Skyline.Controls
 {
-    public partial class LongWaitDlg : FormEx, ILongWaitBroker
+    public partial class LongWaitDlg : FormEx, ILongWaitBroker, ILongWaitForm
     {
-        private readonly string _cancelMessage = string.Format(@" ({0})", Resources.LongWaitDlg_PerformWork_canceled);
+        // ILongWaitForm: a LongWaitDlg exists only while it is driving a long-running operation, so it is
+        // always "busy" as far as the connector's no-progress watchdog is concerned. This preserves the
+        // watchdog's original behavior, which treated any open LongWaitDlg as a sign that work is advancing.
+        public bool IsBusy => true;
+
+        private readonly string _cancelMessage = string.Format(@" ({0})", ControlsResources.LongWaitDlg_PerformWork_canceled);
 
         private const int MAX_HEIGHT = 500;
         private readonly int _originalFormHeight;
@@ -125,16 +131,19 @@ namespace pwiz.Skyline.Controls
         {
             if (IsCanceled)
                 throw new OperationCanceledException();
-            ProgressValue = 100 * step / totalSteps;
+            ProgressValue = (int)(step * 100.0 / totalSteps);
         }
 
-        public void PerformWork(Control parent, int delayMillis, Action performWork)
+        // PerformWork always runs performWork to completion before returning (even on cancel, which is
+        // cooperative), so the delegate is never stored for later. [InstantHandle] tells ReSharper this,
+        // so callers can capture and then modify local variables without an "access to modified closure" warning.
+        public void PerformWork(Control parent, int delayMillis, [InstantHandle] Action performWork)
         {
             var indefiniteWaitBroker = new IndefiniteWaitBroker(performWork);
             PerformWork(parent, delayMillis, indefiniteWaitBroker.PerformWork);
         }
 
-        public IProgressStatus PerformWork(Control parent, int delayMillis, Action<IProgressMonitor> performWork)
+        public IProgressStatus PerformWork(Control parent, int delayMillis, [InstantHandle] Action<IProgressMonitor> performWork)
         {
             var progressWaitBroker = new ProgressWaitBroker(performWork);
             PerformWork(parent, delayMillis, progressWaitBroker.PerformWork);
@@ -143,7 +152,7 @@ namespace pwiz.Skyline.Controls
             return progressWaitBroker.Status;
         }
 
-        public void PerformWork(Control parent, int delayMillis, Action<ILongWaitBroker> performWork)
+        public void PerformWork(Control parent, int delayMillis, [InstantHandle] Action<ILongWaitBroker> performWork)
         {
             _startTime = DateTime.UtcNow; // Said to be 117x faster than Now and this is for a delta
             _parentForm = parent;
@@ -191,7 +200,7 @@ namespace pwiz.Skyline.Controls
 
                 if (IsCanceled && null != x)
                 {
-                    if (x is OperationCanceledException || x.InnerException is OperationCanceledException)
+                    if (x.HasException<OperationCanceledException>())
                     {
                         x = null;
                     }
@@ -199,9 +208,18 @@ namespace pwiz.Skyline.Controls
 
                 if (x != null)
                 {
-                    Helpers.WrapAndThrowException(x);
+                    ExceptionUtil.WrapAndThrowException(x);
                 }
             }
+        }
+
+        /// <summary>
+        /// A type of <see cref="OperationCanceledException"/> that simulates a user clicking
+        /// the Cancel button in the <see cref="LongWaitDlg"/> so that the form goes away silently
+        /// without throwing the exception.
+        /// </summary>
+        public class CancelClickedTestException : OperationCanceledException
+        {
         }
 
         /// <summary>
@@ -255,6 +273,10 @@ namespace pwiz.Skyline.Controls
             }
             catch (Exception x)
             {
+                // Simulate a cancel click if the exception thrown has the right type
+                if (x.HasException<CancelClickedTestException>())
+                    _cancellationTokenSource.Cancel();
+                
                 _exception = x;
             }
             finally
@@ -280,18 +302,24 @@ namespace pwiz.Skyline.Controls
             if (!_cancellationTokenSource.IsCancellationRequested)
             {
                 var runningTime = DateTime.UtcNow.Subtract(_startTime);
-                // Show complete status before returning.
-                progressBar.Value = _progressValue = 100;
-                UpdateLabelMessage();
-                // Display the final complete status for one second, or 10% of the time the job ran for,
-                // whichever is shorter
-                int finalDelayTime = Math.Min(1000, (int) (runningTime.TotalMilliseconds/10));
-                if (finalDelayTime > 0)
+                
+                // Only show 100% progress if the operation completed successfully (no exception)
+                if (_exception == null)
                 {
-                    timerClose.Interval = finalDelayTime;
-                    timerClose.Enabled = true;
-                    return;
+                    // Show complete status before returning.
+                    progressBar.Value = _progressValue = 100;
+                    UpdateLabelMessage();
+                    // Display the final complete status for one second, or 10% of the time the job ran for,
+                    // whichever is shorter
+                    int finalDelayTime = Math.Min(1000, (int) (runningTime.TotalMilliseconds/10));
+                    if (finalDelayTime > 0)
+                    {
+                        timerClose.Interval = finalDelayTime;
+                        timerClose.Enabled = true;
+                        return;
+                    }
                 }
+                // If there was an exception, don't show 100% progress - just close immediately
             }
             Close();
         }
@@ -385,6 +413,5 @@ namespace pwiz.Skyline.Controls
                 _performWork();
             }
         }
-
     }
 }

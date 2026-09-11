@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -18,31 +18,32 @@
  */
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Text;
+using System.Threading;
 using System.Xml;
 using System.Xml.Serialization;
 using pwiz.Common.Chemistry;
 using pwiz.Common.Collections;
 using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.ProteowizardWrapper;
 using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.DocSettings.AbsoluteQuantification;
 using pwiz.Skyline.Model.DocSettings.MetadataExtraction;
 using pwiz.Skyline.Model.IonMobility;
-using pwiz.Skyline.Model.Results.RemoteApi;
+using pwiz.CommonMsData.RemoteApi;
 using pwiz.Skyline.Model.RetentionTimes;
 using pwiz.Skyline.Model.Serialization;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
+using Array = System.Array;
 
 namespace pwiz.Skyline.Model.Results
 {
     public sealed class ChromatogramManager : BackgroundLoader, IDisposable
     {
         private readonly MultiFileLoader _multiFileLoader;
+        private readonly ManualResetEventSlim _progressFreezeEvent = new ManualResetEventSlim(true);
 
         public bool SupportAllGraphs { get; set; }
         public int? LoadingThreads { get; set; }
@@ -52,6 +53,32 @@ namespace pwiz.Skyline.Model.Results
         {
             IsMultiThreadAware = true;
             _multiFileLoader = new MultiFileLoader(synchronousMode);
+        }
+
+        /// <summary>
+        /// Freeze progress completion for screenshot capture.
+        /// When frozen, background threads will block before completing document updates.
+        /// </summary>
+        public void FreezeProgressForScreenshot()
+        {
+            _progressFreezeEvent.Reset();
+        }
+
+        /// <summary>
+        /// Release progress freeze, allowing background threads to complete.
+        /// </summary>
+        public void ReleaseProgressFreeze()
+        {
+            _progressFreezeEvent.Set();
+        }
+
+        /// <summary>
+        /// Block if progress is frozen for screenshot capture.
+        /// Called by background threads before completing document updates.
+        /// </summary>
+        private void WaitIfProgressFrozen()
+        {
+            _progressFreezeEvent.Wait();
         }
 
         public MultiProgressStatus ChangeStatus(ChromatogramLoadingStatus loadingStatus)
@@ -77,15 +104,21 @@ namespace pwiz.Skyline.Model.Results
 
         protected override string IsNotLoadedExplained(SrmDocument document)
         {
-            SrmSettings settings = document.Settings;
-            
-            // If using full-scan filtering, then the chromatograms may not be loaded
-            // until the libraries are loaded, since they are used for peak picking.
-            if (!IsReadyToLoad(document))
+            var measuredResults = document.MeasuredResults;
+            if (measuredResults == null)
             {
                 return null;
-            } 
-            if (!settings.HasResults)
+            }
+
+            if (!measuredResults.CachePaths.Any() && !measuredResults.FinalCacheIncomplete)
+            {
+                return @"Cache file not loaded";
+            }
+
+            SrmSettings settings = document.Settings;
+            // If using full-scan filtering, then the chromatograms may not be extracted
+            // until the libraries are loaded, since they are used for peak picking.
+            if (!IsReadyToLoad(document))
             {
                 return null;
             } 
@@ -117,6 +150,7 @@ namespace pwiz.Skyline.Model.Results
         public void Dispose()
         {
             _multiFileLoader.DoneAddingFiles();
+            _multiFileLoader.Dispose();
         }
 
         protected override IEnumerable<IPooledStream> GetOpenStreams(SrmDocument document)
@@ -134,13 +168,20 @@ namespace pwiz.Skyline.Model.Results
             if (!settings.HasResults || settings.MeasuredResults.IsLoaded)
                 return true;
 
-            var dataFilePath = tag as MsDataFileUri;
-            if (dataFilePath != null)
+            if (tag is MsDataFileUri dataFilePath)
             {
                 // Cancelled if file is no longer part of the document, or it is
                 // already loaded.
                 var res = settings.MeasuredResults;
                 return !res.IsDataFilePath(dataFilePath) || res.IsCachedFile(dataFilePath);
+            }
+
+            if (tag is MeasuredResults measuredResults)
+            {
+                if (!Equals(measuredResults, settings.MeasuredResults))
+                {
+                    return true;
+                }
             }
             return false;
         }
@@ -157,7 +198,7 @@ namespace pwiz.Skyline.Model.Results
                 {
                     return false;
                 }
-                if (DocumentRetentionTimes.IsNotLoadedExplained(document) != null)
+                if (!DocumentRetentionTimes.IsReadyForChromatogramExtraction(document))
                 {
                     return false;
                 }
@@ -166,7 +207,7 @@ namespace pwiz.Skyline.Model.Results
                     return false; // Need to wait for imsdb file to load into memory
                 }
             }
-            // Make sure any iRT calculater gets loaded before starting to import
+            // Make sure any iRT calculator gets loaded before starting to import
             var rtPrediction = document.Settings.PeptideSettings.Prediction.RetentionTime;
             if (rtPrediction != null && !rtPrediction.Calculator.IsUsable)
                 return false;
@@ -187,14 +228,56 @@ namespace pwiz.Skyline.Model.Results
                     return false;
                 docCurrent = docInLock;
 
-                _multiFileLoader.InitializeThreadCount(LoadingThreads);
+                if (IsReadyToLoad(docCurrent))
+                {
+                    _multiFileLoader.InitializeThreadCount(LoadingThreads);
 
-                // The Thread.Sleep below caused many issues loading code, which were fixed
-                // This may still be good to keep around for periodic testing of synchronization logic
-//                Thread.Sleep(1000);
+                    // The Thread.Sleep below caused many issues loading code, which were fixed
+                    // This may still be good to keep around for periodic testing of synchronization logic
+                    //                Thread.Sleep(1000);
 
-                var loader = new Loader(this, container, document, docCurrent, _multiFileLoader);
-                loader.Load();
+                    var loader = new Loader(this, container, document, docCurrent, _multiFileLoader);
+                    loader.Load();
+                    return false;
+                }
+
+                var measuredResults = docCurrent.MeasuredResults;
+                if (measuredResults == null || measuredResults.FinalCacheIncomplete || measuredResults.CachePaths.Any())
+                {
+                    return false;
+                }
+
+                var cachePath = ChromatogramCache.FinalPathForName(container.DocumentFilePath, null);
+                IProgressStatus progressStatus = new ProgressStatus(string.Format(ResultsResources.ChromatogramManager_LoadBackground_Loading__0_, Path.GetFileName(cachePath)));
+                var loadMonitor = new LoadMonitor(this, container, measuredResults);
+                try
+                {
+                    loadMonitor.UpdateProgress(progressStatus);
+                    var loadedMeasuredResults = measuredResults.LoadFinalCache(cachePath, progressStatus, loadMonitor, docCurrent);
+                    if (loadedMeasuredResults == null)
+                    {
+                        return false;
+                    }
+
+                    loadedMeasuredResults = measuredResults
+                        .UpdateCaches(container.DocumentFilePath, loadedMeasuredResults)
+                        .ChangeFinalCacheIncomplete(loadedMeasuredResults.FinalCacheIncomplete);
+
+                    SrmDocument docNew;
+                    do
+                    {
+                        docCurrent = container.Document;
+                        if (!Equals(measuredResults, docCurrent.MeasuredResults))
+                        {
+                            return false;
+                        }
+                        docNew = docCurrent.ChangeSettingsNoDiff(docCurrent.Settings.ChangeMeasuredResults(loadedMeasuredResults));
+                    } while (!CompleteProcessing(container, docNew, docCurrent));
+                }
+                finally
+                {
+                    loadMonitor.UpdateProgress(progressStatus.Complete());
+                }
             }
 
             return false;
@@ -248,7 +331,23 @@ namespace pwiz.Skyline.Model.Results
                 //           practice we have only one document container per process
                 lock (_finishLock)
                 {
-                    FinishLoadSynch(documentPath, resultsLoad, resultsPrevious);
+                    try
+                    {
+                        FinishLoadSynch(documentPath, resultsLoad, resultsPrevious);
+                    }
+                    catch (Exception ex)
+                    {
+                        if (ExceptionUtil.IsProgrammingDefect(ex))
+                        {
+                            throw;
+                        }
+                        foreach (var chromatogramStatus in _multiFileLoader.Status.ProgressList)
+                        {
+                            _multiFileLoader.ChangeStatus((ChromatogramLoadingStatus)chromatogramStatus.ChangeErrorException(ex));
+                        }
+
+                        _loadMonitor.UpdateProgress(_multiFileLoader.Status);
+                    }
                 }
             }
 
@@ -294,7 +393,7 @@ namespace pwiz.Skyline.Model.Results
                         try
                         {
                             using (var settingsChangeMonitor = new SrmSettingsChangeMonitor(new LoadMonitor(_manager, _container, null),
-                                                                                            Resources.Loader_FinishLoad_Updating_peak_statistics,
+                                                                                            ResultsResources.Loader_FinishLoad_Updating_peak_statistics,
                                                                                             _container, docCurrent))
                             {
                                 // First remove any chromatogram sets that were removed during processing
@@ -304,6 +403,7 @@ namespace pwiz.Skyline.Model.Results
                                     results = results.UpdateCaches(documentPath, resultsLoad);
                                 docNew = docCurrent.ChangeMeasuredResults(results, settingsChangeMonitor);
                                 docNew = _manager.ApplyMetadataRules(docNew);
+                                docNew = UpdateUserRevisionIndex(docCurrent, docNew);
                             }
                         }
                         catch (OperationCanceledException)
@@ -312,9 +412,28 @@ namespace pwiz.Skyline.Model.Results
                             docNew = null;
                         }
                     }
+
+                    // Block if frozen for screenshot capture before completing
+                    _manager.WaitIfProgressFrozen();
                 }
                 while (docNew == null || !_manager.CompleteProcessing(_container, docNew, docCurrent));
             }
+        }
+
+        /// <summary>
+        /// If any new files have been imported, then increment UserRevisionIndex so the document is treated as dirty.
+        /// </summary>
+        private static SrmDocument UpdateUserRevisionIndex(SrmDocument docOriginal, SrmDocument docNew)
+        {
+            var oldImportTimes = docOriginal.MeasuredResults?.MSDataFileInfos.Select(file => file.ImportTime) ??
+                                 Array.Empty<DateTime?>();
+            var newImportTimes = docNew.MeasuredResults?.MSDataFileInfos.Select(file => file.ImportTime) ??
+                                 Array.Empty<DateTime?>();
+            if (oldImportTimes.SequenceEqual(newImportTimes))
+            {
+                return docNew;
+            }
+            return docNew.IncrementUserRevisionIndex();
         }
 
         public SrmDocument ApplyMetadataRules(SrmDocument document)
@@ -335,7 +454,7 @@ namespace pwiz.Skyline.Model.Results
 
     [XmlRoot("replicate")]
     [XmlRootAlias("chromatogram_group")]
-    public sealed class ChromatogramSet : XmlNamedIdElement
+    public sealed class ChromatogramSet : XmlNamedIdElement, IFile
     {
         /// <summary>
         /// Info for all files contained in this replicate
@@ -367,10 +486,10 @@ namespace pwiz.Skyline.Model.Results
             
         }
 
-        public ChromatogramSet(string name, 
-                IEnumerable<MsDataFileUri> msDataFileNames,
-                Annotations annotations,
-                OptimizableRegression optimizationFunction)
+        public ChromatogramSet(string name,
+            IEnumerable<MsDataFileUri> msDataFileNames,
+            Annotations annotations,
+            OptimizableRegression optimizationFunction)
             : base(new ChromatogramSetId(), name)
         {
             MSDataFileInfos = msDataFileNames.ToList().ConvertAll(path => new ChromFileInfo(path));
@@ -380,6 +499,8 @@ namespace pwiz.Skyline.Model.Results
             SampleType = SampleType.DEFAULT;
             SampleDilutionFactor = DEFAULT_DILUTION_FACTOR;
         }
+
+        public string FilePath { get; }
 
         public IList<ChromFileInfo> MSDataFileInfos
         {
@@ -831,7 +952,7 @@ namespace pwiz.Skyline.Model.Results
                 IXmlElementHelper<OptimizableRegression> helper = XmlUtil.FindHelper(
                     OptimizationFunction, OPTIMIZATION_HELPERS);
                 if (helper == null)
-                    throw new InvalidOperationException(Resources.ChromatogramSet_WriteXml_Attempt_to_serialize_list_containing_invalid_type);
+                    throw new InvalidOperationException(ResultsResources.ChromatogramSet_WriteXml_Attempt_to_serialize_list_containing_invalid_type);
                 writer.WriteElement(helper.ElementNames[0], OptimizationFunction);                
             }
 
@@ -903,7 +1024,7 @@ namespace pwiz.Skyline.Model.Results
         {
             if (ordinalIndex == -1)
                 throw new ArgumentOutOfRangeException(nameof(ordinalIndex),
-                                                      Resources.ChromatogramSet_GetOrdinalSaveId_Attempting_to_save_results_info_for_a_file_that_cannot_be_found);
+                                                      ResultsResources.ChromatogramSet_GetOrdinalSaveId_Attempting_to_save_results_info_for_a_file_that_cannot_be_found);
 
             return string.Format(@"{0}_f{1}", Helpers.MakeXmlId(Name), ordinalIndex);
         }
@@ -973,11 +1094,9 @@ namespace pwiz.Skyline.Model.Results
     /// <summary>
     /// Identity class to allow identity equality on <see cref="ChromatogramSetId"/>.
     /// </summary>
-    public sealed class ChromatogramSetId : Identity
-    {        
-    }
+    public sealed class ChromatogramSetId : Identity { }
 
-    public sealed class ChromFileInfo : DocNode, IPathContainer
+    public sealed class ChromFileInfo : DocNode, IPathContainer, IFile
     {
         public ChromFileInfo(MsDataFileUri filePath)
             : base(new ChromFileInfoId())
@@ -1073,6 +1192,11 @@ namespace pwiz.Skyline.Model.Results
         public ChromFileInfo ChangeImportTime(DateTime? importTime)
         {
             return ChangeProp(ImClone(this), im => im.ImportTime = importTime);
+        }
+
+        public ChromFileInfo ChangeFileWriteTime(DateTime? fileWriteTime)
+        {
+            return ChangeProp(ImClone(this), im => im.FileWriteTime = fileWriteTime);
         }
 
         public ChromFileInfo ChangeSampleId(string sampleId)
@@ -1175,8 +1299,8 @@ namespace pwiz.Skyline.Model.Results
                 result = (result*397) ^ ExplicitGlobalStandardArea.GetHashCode();
                 result = (result*397) ^ TicArea.GetHashCode();
                 result = (result*397) ^ IonMobilityUnits.GetHashCode();
-                result = (result*397) ^ SampleId?.GetHashCode() ?? 0;
-                result = (result*397) ^ InstrumentSerialNumber?.GetHashCode() ?? 0;
+                result = (result*397) ^ (SampleId?.GetHashCode() ?? 0);
+                result = (result*397) ^ (InstrumentSerialNumber?.GetHashCode() ?? 0);
                 result = (result*397) ^ IsSrm.GetHashCode();
                 return result;
             }
@@ -1191,6 +1315,9 @@ namespace pwiz.Skyline.Model.Results
                 return ChangeFilePath(filePath);
             return this;
         }
+
+        public string Name => FilePath.GetFileName();
+        string IFile.FilePath => FilePath.GetFilePath();
     }
 
     /// <summary>
@@ -1203,237 +1330,5 @@ namespace pwiz.Skyline.Model.Results
     /// </summary>
     public sealed class ChromFileInfoId : Identity
     {        
-    }
-
-    /// <summary>
-    /// Helper functions for specifying a single sample injected into a mass
-    /// spectrometer.
-    /// 
-    /// Ideally this would be represented with a complete object, but that would
-    /// require both XML and cache format changes.  Implemented late in v0.5,
-    /// the simplest solution is to encode the necessary information into the
-    /// existing path string used to identify a single sample file.
-    /// 
-    /// It's now (v3.5) being expanded to include other information needed to reproducibly 
-    /// read raw data - lockmass settings, for example.  Probably ought to be moved out to 
-    /// MSDataFileUri, really
-    /// 
-    /// </summary>
-    public static class SampleHelp
-    {
-        private const string TAG_LOCKMASS_POS = "lockmass_pos";
-        private const string TAG_LOCKMASS_NEG = "lockmass_neg";
-        private const string TAG_LOCKMASS_TOL = "lockmass_tol";
-        private const string TAG_CENTROID_MS1 = "centroid_ms1";
-        private const string TAG_CENTROID_MS2 = "centroid_ms2";
-        private const string TAG_COMBINE_IMS = "combine_ims";   // LEGACY: Introduced temporarily in 19.1.9.338 and 350
-        private const string VAL_TRUE = "true";
-
-        public static string EncodePath(string filePath, string sampleName, int sampleIndex, LockMassParameters lockMassParameters)
-        {
-            return LegacyEncodePath(filePath, sampleName, sampleIndex, lockMassParameters, false, false, false);
-        }
-
-        /// <summary>
-        /// Use directly only when access to combineIonMobilitySpectra is required for legacy testing
-        /// </summary>
-        public static string LegacyEncodePath(string filePath, string sampleName, int sampleIndex, LockMassParameters lockMassParameters,
-            bool centroidMS1, bool centroidMS2, bool combineIonMobilitySpectra)
-        {
-            var parameters = new List<string>();
-            const string pairFormat = "{0}={1}";
-            string filePart;
-            if (!(string.IsNullOrEmpty(sampleName) && -1 == sampleIndex))
-            {
-                // Info for distinguishing a single sample within a WIFF file.
-                filePart = string.Format(@"{0}|{1}|{2}", filePath, sampleName ?? string.Empty, sampleIndex);
-            }
-            else
-            {
-                filePart = filePath;
-            }
-
-            if (lockMassParameters != null && !lockMassParameters.IsEmpty)
-            {
-                if (lockMassParameters.LockmassPositive.HasValue)
-                    parameters.Add(string.Format(CultureInfo.InvariantCulture, pairFormat, TAG_LOCKMASS_POS, lockMassParameters.LockmassPositive.Value));
-                if (lockMassParameters.LockmassNegative.HasValue)
-                    parameters.Add(string.Format(CultureInfo.InvariantCulture, pairFormat, TAG_LOCKMASS_NEG, lockMassParameters.LockmassNegative.Value));
-                if (lockMassParameters.LockmassTolerance.HasValue)
-                    parameters.Add(string.Format(CultureInfo.InvariantCulture, pairFormat, TAG_LOCKMASS_TOL, lockMassParameters.LockmassTolerance.Value));
-            }
-            if (centroidMS1)
-            {
-                parameters.Add(string.Format(CultureInfo.InvariantCulture, pairFormat, TAG_CENTROID_MS1, VAL_TRUE));
-            }
-            if (centroidMS2)
-            {
-                parameters.Add(string.Format(CultureInfo.InvariantCulture, pairFormat, TAG_CENTROID_MS2, VAL_TRUE));
-            }
-            if (combineIonMobilitySpectra)
-            {
-                parameters.Add(string.Format(CultureInfo.InvariantCulture, pairFormat, TAG_COMBINE_IMS, VAL_TRUE));
-            }
-
-            return parameters.Any() ? string.Format(@"{0}?{1}", filePart, string.Join(@"&", parameters)) : filePart;
-        }
-
-        public static string EscapeSampleId(string sampleId)
-        {
-            var invalidFileChars = Path.GetInvalidFileNameChars();
-            var invalidNameChars = new[] {',', '.', ';'};
-            if (sampleId.IndexOfAny(invalidFileChars) == -1 &&
-                    sampleId.IndexOfAny(invalidNameChars) == -1)
-                return sampleId;
-            var sb = new StringBuilder();
-            foreach (char c in sampleId)
-                sb.Append(invalidFileChars.Contains(c) || invalidNameChars.Contains(c) ? '_' : c);
-            return sb.ToString();
-        }
-
-        public static string GetLocationPart(string path)
-        {
-            return path.Split('?')[0];
-        }
-
-        public static string GetPathFilePart(string path)
-        {
-            path = GetLocationPart(path); // Just in case the url args contain '|'
-            if (path.IndexOf('|') == -1)
-                return path;
-            return path.Split('|')[0];
-        }
-
-        public static bool HasSamplePart(string path)
-        {
-            path = GetLocationPart(path); // Just in case the url args contain '|'
-            string[] parts = path.Split('|');
-
-            return parts.Length == 3 && int.TryParse(parts[2], out _);
-        }
-
-        public static string GetPathSampleNamePart(string path)
-        {
-            path = GetLocationPart(path); // Just in case the url args contain '|'
-            if (path.IndexOf('|') == -1)
-                return null;
-            return path.Split('|')[1];
-        }
-
-        public static string GetPathSampleNamePart(MsDataFileUri msDataFileUri)
-        {
-            return msDataFileUri.GetSampleName();
-        }
-
-        public static int GetPathSampleIndexPart(string path)
-        {
-            path = GetLocationPart(path); // Just in case the url args contain '|'
-            int sampleIndex = -1;
-            if (path.IndexOf('|') != -1)
-            {
-                string[] parts = path.Split('|');
-                int index;
-                if (parts.Length == 3 && int.TryParse(parts[2], out index))
-                    sampleIndex = index;
-            }
-            return sampleIndex;
-        }        
-
-        /// <summary>
-        /// Returns just the file name from a path that may contain sample information.
-        /// </summary>
-        /// <param name="path">The full path with any sample information</param>
-        /// <returns>The file name part</returns>
-        public static string GetFileName(string path)
-        {
-            return Path.GetFileName(GetPathFilePart(path));
-        }
-
-        public static string GetFileName(MsDataFileUri msDataFileUri)
-        {
-            return msDataFileUri.GetFileName();
-        }
-
-        public static bool GetCentroidMs1(string path)
-        {
-            return ParseParameterBool(TAG_CENTROID_MS1, path) ?? false;
-        }
-
-        public static bool GetCentroidMs2(string path)
-        {
-            return ParseParameterBool(TAG_CENTROID_MS2, path) ?? false;
-        }
-
-        public static bool GetCombineIonMobilitySpectra(string path)
-        {
-            return ParseParameterBool(TAG_COMBINE_IMS, path) ?? false;
-        }
-
-        /// <summary>
-        /// Returns a sample name for any file path, using either the available sample
-        /// information on the path, or the file basename, if no sample information is present.
-        /// </summary>
-        /// <param name="path">The full path with any sample information</param>
-        /// <returns>The sample name part or file basename</returns>
-        public static string GetFileSampleName(string path)
-        {
-            return GetPathSampleNamePart(path) ?? Path.GetFileNameWithoutExtension(path);
-        }
-
-        private static string ParseParameter(string name, string url)
-        {
-            var parts = url.Split('?');
-            if (parts.Length > 1)
-            {
-                var parameters = parts[1].Split('&');
-                var parameter = parameters.FirstOrDefault(p => p.StartsWith(name));
-                if (parameter != null)
-                {
-                    return parameter.Split('=')[1];
-                }
-            }
-            return null;
-        }
-
-        private static bool? ParseParameterBool(string name, string url)
-        {
-            var valStr = ParseParameter(name, url);
-            if (valStr != null)
-            {
-                return valStr.Equals(VAL_TRUE);
-            }
-            return null;
-        }
-
-        private static double? ParseParameterDouble(string name, string url)
-        {
-            var valStr = ParseParameter(name, url);
-            if (valStr != null)
-            {
-                double dval;
-                if (double.TryParse(valStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out dval))
-                    return dval;
-            }
-            return null;
-        }
-
-        private static int? ParseParameterInt(string name, string url) 
-        {
-            var valStr = ParseParameter(name, url);
-            if (valStr != null)
-            {
-                int ival;
-                if (int.TryParse(valStr, NumberStyles.AllowDecimalPoint, CultureInfo.InvariantCulture, out ival))
-                    return ival;
-            }
-            return null;
-        }
-
-        public static LockMassParameters GetLockmassParameters(string url)
-        {
-            if (url == null || string.IsNullOrEmpty(url))
-                return LockMassParameters.EMPTY;
-            return new LockMassParameters(ParseParameterDouble(TAG_LOCKMASS_POS, url), ParseParameterDouble(TAG_LOCKMASS_NEG, url), ParseParameterDouble(TAG_LOCKMASS_TOL, url));
-        }
     }
 }

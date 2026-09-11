@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Vagisha Sharma <vsharma .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  * Copyright 2015 University of Washington - Seattle, WA
@@ -16,6 +16,7 @@
  * limitations under the License.
  */
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Configuration;
 using System.Deployment.Application;
@@ -31,53 +32,66 @@ using log4net;
 using log4net.Appender;
 using log4net.Config;
 using log4net.Repository.Hierarchy;
+using pwiz.Common;
 using SharedBatch;
 using Resources = AutoQC.Properties.Resources;
 using Settings = AutoQC.Properties.Settings;
 
 namespace AutoQC
 {
-    class Program
+    public class Program
     {
-        private static Version _version;
+        private static readonly Install _install = Install.FromAssembly();
         private static string _lastInstalledVersion;
 
         public const string AUTO_QC_STARTER = "AutoQCStarter";
         public static readonly string AutoQcStarterExe = $"{AUTO_QC_STARTER}.exe";
 
+        // For functional tests
+        public static MainForm MainWindow { get; private set; } 
+        public static List<Exception> TestExceptions { get; set; }
+        public static bool FunctionalTest { get; set; } // Set to true by AbstractFunctionalTest
+
+
         [STAThread]
         public static void Main(string[] args)
         {
             ProgramLog.Init("AutoQC");
+            CommonApplicationSettings.ProgramName = "AutoQC Loader";
+            CommonApplicationSettings.ProgramNameAndVersion = Version();
             Application.EnableVisualStyles();
 
             AddFileTypesToRegistry();
 
-            Application.SetCompatibleTextRenderingDefault(false);
-            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
-            // Handle exceptions on the UI thread.
-            Application.ThreadException += ((sender, e) => ProgramLog.Error(e.Exception.Message, e.Exception));
-            // Handle exceptions on the non-UI thread.
-            AppDomain.CurrentDomain.UnhandledException += ((sender, e) =>
+            if (!FunctionalTest)
             {
-                try
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+                // Handle exceptions on the UI thread.
+                Application.ThreadException += ((sender, e) => ProgramLog.Error(e.Exception.Message, e.Exception));
+                // Handle exceptions on the non-UI thread.
+                AppDomain.CurrentDomain.UnhandledException += ((sender, e) =>
                 {
-                    ProgramLog.Error("AutoQC Loader encountered an unexpected error. ", (Exception)e.ExceptionObject);
+                    try
+                    {
+                        ProgramLog.Error("AutoQC Loader encountered an unexpected error. ",
+                            (Exception)e.ExceptionObject);
 
-                    const string logFile = "AutoQCProgram.log";
-                    MessageBox.Show(
-                        string.Format(
-                            Resources
-                                .Program_Main_AutoQC_Loader_encountered_an_unexpected_error__Error_details_may_be_found_in_the__0__file_in_this_directory___,
-                            logFile)
-                        + Path.GetDirectoryName(Application.ExecutablePath)
-                    );
-                }
-                finally
-                {
-                    Application.Exit(); 
-                }
-            });
+                        const string logFile = "AutoQCProgram.log";
+                        MessageBox.Show(
+                            string.Format(
+                                Resources
+                                    .Program_Main_AutoQC_Loader_encountered_an_unexpected_error__Error_details_may_be_found_in_the__0__file_in_this_directory___,
+                                logFile)
+                            + Path.GetDirectoryName(Application.ExecutablePath)
+                        );
+                    }
+                    finally
+                    {
+                        Application.Exit();
+                    }
+                });
+            }
 
             var doRestart = false;
             using (var mutex = new Mutex(false, $"University of Washington {AppName}"))
@@ -167,7 +181,7 @@ namespace AutoQC
                         ProgramLog.Info($"Reading configurations from file {openFile}");
                     }
 
-                    var form = new MainForm(openFile) {Text = Version()};
+                    MainWindow = new MainForm(openFile) {Text = Version()};
 
                     var worker = new BackgroundWorker
                         {WorkerSupportsCancellation = false, WorkerReportsProgress = false};
@@ -177,7 +191,7 @@ namespace AutoQC
                         if (eventArgs.Error != null)
                         {
                             ProgramLog.Error($"Unable to update {AUTO_QC_STARTER} shortcut.", eventArgs.Error);
-                            form.DisplayError(string.Format(
+                            MainWindow.DisplayError(string.Format(
                                 Resources.Program_Main_Unable_to_update__0__shortcut___Error_was___1_,
                                 AUTO_QC_STARTER, eventArgs.Error));
                         }
@@ -185,7 +199,7 @@ namespace AutoQC
 
                     worker.RunWorkerAsync();
 
-                    Application.Run(form);
+                    Application.Run(MainWindow);
                 }
 
                 mutex.ReleaseMutex();
@@ -208,67 +222,29 @@ namespace AutoQC
                 Settings.Default.Reload();
             }
             GetCurrentAndLastInstalledVersions();
-            Settings.Default.UpdateIfNecessary(_version.ToString(), ConfigMigrationRequired());
+            Settings.Default.UpdateIfNecessary(_install.BareVersion, ConfigMigrationRequired());
         }
 
         private static void GetCurrentAndLastInstalledVersions()
         {
-            if (ApplicationDeployment.IsNetworkDeployed) // clickOnce installation
-            {
-                _version = ApplicationDeployment.CurrentDeployment.CurrentVersion;
-            }
-            else // developer build
-            {
-                // copied from Skyline Install.cs GetVersion()
-                try
-                {
-                    string productVersion = null;
-
-                    Assembly entryAssembly = Assembly.GetEntryAssembly();
-                    if (entryAssembly != null)
-                    {
-                        // custom attribute
-                        object[] attrs = entryAssembly.GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute), false);
-                        // Play it safe with a null check no matter what ReSharper thinks
-                        // ReSharper disable once ConditionIsAlwaysTrueOrFalse
-                        if (attrs != null && attrs.Length > 0)
-                        {
-                            productVersion = ((AssemblyInformationalVersionAttribute)attrs[0]).InformationalVersion;
-                        }
-                        else
-                        {
-                            // win32 version info
-                            productVersion = FileVersionInfo.GetVersionInfo(entryAssembly.Location).ProductVersion?.Trim();
-                        }
-                    }
-
-                    _version = productVersion != null ? new Version(productVersion) : null;
-                }
-                catch (Exception)
-                {
-                    _version = null;
-                }
-            }
-
             _lastInstalledVersion = Settings.Default.InstalledVersion ?? string.Empty;
 
-            if (_version != null && !_version.ToString().Equals(_lastInstalledVersion))
+            var bareVersion = _install.BareVersion;
+            if (!string.IsNullOrEmpty(bareVersion) && !bareVersion.Equals(_lastInstalledVersion))
             {
                 ProgramLog.Info(string.Empty.Equals(_lastInstalledVersion)
-                    ? $"This is a first install and run of version: {_version}."
-                    : $"Current version: {_version} is newer than the last installed version: {_lastInstalledVersion}.");
+                    ? $"This is a first install and run of version: {bareVersion}."
+                    : $"Current version: {bareVersion} is newer than the last installed version: {_lastInstalledVersion}.");
 
                 return;
             }
 
-            var _currentVerStr = _version != null ? _version.ToString() : string.Empty;
-            ProgramLog.Info($"Current version: '{_currentVerStr}' is the same as last installed version: '{_lastInstalledVersion}'.");
-            
+            ProgramLog.Info($"Current version: '{bareVersion}' is the same as last installed version: '{_lastInstalledVersion}'.");
         }
 
         private static bool ConfigMigrationRequired()
         {
-            if (_version != null)
+            if (!string.IsNullOrEmpty(_install.Version))
             {
                 if (string.IsNullOrEmpty(_lastInstalledVersion))
                 {
@@ -278,8 +254,6 @@ namespace AutoQC
 
                 if (System.Version.TryParse(_lastInstalledVersion, out var lastVersion))
                 {
-                    // ProgramLog.Info($"Current Version: {_version.Major}-{_version.MajorRevision}-{_version.Minor}-{_version.MinorRevision}");
-                    // ProgramLog.Info($"Previous Version: {lastVersion.Major}-{lastVersion.MajorRevision}-{lastVersion.Minor}-{lastVersion.MinorRevision}");
                     if (lastVersion.Major == 1 && lastVersion.Minor == 1 && lastVersion.MinorRevision <= 20237)
                     {
                         ProgramLog.Info($"Last installed version was {_lastInstalledVersion}. Config migration is required.");
@@ -299,8 +273,31 @@ namespace AutoQC
 
         private static bool InitSkylineSettings()
         {
+            ProgramLog.Info("Initializing Skyline settings.");
             if (SkylineInstallations.FindSkyline())
+            {
+                if (SkylineInstallations.HasSkyline)
+                {
+                    ProgramLog.Info(string.Format("Found SkylineRunner at: {0}.", SharedBatch.Properties.Settings.Default.SkylineRunnerPath));
+                }
+                if (SkylineInstallations.HasSkylineDaily)
+                {
+                    ProgramLog.Info(string.Format("Found SkylineDailyRunner at: {0}.", SharedBatch.Properties.Settings.Default.SkylineDailyRunnerPath));
+                }
+                // Save the Skyline settings otherwise, in a new installation of AutoQC Loader, "Skyline" and "Skyline Daily" options
+                // are disabled in the "Skyline" tab.
+                SharedBatch.Properties.Settings.Default.Save();
                 return true;
+            }
+
+            // FindSkylineForm is modal and there is no one to answer it under a functional test,
+            // so on a machine with no Skyline installation the whole test run hangs here instead
+            // of failing. Carry on without the settings: TestUtils.GetTestSkylineSettings already
+            // returns null when nothing is installed, so a test that needs a real Skyline path
+            // fails with a message rather than never finishing.
+            if (FunctionalTest)
+                return true;
+
             var skylineForm = new FindSkylineForm(AppName, Icon());
             Application.Run(skylineForm);
 
@@ -375,7 +372,7 @@ namespace AutoQC
 
             if (ApplicationDeployment.IsNetworkDeployed)
             {
-                if (_version != null && !_version.ToString().Equals(_lastInstalledVersion))
+                if (!string.IsNullOrEmpty(_install.Version) && !_install.BareVersion.Equals(_lastInstalledVersion))
                 {
                     // First time running a newer version of the application
                     ProgramLog.Info($"Updating {AutoQcStarterExe} shortcut.");
@@ -405,10 +402,10 @@ namespace AutoQC
 
         public static string Version()
         {
-            return $"{AppName} {_version}";
+            return $"{AppName} {_install.BareVersion}";
         }
 
-        public static string AppName => "AutoQC Loader";
+        public static string AppName => CommonApplicationSettings.ProgramName;
 
         public static Icon Icon()
         {
@@ -421,6 +418,99 @@ namespace AutoQC
         {
             // Make sure we can negotiate with HTTPS servers that demand TLS 1.2 (default in dotNet 4.6, but has to be turned on in 4.5)
             ServicePointManager.SecurityProtocol |= (SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12);  
+        }
+
+        public static void AddTestException(Exception exception)
+        {
+            lock (TestExceptions)
+            {
+                TestExceptions.Add(exception);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Version information parsed from assembly attributes.
+    /// Follows the same pattern as Skyline's Install class (pwiz_tools/Skyline/Util/Install.cs).
+    /// </summary>
+    public class Install
+    {
+        private const string DEVELOPER_BUILD_SUFFIX = "(developer build)";
+        private const string AUTOMATED_BUILD_SUFFIX = "(automated build)";
+
+        public Install(string versionString)
+        {
+            if (versionString == null)
+            {
+                Version = string.Empty;
+                return;
+            }
+
+            if (versionString.Contains(DEVELOPER_BUILD_SUFFIX))
+            {
+                IsDeveloperInstall = true;
+                versionString = versionString.Replace(DEVELOPER_BUILD_SUFFIX, string.Empty).Trim();
+            }
+            else if (versionString.Contains(AUTOMATED_BUILD_SUFFIX))
+            {
+                IsAutomatedBuild = true;
+                versionString = versionString.Replace(AUTOMATED_BUILD_SUFFIX, string.Empty).Trim();
+            }
+
+            Version = versionString;
+        }
+
+        /// <summary>
+        /// Full version string including git hash, e.g. "26.1.1.077-f92ae680ca"
+        /// </summary>
+        public string Version { get; }
+
+        /// <summary>
+        /// Numeric version only, e.g. "26.1.1.077"
+        /// </summary>
+        public string BareVersion => Version.Split('-')[0];
+
+        public string GitHash
+        {
+            get
+            {
+                var parts = Version.Split('-');
+                return parts.Length > 1 ? parts[1] : string.Empty;
+            }
+        }
+
+        public bool IsDeveloperInstall { get; }
+        public bool IsAutomatedBuild { get; }
+
+        public override string ToString() => BareVersion;
+
+        public static Install FromAssembly()
+        {
+            string productVersion = null;
+            if (ApplicationDeployment.IsNetworkDeployed)
+            {
+                productVersion = ApplicationDeployment.CurrentDeployment.CurrentVersion.ToString();
+            }
+            else
+            {
+                try
+                {
+                    var assembly = typeof(Program).Assembly;
+                    var attrs = assembly.GetCustomAttributes(typeof(AssemblyInformationalVersionAttribute), false);
+                    // Play it safe with a null check no matter what ReSharper thinks
+                    // ReSharper disable once ConditionIsAlwaysTrueOrFalse
+                    if (attrs != null && attrs.Length > 0)
+                        productVersion = ((AssemblyInformationalVersionAttribute)attrs[0]).InformationalVersion;
+                    else
+                        productVersion = FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion?.Trim();
+                }
+                catch (Exception)
+                {
+                    // Version will remain null
+                }
+            }
+
+            return new Install(productVersion);
         }
     }
 }

@@ -37,6 +37,7 @@
 #include "boost/iostreams/device/array.hpp"
 #include "pwiz/utility/misc/Std.hpp"
 #include "pwiz/data/msdata/MSNumpress.hpp"
+#include "pwiz/utility/misc/mzd.hpp"
 
 namespace pwiz {
 namespace msdata {
@@ -121,6 +122,124 @@ void filterArray(const void* byteBuffer, size_t byteCount, vector<unsigned char>
 */
 }
 
+template <typename T, typename T32>
+void encode_compress(const void *&byteBuffer, size_t &byteCount, std::vector<unsigned char> &compressed, BinaryDataEncoder::Config &config_)
+{
+
+    // zlib compression (is done after 32/64bit conversion and after numpress)
+    if (config_.compression == BinaryDataEncoder::Compression_Zlib)
+    {
+        filterArray<zlib_compressor>(byteBuffer, byteCount, compressed);
+        if (!compressed.empty())
+        {
+            byteBuffer = reinterpret_cast<void *>(&compressed[0]);
+            byteCount = compressed.size();
+        }
+        else
+        {
+            throw runtime_error("[BinaryDataEncoder::encode()] Compression error?");
+        }
+    }
+    else if (config_.compression == BinaryDataEncoder::Compression_Zstd)
+    {
+        if (config_.numpress != BinaryDataEncoder::Numpress_None)
+        {
+            mzd::buffer_span_t values = mzd::buffer_span_t(reinterpret_cast<const mzd::byte_t *>(byteBuffer), byteCount);
+            auto c = mzd::compress_buffer(
+                values,
+                compressed);
+            if (c != 0)
+                throw runtime_error("[BinaryDataEncoder::encode()] Zstd Compression error?");
+        }
+        else if (config_.precision == BinaryDataEncoder::Precision_32)
+        {
+            tcb::span<const T32> values = tcb::span(reinterpret_cast<const T32 *>(byteBuffer), byteCount / sizeof(T32));
+            auto c = mzd::compress_buffer(
+                values,
+                compressed);
+            if (c != 0)
+                throw runtime_error("[BinaryDataEncoder::encode()] Zstd Compression error?");
+        }
+        else
+        {
+            tcb::span<const T> values = tcb::span(reinterpret_cast<const T *>(byteBuffer), byteCount / sizeof(T));
+            auto c = mzd::compress_buffer(
+                values,
+                compressed);
+            if (c != 0)
+                throw runtime_error("[BinaryDataEncoder::encode()] Zstd Compression error?");
+        }
+        if (!compressed.empty())
+        {
+            byteBuffer = reinterpret_cast<void *>(&compressed[0]);
+            byteCount = compressed.size();
+        }
+        else
+        {
+            throw runtime_error("[BinaryDataEncoder::encode()] Zstd Compression error?");
+        }
+    }
+    else if (config_.compression == BinaryDataEncoder::Compression_ByteShuffleZstd)
+    {
+        if (config_.numpress != BinaryDataEncoder::Numpress_None)
+            throw runtime_error("[BinaryDataEncoder::encode()] Compression_ByteShuffleZstd not compatible with Numpress");
+        // A temporary buffer to hold the shuffled bytes of the input data.
+        mzd::buffer_t transposeBuffer;
+        if (config_.precision == BinaryDataEncoder::Precision_32)
+        {
+            tcb::span<const T32> values = tcb::span(reinterpret_cast<const T32 *>(byteBuffer), byteCount / sizeof(T32));
+            auto c = mzd::byteshuffle_compress_buffer(values, transposeBuffer, compressed);
+            if (c != 0)
+                throw runtime_error("[BinaryDataEncoder::encode()] ByteShuffleZstd Compression error?");
+        }
+        else
+        {
+            tcb::span<const T> values = tcb::span(reinterpret_cast<const T *>(byteBuffer), byteCount / sizeof(T));
+            auto c = mzd::byteshuffle_compress_buffer(values, transposeBuffer, compressed);
+            if (c != 0)
+                throw runtime_error("[BinaryDataEncoder::encode()] ByteShuffleZstd Compression error?");
+        }
+        if (!compressed.empty())
+        {
+            byteBuffer = reinterpret_cast<void *>(&compressed[0]);
+            byteCount = compressed.size();
+        }
+        else
+        {
+            throw runtime_error("[BinaryDataEncoder::encode()] ByteShuffleZstd Compression error?");
+        }
+    }
+    else if (config_.compression == BinaryDataEncoder::Compression_DictZstd)
+    {
+        if (config_.numpress != BinaryDataEncoder::Numpress_None)
+            throw runtime_error("[BinaryDataEncoder::encode()] Compression_DictZstd not compatible with Numpress");
+        mzd::buffer_t transposeBuffer;
+        mzd::buffer_t dictBuffer;
+        if (config_.precision == BinaryDataEncoder::Precision_32)
+        {
+            tcb::span<const T32> values = tcb::span(reinterpret_cast<const T32 *>(byteBuffer), byteCount / sizeof(T32));
+            auto c = mzd::dict_compress_buffer<T32>(values, dictBuffer, transposeBuffer, compressed);
+            if (c != 0)
+                throw runtime_error("[BinaryDataEncoder::encode()] Compression_DictZstd Compression error?");
+        }
+        else
+        {
+            tcb::span<const T> values = tcb::span(reinterpret_cast<const T *>(byteBuffer), byteCount / sizeof(T));
+            auto c = mzd::dict_compress_buffer<T>(values, dictBuffer, transposeBuffer, compressed);
+            if (c != 0)
+                throw runtime_error("[BinaryDataEncoder::encode()] Compression_DictZstd Compression error?");
+        }
+        if (!compressed.empty())
+        {
+            byteBuffer = reinterpret_cast<void *>(&compressed[0]);
+            byteCount = compressed.size();
+        }
+        else
+        {
+            throw runtime_error("[BinaryDataEncoder::encode()] Compression_DictZstd Compression error?");
+        }
+    }
+}
 
 void BinaryDataEncoder::Impl::encode(const double* data, size_t dataSize, std::string& result, size_t* binaryByteCount)
 {
@@ -233,7 +352,10 @@ void BinaryDataEncoder::Impl::encode(const double* data, size_t dataSize, std::s
                 }
             }
             if (n>=0)
+            {
                 config_.numpress = Numpress_None; // excessive error, don't numpress
+                if (config_.format == Format_MzMLb) return;
+            }
             else
                 byteBuffer = reinterpret_cast<const void*>(&numpressed[0]);
         } catch (int e) {
@@ -277,14 +399,14 @@ void BinaryDataEncoder::Impl::encode(const double* data, size_t dataSize, std::s
         bool mustEndianize = (config_.byteOrder == ByteOrder_LittleEndian);
         #endif
 
-        if (mustEndianize)
+        if (mustEndianize && (config_.compression != Compression_Zstd && config_.compression != Compression_ByteShuffleZstd && config_.compression != Compression_DictZstd))
         {
             if (config_.precision == Precision_32)
             {
                 unsigned int* p = reinterpret_cast<unsigned int *>(&data32[0]);
                 transform(p, p+data32.size(), p, endianize32);
             }
-            else // Precision_64 
+            else // Precision_64
             {
                 data64endianized.resize(dataSize);
                 const unsigned long long* from = reinterpret_cast<const unsigned long long*>(data);
@@ -296,47 +418,58 @@ void BinaryDataEncoder::Impl::encode(const double* data, size_t dataSize, std::s
         }
     }
 
-    // zlib compression (is done after 32/64bit conversion and after numpress)
-    if (config_.compression == Compression_Zlib)
+    encode_compress<T, T32>(byteBuffer, byteCount, compressed, config_);
+
+    if (config_.format == Format_MzMLb)
     {
-        filterArray<zlib_compressor>(byteBuffer, byteCount,compressed);
-        if (!compressed.empty())
-        {
-            byteBuffer = reinterpret_cast<void*>(&compressed[0]);
-            byteCount = compressed.size();
-        }
+        // no base64 encoding as storing as binary in HDF5
+
+        result.resize(byteCount);
+
+        // std::string storage is not guaranteed contiguous in older C++ standards,
+        // and on long strings this has caused problems in the wild.  So test for
+        // actual contiguousness, and fall back to std::vector if needed
+        // thx Johan Teleman
+        char *first = &result[0];
+        char *last = &result[result.size() - 1];
+        if ((int)result.size() == 1 + (last - first)) // pointer math agrees with [] operator
+            memcpy(&result[0], byteBuffer, byteCount);
         else
         {
-            throw runtime_error("[BinaryDataEncoder::encode()] Compression error?");
+            std::vector<char> contig;  // work in this contiguous memory then copy to string
+            contig.resize(result.size());
+            memcpy(&contig[0], byteBuffer, byteCount);
+            copy(contig.begin(), contig.end(), result.begin());
         }
     }
-
-    // Base64 encoding
-
-    result.resize(Base64::binaryToTextSize(byteCount));    
-
-    // std::string storage is not guaranteed contiguous in older C++ standards,
-    // and on long strings this has caused problems in the wild.  So test for
-    // actual contiguousness, and fall back to std::vector if needed
-    // thx Johan Teleman
-    size_t textSize;
-    char *first = &result[0];
-    char *last = &result[result.size()-1];
-    if ((int)result.size() == 1+(last-first)) // pointer math agrees with [] operator
-        textSize = Base64::binaryToText(byteBuffer, byteCount, &result[0]);
-    else 
+    else
     {
-        std::vector<char> contig;  // work in this contiguous memory then copy to string
-        contig.resize(result.size());
-        textSize = Base64::binaryToText(byteBuffer, byteCount, &contig[0]);
-        copy(contig.begin(), contig.end(), result.begin());
+        // Base64 encoding
+
+        result.resize(Base64::binaryToTextSize(byteCount));
+
+        // std::string storage is not guaranteed contiguous in older C++ standards,
+        // and on long strings this has caused problems in the wild.  So test for
+        // actual contiguousness, and fall back to std::vector if needed
+        // thx Johan Teleman
+        size_t textSize;
+        char *first = &result[0];
+        char *last = &result[result.size() - 1];
+        if ((int)result.size() == 1 + (last - first)) // pointer math agrees with [] operator
+            textSize = Base64::binaryToText(byteBuffer, byteCount, &result[0]);
+        else
+        {
+            std::vector<char> contig;  // work in this contiguous memory then copy to string
+            contig.resize(result.size());
+            textSize = Base64::binaryToText(byteBuffer, byteCount, &contig[0]);
+            copy(contig.begin(), contig.end(), result.begin());
+        }
+        result.resize(textSize);
     }
-    result.resize(textSize);
 
     if (binaryByteCount != NULL)
         *binaryByteCount = byteCount; // size before base64 encoding
 }
-
 
 
 void BinaryDataEncoder::Impl::encode(const std::int64_t* data, size_t dataSize, std::string& result, size_t* binaryByteCount)
@@ -384,14 +517,14 @@ void BinaryDataEncoder::Impl::encode(const std::int64_t* data, size_t dataSize, 
     bool mustEndianize = (config_.byteOrder == ByteOrder_LittleEndian);
 #endif
 
-    if (mustEndianize)
+    if (mustEndianize && (config_.compression != Compression_Zstd && config_.compression != Compression_ByteShuffleZstd && config_.compression != Compression_DictZstd))
     {
         if (config_.precision == Precision_32)
         {
             unsigned int* p = reinterpret_cast<unsigned int *>(&data32[0]);
             transform(p, p + data32.size(), p, endianize32);
         }
-        else // Precision_64 
+        else // Precision_64
         {
             data64endianized.resize(dataSize);
             const unsigned long long* from = reinterpret_cast<const unsigned long long*>(data);
@@ -402,20 +535,7 @@ void BinaryDataEncoder::Impl::encode(const std::int64_t* data, size_t dataSize, 
         }
     }
 
-    // zlib compression (is done after 32/64bit conversion and after numpress)
-    if (config_.compression == Compression_Zlib)
-    {
-        filterArray<zlib_compressor>(byteBuffer, byteCount, compressed);
-        if (!compressed.empty())
-        {
-            byteBuffer = reinterpret_cast<void*>(&compressed[0]);
-            byteCount = compressed.size();
-        }
-        else
-        {
-            throw runtime_error("[BinaryDataEncoder::encode()] Compression error?");
-        }
-    }
+    encode_compress<T, T32>(byteBuffer, byteCount, compressed, config_);
 
     // Base64 encoding
 
@@ -459,6 +579,116 @@ void copyBuffer(const void* byteBuffer, size_t byteCount, pwiz::util::BinaryData
     copy(floatBuffer, floatBuffer+floatCount, result.begin());
 }
 
+template <typename T, typename T32>
+void decode_decompress(void *&byteBuffer, size_t &byteCount, BinaryDataEncoder::Config &config_, bool &endianCorrected, vector<T>& decoded64, vector<T32>& decoded32, vector<unsigned char>& decompressed)
+{
+    switch (config_.compression)
+    {
+    case BinaryDataEncoder::Compression_Zlib:
+    {
+        filterArray<zlib_decompressor>(byteBuffer, byteCount, decompressed);
+        if (!decompressed.empty())
+        {
+            byteBuffer = reinterpret_cast<void *>(&decompressed[0]);
+        }
+        byteCount = decompressed.size();
+    }
+    break;
+    case BinaryDataEncoder::Compression_Zstd:
+    {
+        mzd::buffer_span_t view(reinterpret_cast<mzd::byte_t *>(byteBuffer), byteCount);
+        if (config_.numpress != BinaryDataEncoder::Numpress_None)
+        {
+            mzd::decompress_buffer(view, decompressed);
+        }
+        else if (config_.precision == BinaryDataEncoder::Precision_32)
+        {
+            mzd::decompress_buffer(view, decoded32);
+            if (!decoded32.empty())
+            {
+                byteBuffer = reinterpret_cast<void *>(decoded32.data());
+            }
+            byteCount = decoded32.size() * sizeof(T32);
+        }
+        else
+        {
+            mzd::decompress_buffer(view, decoded64);
+            if (!decoded64.empty())
+            {
+                byteBuffer = reinterpret_cast<void *>(decoded64.data());
+            }
+            byteCount = decoded64.size() * sizeof(T);
+        }
+        endianCorrected = true;
+    }
+    break;
+    case BinaryDataEncoder::Compression_ByteShuffleZstd:
+    {
+        if (config_.numpress != BinaryDataEncoder::Numpress_None)
+        {
+            throw runtime_error("[BinaryDataEncoder::decode()] Compression_ByteShuffleZstd is not compatible with Numpress");
+        }
+        mzd::buffer_span_t view(reinterpret_cast<mzd::byte_t *>(byteBuffer), byteCount);
+        mzd::buffer_t transposeBuffer;
+        endianCorrected = true;
+        if (config_.precision == BinaryDataEncoder::Precision_32)
+        {
+            std::vector<T32> values;
+            mzd::byteshuffle_decompress_buffer(view, transposeBuffer, values);
+            decompressed.resize(values.size() * sizeof(T32));
+            std::memcpy(decompressed.data(), values.data(), values.size() * sizeof(T32));
+        }
+        else
+        {
+            std::vector<T> values;
+            mzd::byteshuffle_decompress_buffer(view, transposeBuffer, values);
+            decompressed.resize(values.size() * sizeof(T));
+            std::memcpy(decompressed.data(), values.data(), values.size() * sizeof(T));
+        }
+        if (!decompressed.empty())
+        {
+            byteBuffer = reinterpret_cast<void *>(&decompressed[0]);
+        }
+        byteCount = decompressed.size();
+    }
+    break;
+    case BinaryDataEncoder::Compression_DictZstd:
+    {
+        if (config_.numpress != BinaryDataEncoder::Numpress_None)
+        {
+            throw runtime_error("[BinaryDataEncoder::decode()] Compression_DictZstd is not compatible with Numpress");
+        }
+        mzd::buffer_span_t view(reinterpret_cast<mzd::byte_t *>(byteBuffer), byteCount);
+        mzd::buffer_t transposeBuffer;
+        endianCorrected = true;
+        if (config_.precision == BinaryDataEncoder::Precision_32)
+        {
+            std::vector<T32> values;
+            mzd::dict_decompress_buffer(view, transposeBuffer, values);
+            decompressed.resize(values.size() * sizeof(T32));
+            std::memcpy(decompressed.data(), values.data(), values.size() * sizeof(T32));
+        }
+        else
+        {
+            std::vector<T> values;
+            mzd::dict_decompress_buffer(view, transposeBuffer, values);
+            decompressed.resize(values.size() * sizeof(T));
+            std::memcpy(decompressed.data(), values.data(), values.size() * sizeof(T));
+        }
+        if (!decompressed.empty())
+        {
+            byteBuffer = reinterpret_cast<void *>(&decompressed[0]);
+        }
+        byteCount = decompressed.size();
+    }
+    break;
+    case BinaryDataEncoder::Compression_None:
+        break;
+    default:
+        throw runtime_error("[BinaryDataEncoder::decode()] unknown compression type");
+        break;
+    }
+}
 
 void BinaryDataEncoder::Impl::decode(const char *encodedData, size_t length, pwiz::util::BinaryData<double>& result)
 {
@@ -467,40 +697,42 @@ void BinaryDataEncoder::Impl::decode(const char *encodedData, size_t length, pwi
 
     if (!encodedData || !length) return;
 
-    // Base64 decoding
-
-    vector<unsigned char> binary(Base64::textToBinarySize(length));
-    size_t binarySize = Base64::textToBinary(encodedData, length, &binary[0]);
-    binary.resize(binarySize);
-
     // buffer abstractions
 
-    void* byteBuffer = &binary[0];
-    size_t byteCount = binarySize;
+    vector<unsigned char> binary;
+    void* byteBuffer;
+    size_t byteCount;
     size_t initialSize;
+
+    if (config_.format == Format_MzMLb)
+    {
+        byteBuffer = (void*) encodedData;
+        byteCount = length;
+    }
+    else
+    {
+        // Base64 decoding
+
+        binary.resize(Base64::textToBinarySize(length));
+        size_t binarySize = Base64::textToBinary(encodedData, length, &binary[0]);
+        binary.resize(binarySize);
+
+        byteBuffer = &binary[0];
+        byteCount = binarySize;
+    }
 
     // decompression
 
     vector<unsigned char> decompressed;
-    switch (config_.compression) {
-        case Compression_Zlib:
-            {
-                filterArray<zlib_decompressor>(byteBuffer, byteCount,decompressed);
-                if (!decompressed.empty())
-                {
-                    byteBuffer = reinterpret_cast<void*>(&decompressed[0]);
-                }
-                byteCount = decompressed.size();
-            }
-            break;
-        case Compression_None:
-            break;
-        default:
-            throw runtime_error("[BinaryDataEncoder::decode()] unknown compression type");
-            break;
-    }
+    vector<T> decoded64;
+    vector<T32> decoded32;
+
+    // The codecs in `mzd` are already endian-aware
+    bool endianCorrected = false;
+    decode_decompress<T, T32>(byteBuffer, byteCount, config_, endianCorrected, decoded64, decoded32, decompressed);
+
     // numpress expansion or endian correction
-    switch (config_.numpress) 
+    switch (config_.numpress)
     {
         case Numpress_Linear:
             initialSize = byteCount * 2;
@@ -545,7 +777,7 @@ void BinaryDataEncoder::Impl::decode(const char *encodedData, size_t length, pwi
             bool mustEndianize = (config_.byteOrder == ByteOrder_LittleEndian);
             #endif
 
-            if (mustEndianize)
+            if (mustEndianize && !endianCorrected)
             {
                 if (config_.precision == Precision_32)
                 {
@@ -596,27 +828,11 @@ void BinaryDataEncoder::Impl::decode(const char *encodedData, size_t length, pwi
     // decompression
 
     vector<unsigned char> decompressed;
-    switch (config_.compression) {
-        case Compression_Zlib:
-        {
-            filterArray<zlib_decompressor>(byteBuffer, byteCount, decompressed);
-            if (!decompressed.empty())
-            {
-                byteBuffer = reinterpret_cast<void*>(&decompressed[0]);
-                byteCount = decompressed.size();
-            }
-            else
-            {
-                throw runtime_error("[BinaryDataEncoder::decode()] Compression error?");
-            }
-        }
-        break;
-        case Compression_None:
-            break;
-        default:
-            throw runtime_error("[BinaryDataEncoder::decode()] unknown compression type");
-            break;
-    }
+    vector<T> decoded64;
+    vector<T32> decoded32;
+    // The codecs in `mzd` are already endian-aware
+    bool endianCorrected = false;
+    decode_decompress<T, T32>(byteBuffer, byteCount, config_, endianCorrected, decoded64, decoded32, decompressed);
     // endianization for non-numpress cases
 
 #ifdef PWIZ_LITTLE_ENDIAN
@@ -625,7 +841,7 @@ void BinaryDataEncoder::Impl::decode(const char *encodedData, size_t length, pwi
     bool mustEndianize = (config_.byteOrder == ByteOrder_LittleEndian);
 #endif
 
-    if (mustEndianize)
+    if (mustEndianize && !endianCorrected)
     {
         if (config_.precision == Precision_32)
         {
@@ -698,7 +914,7 @@ PWIZ_API_DECL const BinaryDataEncoder::Config& BinaryDataEncoder::getConfig() co
     return impl_->getConfig();
 }
 
-void writeConfig(ostream& os, const BinaryDataEncoder::Config& config, CVID cvid) 
+void writeConfig(ostream& os, const BinaryDataEncoder::Config& config, CVID cvid)
 {
 
     BinaryDataEncoder::Precision p;
@@ -728,9 +944,30 @@ void writeConfig(ostream& os, const BinaryDataEncoder::Config& config, CVID cvid
             throw runtime_error("[BinaryDataEncoder::writeConfig] Unknown binary numpress mode");
             break;
     }
-    switch (config.compression) {
+
+    BinaryDataEncoder::Compression z;
+
+    auto zOverrideIter = config.compressionOverrides.find(cvid);
+    if (zOverrideIter != config.compressionOverrides.end()) {
+        z = zOverrideIter->second;
+    }
+    else
+    {
+        z = config.compression;
+    }
+
+    switch (z) {
         case BinaryDataEncoder::Compression_Zlib :
             os << "Compression-Zlib";
+            break;
+        case BinaryDataEncoder::Compression_Zstd :
+            os << "Compression-Zstd";
+            break;
+        case BinaryDataEncoder::Compression_ByteShuffleZstd:
+            os << "Compression-ByteShuffleZstd";
+            break;
+        case BinaryDataEncoder::Compression_DictZstd:
+            os << "Compression-DictZstd";
             break;
         case BinaryDataEncoder::Compression_None :
             if (BinaryDataEncoder::Numpress_None == c)
@@ -743,7 +980,7 @@ void writeConfig(ostream& os, const BinaryDataEncoder::Config& config, CVID cvid
     pOverrideItr = config.precisionOverrides.find(cvid);
     if (pOverrideItr != config.precisionOverrides.end())
         p = pOverrideItr->second;
-    else 
+    else
         p = config.precision;
 
     switch (p) {

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Matt Chambers <matt.chambers42 .at. gmail.com >
  *
  * Copyright 2022 University of Washington - Seattle, WA
@@ -24,9 +24,7 @@ using pwiz.Skyline.Controls;
 using pwiz.Skyline.EditUI;
 using pwiz.Skyline.FileUI;
 using pwiz.Skyline.FileUI.PeptideSearch;
-using pwiz.Skyline.Model.Prosit.Config;
-using pwiz.Skyline.Model.Prosit.Models;
-using pwiz.Skyline.Model.Results;
+using pwiz.Skyline.Model.Koina.Models;
 using pwiz.Skyline.Properties;
 using pwiz.SkylineTestUtil;
 using System.Drawing;
@@ -34,8 +32,11 @@ using pwiz.Skyline;
 using pwiz.Skyline.Controls.Graphs;
 using pwiz.Skyline.Util;
 using System;
+using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.Skyline.Model;
 using pwiz.Skyline.Model.DocSettings;
+using pwiz.Skyline.ToolsUI;
 
 namespace TestPerf
 {
@@ -45,15 +46,17 @@ namespace TestPerf
         private AnalysisValues _analysisValues;
 
         [TestMethod, NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE)]
-        public void TestEncyclopeDiaSearchTutorial()
+        public void TestEncyclopeDiaSearchTutorialDraft()
         {
+            TestFilesZip = @"https://skyline.ms/tutorials/EncyclopeDiaSearchTutorial-24_1.zip";
+
             _analysisValues = new AnalysisValues
             {
                 IsWholeProteome = false,
                 NarrowWindowDiaFiles = new[]
                 {
                     "23aug2017_hela_serum_timecourse_4mz_narrow_1.mzML",
-                    //"23aug2017_hela_serum_timecourse_4mz_narrow_2.mzML",
+                    "23aug2017_hela_serum_timecourse_4mz_narrow_2.mzML",
                     //"23aug2017_hela_serum_timecourse_4mz_narrow_3.mzML",
                     //"23aug2017_hela_serum_timecourse_4mz_narrow_4.mzML",
                     //"23aug2017_hela_serum_timecourse_4mz_narrow_5.mzML",
@@ -69,24 +72,26 @@ namespace TestPerf
                     //"23aug2017_hela_serum_timecourse_wide_1f.mzML",
                 },
 
-                FinalTargetCounts = new[] { 557, 5733, 5733, 40777 },
+                FinalTargetCounts = new[] { 369, 719, 719, 5058 },
                 MassErrorStats = new[]
                 {
-                    new[] {0.0, 2.2},
-                    new[] {0.0, 2.2},
-                    new[] {-0.1, 2.2},
+                    new[] {-0.2, 2.5 },
+                    new[] {-0.2, 2.5 },
+                    new[] {-0.2, 2.5 },
                 },
-                ChromatogramClickPoint = new PointF(19.1f, 23f)
+                ChromatogramClickPoint = new PointF(32.175f, 3.184607E+07f)  // MS1 chromatogram peak
             };
 
             RunTest();
         }
 
-        [TestMethod, NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE), NoNightlyTesting(TestExclusionReason.EXCESSIVE_TIME), Timeout(36000000)] // 10 hours
+        //[TestMethod, NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE), NoNightlyTesting(TestExclusionReason.EXCESSIVE_TIME), Timeout(36000000)] // 10 hours
         public void TestEncyclopeDiaSearchTutorialFullFileset()
         {
             if (!RunPerfTests)
                 return;
+
+            TestFilesZip = @"https://skyline.ms/tutorials/EncyclopeDiaSearchTutorial_30to40.zip";
 
             _analysisValues = new AnalysisValues
             {
@@ -109,14 +114,18 @@ namespace TestPerf
                     "23aug2017_hela_serum_timecourse_wide_1e.mzML",
                     "23aug2017_hela_serum_timecourse_wide_1f.mzML",
                 },
-                FinalTargetCounts = new[] { 558, 13631, 13631, 98734 },
+                FinalTargetCounts = new[] { 546, 3244, 3244, 23503 },
                 MassErrorStats = new[]
                 {
-                    new[] {0.1, 2.3},
-                    new[] {0.1, 2.2},
-                    new[] {0.1, 2.3},
+                    new[] {-0.3, 2.3},
+                    new[] {-0.3, 2.3},
+                    new[] {-0.3, 2.3},
+                    new[] {-0.3, 2.3},
+                    new[] {-0.4, 2.3},
+                    new[] {-0.4, 2.3},
+                    new[] {-0.3, 2.4},
                 },
-                ChromatogramClickPoint = new PointF(19.1f, 24f)
+                ChromatogramClickPoint = new PointF(32.175f, 3.184607E+07f)  // MS1 chromatogram peak
             };
 
             RunTest();
@@ -124,28 +133,22 @@ namespace TestPerf
 
 
         /// <summary>Change to true to write coefficient arrays.</summary>
-        private bool IsRecordMode => false;
+        protected override bool IsRecordMode => false;
 
         /// <summary>Disable audit log comparison for FullFileset tests</summary>
         public override bool AuditLogCompareLogs => !TestContext.TestName.EndsWith("FullFileset");
 
         private void RunTest()
         {
-            if (Program.UseOriginalURLs && !HasPrositServer())
+            if (Program.UseOriginalURLs && !HasKoinaServer())
+            {
+                Console.Error.WriteLine($"NOTE: skipping {TestContext.TestName} because Koina is not configured");
                 return;
+            }
 
-            //TestFilesZip = @"https://skyline.ms/tutorials/EncyclopeDiaSearchTutorial.zip";
-            TestFilesZip = @"https://skyline.ms/tutorials/EncyclopeDiaSearchTutorialDemux.zip";
-            TestFilesPersistent = new[] { "23aug2017_hela_serum_timecourse", "z3_nce33-prosit" };
+            TestFilesPersistent = new[] { "z3_nce33-koina" };
 
             RunFunctionalTest();
-
-            Assert.IsFalse(IsRecordMode, "Set IsRecordMode to false before commit");   // Make sure this doesn't get committed as true
-        }
-
-        public static bool HasPrositServer()
-        {
-            return !string.IsNullOrEmpty(PrositConfig.GetPrositConfig().RootCertificate);
         }
 
         private class AnalysisValues
@@ -170,13 +173,13 @@ namespace TestPerf
 
             public string BlibPath =>
                 IsWholeProteome
-                    ? "20220721-uniprot-sprot-human-z3_nce33-prosit-7C7C51618B8D2289272F4E24498B7C.blib"
-                    : "20230123-abundant-proteins-z3_nce33-prosit-53253019C6592C9A4D7B3FA95E6CBE.blib";
+                    ? "20220721-uniprot-sprot-human-z3_nce33-koina-7C7C51618B8D2289272F4E24498B7C.blib"
+                    : "20230123-abundant-proteins-z3_nce33-koina-Prosit_2019_intensity-Prosit_2019_irt-53253019C6592C9A4D7B3FA95E6CBE.blib";
 
-            public string PrositHash =>
+            public string KoinaHash =>
                 IsWholeProteome
-                    ? "7C7C51618B8D2289272F4E24498B7C"
-                    : "53253019C6592C9A4D7B3FA95E6CBE";
+                    ? "Prosit_2019_intensity-Prosit_2019_irt-7C7C51618B8D2289272F4E24498B7C"
+                    : "Prosit_2019_intensity-Prosit_2019_irt-53253019C6592C9A4D7B3FA95E6CBE";
         }
 
         protected override void DoTest()
@@ -184,29 +187,30 @@ namespace TestPerf
             PrepareDocument("EncyclopeDiaSearchTutorialTest.sky");
             string fastaFilepath = TestFilesDir.GetTestPath(_analysisValues.FastaPath);
 
+            RunDlg<ToolOptionsUI>(SkylineWindow.ShowToolOptionsUI, toolOptionsUi =>
+            {
+                toolOptionsUi.SelectedTab = ToolOptionsUI.TABS.Koina;
+                toolOptionsUi.KoinaIntensityModelCombo = KoinaIntensityModel.Models.First();
+                toolOptionsUi.KoinaRetentionTimeModelCombo = KoinaRetentionTimeModel.Models.First();
+                toolOptionsUi.OkDialog();
+            });
             var searchDlg = ShowDialog<EncyclopeDiaSearchDlg>(SkylineWindow.ShowEncyclopeDiaSearchDlg);
             RunUI(() => searchDlg.ImportFastaControl.SetFastaContent(fastaFilepath));
 
-            var screenshotPage = 5;
-            PauseForScreenShot<EncyclopeDiaSearchDlg.FastaPage>("Fasta Settings page", screenshotPage++);
+            PauseForScreenShot<EncyclopeDiaSearchDlg.FastaPage>("Fasta Settings page");
 
-            // copy expected blib to actual blib path so it will be re-used and Prosit won't be called
+            // copy expected blib to actual blib path so it will be re-used and Koina won't be called
             string persistentBlibFilepath = TestFilesDir.GetTestPath(_analysisValues.BlibPath);
             string tempBlibFilepath = TestFilesDir.GetTestPath(fastaFilepath)
-                .Replace(".fasta", $"-z3_nce33-prosit-{_analysisValues.PrositHash}.blib");
-            FileEx.HardLinkOrCopyFile(persistentBlibFilepath, tempBlibFilepath);
+                .Replace(".fasta", $"-z3_nce33-koina-{_analysisValues.KoinaHash}.blib");
 
-            string persistentPath = Path.GetDirectoryName(persistentBlibFilepath) ?? string.Empty;
-            DirectoryEx.SafeDelete(Path.Combine(persistentPath, "elib_chrom"));
-            DirectoryEx.SafeDelete(Path.Combine(persistentPath, "elib_quant"));
+            string workingDir = TestFilesDir.FullPath;
 
-            if (Program.UseOriginalURLs)
-                FileEx.SafeDelete(TestFilesDir.GetTestPath(_analysisValues.BlibPath), true);
+            if (!Program.UseOriginalURLs)
+                FileEx.HardLinkOrCopyFile(persistentBlibFilepath, tempBlibFilepath);
 
-            RunUI(searchDlg.NextPage); // now on Prosit settings
+            RunUI(searchDlg.NextPage); // now on Koina settings
 
-            Settings.Default.PrositIntensityModel = PrositIntensityModel.Models.First();
-            Settings.Default.PrositRetentionTimeModel = PrositRetentionTimeModel.Models.First();
             RunUI(() =>
             {
                 searchDlg.DefaultCharge = 3;
@@ -217,29 +221,29 @@ namespace TestPerf
                 //searchDlg.MaxMz = 551;
                 searchDlg.ImportFastaControl.MaxMissedCleavages = 2;
             });
-            PauseForScreenShot<EncyclopeDiaSearchDlg.PrositPage>("Prosit Settings page", screenshotPage++);
+            PauseForScreenShot<EncyclopeDiaSearchDlg.KoinaPage>("Koina Settings page");
 
             RunUI(searchDlg.NextPage); // now on narrow fractions
             var browseNarrowDlg = ShowDialog<OpenDataSourceDialog>(() => searchDlg.NarrowWindowResults.Browse());
             RunUI(() =>
             {
-                browseNarrowDlg.CurrentDirectory = new MsDataFilePath(TestFilesDir.PersistentFilesDir);
+                browseNarrowDlg.SetCurrentDirectory(new MsDataFilePath(workingDir));
                 browseNarrowDlg.SelectAllFileType("mzML", s => _analysisValues.NarrowWindowDiaFiles.Contains(s));
             });
-            PauseForScreenShot<OpenDataSourceDialog>("Narrow Window Results - Browse for Results Files form", screenshotPage++);
+            PauseForScreenShot<OpenDataSourceDialog>("Narrow Window Results - Browse for Results Files form");
             OkDialog(browseNarrowDlg, browseNarrowDlg.Open);
-            PauseForScreenShot<EncyclopeDiaSearchDlg.NarrowWindowPage>("Narrow Window Results page", screenshotPage++);
-
+            PauseForScreenShot<EncyclopeDiaSearchDlg.NarrowWindowPage>("Narrow Window Results page");
+            
             RunUI(searchDlg.NextPage); // now on wide fractions
             var browseWideDlg = ShowDialog<OpenDataSourceDialog>(() => searchDlg.WideWindowResults.Browse());
             RunUI(() =>
             {
-                browseWideDlg.CurrentDirectory = new MsDataFilePath(TestFilesDir.PersistentFilesDir);
+                browseWideDlg.SetCurrentDirectory(new MsDataFilePath(workingDir));
                 browseWideDlg.SelectAllFileType("mzML", s => _analysisValues.WideWindowDiaFiles.Contains(s));
             });
-            PauseForScreenShot<OpenDataSourceDialog>("Wide Window Results - Browse for Results Files form", screenshotPage++);
+            PauseForScreenShot<OpenDataSourceDialog>("Wide Window Results - Browse for Results Files form");
             OkDialog(browseWideDlg, browseWideDlg.Open);
-            PauseForScreenShot<EncyclopeDiaSearchDlg.WideWindowPage>("Wide Window Results page", screenshotPage++);
+            PauseForScreenShot<EncyclopeDiaSearchDlg.WideWindowPage>("Wide Window Results page");
 
             RunUI(searchDlg.NextPage); // now on EncyclopeDia settings
             RunUI(() =>
@@ -253,7 +257,7 @@ namespace TestPerf
                 //searchDlg.SetAdditionalSetting("FilterPeaklists", "true");
                 //searchDlg.SetAdditionalSetting("NumberOfThreadsUsed", "16");
             });
-            PauseForScreenShot<EncyclopeDiaSearchDlg.SearchSettingsPage>("EncyclopeDIA Settings page", screenshotPage++);
+            PauseForScreenShot<EncyclopeDiaSearchDlg.SearchSettingsPage>("EncyclopeDIA Settings page");
             RunUI(searchDlg.NextPage); // start search
 
             var downloaderDlg = TryWaitForOpenForm<MultiButtonMsgDlg>(2000);
@@ -269,7 +273,7 @@ namespace TestPerf
             bool? searchSucceeded = null;
             searchDlg.SearchControl.SearchFinished += (success) => searchSucceeded = success;
 
-            PauseForScreenShot<EncyclopeDiaSearchDlg.RunPage>("Search Progress page", screenshotPage++);
+            PauseForScreenShot<EncyclopeDiaSearchDlg.RunPage>("Search Progress page");
 
             try
             {
@@ -299,7 +303,7 @@ namespace TestPerf
 
             RunUI(() =>
             {
-                // modifications page is skipped
+                // modifications page is skipped 
 
                 Assert.IsTrue(importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.transition_settings_page);
                 importPeptideSearchDlg.TransitionSettingsControl.MinIonCount = 3;
@@ -329,8 +333,8 @@ namespace TestPerf
 
             // Finish wizard and the associate proteins dialog is shown.
             var emptyProteinsDlg = ShowDialog<AssociateProteinsDlg>(importPeptideSearchDlg.ClickNextButtonNoCheck);
-
             WaitForConditionUI(() => emptyProteinsDlg.DocumentFinalCalculated);
+
             RunUI(() =>
             {
                 int proteinCount, peptideCount, precursorCount, transitionCount;
@@ -345,13 +349,13 @@ namespace TestPerf
             }
             //WaitForDocumentLoaded();
 
-            //PauseForScreenShot<AllChromatogramsGraph>("Loading chromatograms window", 13, 30 * 1000); // 30 second timeout to avoid getting stuck
+            //PauseForAllChromatogramsGraphScreenShot("Loading chromatograms window");
             //WaitForDocumentChangeLoaded(doc, 15 * 60 * 1000); // 15 minutes
 
             RunUI(() => SkylineWindow.SaveDocument());
 
             const string proteinNameToSelect = "sp|P21333|FLNA_HUMAN";
-            const string peptideToSelect = "VKVEPSHDASK";
+            const string peptideToSelect = "DAPQDFHPDR";
             if (Equals(proteinNameToSelect, SkylineWindow.Document.MoleculeGroups.Skip(1).First().Name))
                 SelectNode(SrmDocument.Level.MoleculeGroups, 1);
             else
@@ -367,26 +371,23 @@ namespace TestPerf
             });
             //RestoreViewOnScreenNoSelChange(18);
             WaitForGraphs();
-            screenshotPage++;   // Docking drag-drop image page
-            PauseForScreenShot("Manual review window layout with protein selected", screenshotPage++);
+            PauseForScreenShot("Manual review window layout with protein selected");
 
             try
             {
                 FindNode(peptideToSelect);
                 WaitForGraphs();
-                PauseForScreenShot("Manual review window layout with peptide selected", screenshotPage++);
+                PauseForScreenShot("Manual review window layout with peptide selected");
             }
-            catch (AssertFailedException)
+            catch (AssertFailedException e)
             {
-                if (!IsRecordMode)
-                    throw;
-                PauseAndContinueForm.Show($"Clicking the peptide ({peptideToSelect}) failed.\r\n" +
-                                          "Pick a new peptide to select.");
+                PauseForRecordModeInstruction($"Clicking the peptide ({peptideToSelect}) failed.\r\n" +
+                                              "Pick a new peptide to select.", e);
             }
 
             RunUI(SkylineWindow.AutoZoomBestPeak);
             WaitForGraphs();
-            PauseForScreenShot("Snip just one chromatogram pane", screenshotPage++);
+            PauseForScreenShot("Snip just one chromatogram pane");
 
             try
             {
@@ -394,20 +395,19 @@ namespace TestPerf
                     _analysisValues.ChromatogramClickPoint.X,
                     _analysisValues.ChromatogramClickPoint.Y);
             }
-            catch (AssertFailedException)
+            catch (AssertFailedException e)
             {
-                if (!IsRecordMode)
-                    throw;
-                PauseAndContinueForm.Show($"Clicking the left-side chromatogram at ({_analysisValues.ChromatogramClickPoint.X}, {_analysisValues.ChromatogramClickPoint.Y}) failed.\r\n" +
-                                          "Click on and record a new ChromatogramClickPoint at the peak of that chromatogram.");
+                PauseForRecordModeInstruction(
+                    $"Clicking the left-side chromatogram at ({_analysisValues.ChromatogramClickPoint.X}, {_analysisValues.ChromatogramClickPoint.Y}) failed.\r\n" +
+                    "Click on and record a new ChromatogramClickPoint at the peak of that chromatogram.", e);
             }
 
-            PauseForScreenShot<GraphFullScan>("Full-Scan graph window - zoomed", screenshotPage++);
+            PauseForScreenShot<GraphFullScan>("Full-Scan graph window - zoomed");
             
 
             RunUI(() => SkylineWindow.GraphFullScan.ZoomToSelection(false));
             WaitForGraphs();
-            PauseForScreenShot<GraphFullScan>("Full-Scan graph window - unzoomed", screenshotPage++);
+            PauseForScreenShot<GraphFullScan>("Full-Scan graph window - unzoomed");
 
             RunUI(SkylineWindow.GraphFullScan.Close);
             RunUI(SkylineWindow.ShowMassErrorHistogramGraph);
@@ -423,7 +423,7 @@ namespace TestPerf
             ValidateMassErrors(massErrorPane, massErrorStatsIndex++);
 
             // CONSIDER: No way to specify mass error graph window in PauseForScreenShot or ShowDialog
-            PauseForScreenShot("Mass errors histogram graph window", screenshotPage++);
+            PauseForScreenShot("Mass errors histogram graph window");
 
             // Review single replicates
             RunUI(SkylineWindow.ShowSingleReplicate);
@@ -486,7 +486,7 @@ namespace TestPerf
         {
             double mean = massErrorPane.Mean, stdDev = massErrorPane.StdDev;
             if (IsRecordMode)
-                Console.WriteLine(@"new[] {{{0:0.0}, {1:0.0}}},", mean, stdDev);  // Not L10N
+                Console.WriteLine(@"new[] {{{0:0.0}, {1:0.0} }},", mean, stdDev);  // Not L10N
             else
             {
                 Assert.AreEqual(_analysisValues.MassErrorStats[index][0], mean, 0.05);

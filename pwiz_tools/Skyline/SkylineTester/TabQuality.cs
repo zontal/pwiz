@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -93,9 +93,8 @@ namespace SkylineTester
 
             MainWindow.TestsRun = 0;
 
-            MainWindow.CommandShell.LogFile = MainWindow.DefaultLogFile;
-            if (File.Exists(MainWindow.DefaultLogFile))
-                Try.Multi<Exception>(() => File.Delete(MainWindow.DefaultLogFile), 4, false);
+            // No roll here: StartLog below does it for this same file. It used to delete the log
+            // at this point, which is what made starting a run destroy the previous run's record.
             MainWindow.NewNightlyRun = _lastRun = new Summary.Run
             {
                 Date = DateTime.Now
@@ -107,7 +106,7 @@ namespace SkylineTester
             _updateTimer.Tick += (s, a) => RunUI(UpdateQuality);
             _updateTimer.Start();
 
-            var args = "offscreen=on quality=on{0} pass0={1} pass1={2} {3}{4}{5}".With(
+            var args = "offscreen=on quality=on qualityonly=on{0} pass0={1} pass1={2} {3}{4}{5}".With(
                 MainWindow.QualityPassDefinite.Checked ? " loop=" + int.Parse(MainWindow.QualityPassCount.Text) : "",
                 MainWindow.Pass0.Checked.ToString(),
                 MainWindow.Pass1.Checked.ToString(),

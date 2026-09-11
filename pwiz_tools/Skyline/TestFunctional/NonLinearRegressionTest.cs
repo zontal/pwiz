@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Max Horowitz-Gelb <maxhg .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -17,7 +17,9 @@
  * limitations under the License.
  */
 
+using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Controls.Graphs;
 using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.Irt;
@@ -59,13 +61,14 @@ namespace pwiz.SkylineTestFunctional
             //Check that Loess and KDE do not try to refine even if setting is true.
             Settings.Default.RTRefinePeptides = true;
             CheckNonlinearRegressionMethods(summary);
+            TestRunToRunRegression();
         }
 
         private void CheckNonlinearRegressionMethods(GraphSummary summary)
         {
             //Check rmsd and number of linear functions for KDE
             RunUI(() => SkylineWindow.ShowRegressionMethod(RegressionMethodRT.kde));
-            WaitForPaneCondition<RTLinearRegressionGraphPane>(summary, pane => !pane.IsCalculating);
+            WaitForPaneCondition<RTLinearRegressionGraphPane>(summary, pane => pane.IsComplete);
 
             RTLinearRegressionGraphPane graphPane;
             summary.TryGetGraphPane(out graphPane);
@@ -75,13 +78,13 @@ namespace pwiz.SkylineTestFunctional
 
             var kdeFunction = (PiecewiseLinearRegressionFunction) graphPane.RegressionRefined.Conversion;
 
-            Assert.AreEqual(5.7326, kdeFunction.RMSD, 0.0001);
-            Assert.AreEqual(22, kdeFunction.LinearFunctionsCount);
+            Assert.AreEqual(8.7415, kdeFunction.RMSD, 0.0001);
+            Assert.AreEqual(21, kdeFunction.LinearFunctionsCount);
 
             //Check for Loess
 
             RunUI(() => SkylineWindow.ShowRegressionMethod(RegressionMethodRT.loess));
-            WaitForPaneCondition<RTLinearRegressionGraphPane>(summary, pane => !pane.IsCalculating);
+            WaitForPaneCondition<RTLinearRegressionGraphPane>(summary, pane => pane.IsComplete);
 
             //Make sure Loess is not refined. Too slow
             Assert.IsTrue(graphPane.RegressionRefinedNull);
@@ -89,8 +92,37 @@ namespace pwiz.SkylineTestFunctional
             // ReSharper disable once PossibleInvalidCastException
             var loessFunction = (LoessRegression) graphPane.RegressionRefined.Conversion;
 
-            Assert.AreEqual(4.0552, loessFunction.Rmsd, 0.0001);
-            Assert.AreEqual(22, kdeFunction.LinearFunctionsCount);
-        }        
+            Assert.AreEqual(3.2781, loessFunction.Rmsd, 0.0001);
+            Assert.AreEqual(21, kdeFunction.LinearFunctionsCount);
+        }
+
+        void TestRunToRunRegression()
+        {
+            RunUI(SkylineWindow.ShowRTRegressionGraphRunToRun);
+            var runToRunGraphSummary = FormUtil.OpenForms.OfType<GraphSummary>()
+                .FirstOrDefault(graph => graph.Type == GraphTypeSummary.run_to_run_regression);
+            Assert.IsNotNull(runToRunGraphSummary, "Unable to find run_to_run_regression graph");
+
+            Assert.IsTrue(runToRunGraphSummary.TryGetGraphPane(out RTLinearRegressionGraphPane regressionPane));
+            Assert.IsTrue(regressionPane.HasToolbar);
+
+            RunUI(() =>
+            {
+                SkylineWindow.ShowRegressionMethod(RegressionMethodRT.kde);
+            });
+            // Verify that no errors occur when doing a regression between the first
+            // replicate and each of the next five
+            for (int i = 1; i < 6; i++)
+            {
+                RunUI(() =>
+                {
+                    var toolbar = (RunToRunRegressionToolbar)runToRunGraphSummary.Toolbar;
+                    toolbar.RunToRunOriginalReplicate.SelectedIndex = 0;
+                    toolbar.RunToRunTargetReplicate.SelectedIndex = i;
+                });
+                WaitForGraphs();
+                WaitForConditionUI(() => regressionPane._progressBar == null);
+            }
+        }
     }
 }

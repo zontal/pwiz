@@ -1,4 +1,4 @@
-﻿//
+//
 // $Id$
 //
 //
@@ -118,8 +118,17 @@ public:
             precursorMz_ = precursorInfo->first;
             precursorCharge_ = precursorInfo->second;
         }
-        else
-            precursorMz_ = (double) spectrum_->AcqModeMz * MASS_MULTIPLIER;
+
+        if (spectrum_->PrecursorMzList->Count > 0 && spectrum_->PrecursorMzList[0] > 0)
+        {
+            // override with per-spectrum precursor if available
+            precursorMz_ = (double)spectrum_->PrecursorMzList[0] * MASS_MULTIPLIER;
+        }
+        else if (precursorInfo == nullptr)
+            precursorMz_ = (double)spectrum_->AcqModeMz * MASS_MULTIPLIER;
+
+        if (((ShimadzuGeneric::Param::MS::MassEventInfo^) eventInfo_) != nullptr)
+            qTransmissionMzWidth_ = (double)eventInfo_->QTransmissionMzWidthNmzManual * PRECURSOR_MZ_MULTIPLIER / 2;
     }
 
     virtual double getScanTime() const { return spectrum_->RetentionTime; }
@@ -132,8 +141,16 @@ public:
     virtual double getMinX() const { return ((ShimadzuGeneric::Param::MS::MassEventInfo^) eventInfo_) == nullptr ? 0 : (double) eventInfo_->StartMz * MASS_MULTIPLIER; }
     virtual double getMaxX() const { return ((ShimadzuGeneric::Param::MS::MassEventInfo^) eventInfo_) == nullptr ? 0 : (double) eventInfo_->EndMz * MASS_MULTIPLIER; }
 
-    virtual bool getHasIsolationInfo() const { return false; }
-    virtual void getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit) const { }
+    virtual bool getHasIsolationInfo() const { return qTransmissionMzWidth_ > 0; }
+    virtual void getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit) const
+    {
+        if (!getHasIsolationInfo())
+            return;
+
+        centerMz = precursorMz_;
+        lowerLimit = qTransmissionMzWidth_;
+        upperLimit = qTransmissionMzWidth_;
+    }
 
     virtual bool getHasPrecursorInfo() const { return precursorMz_ > 0; }
     virtual void getPrecursorInfo(double& selectedMz, double& intensity, int& charge) const
@@ -184,13 +201,14 @@ public:
     gcroot<ShimadzuGeneric::Param::MS::MassEventInfo^> eventInfo_;
     double precursorMz_;
     int precursorCharge_;
+    double qTransmissionMzWidth_;
 };
 
 
 class ShimadzuReaderImpl : public ShimadzuReader
 {
     public:
-    ShimadzuReaderImpl(const string& filepath)
+    ShimadzuReaderImpl(const string& filepath, bool srmAsSpectra)
     {
         try
         {
@@ -244,7 +262,7 @@ class ShimadzuReaderImpl : public ShimadzuReader
                 for (int j = 1; j <= eventNumbers.size(); ++j)
                 {
                     short eventNo = eventNumbers[j - 1] = chromatogramMng->GetEventNo(i, j);
-                    if (getEventInfo(eventNo)->AnalysisMode == ShimadzuGeneric::AcqModes::MRM)
+                    if (!srmAsSpectra && getEventInfo(eventNo)->AnalysisMode == ShimadzuGeneric::AcqModes::MRM)
                         continue;
 
                     unsigned int eventLastScanNumber;
@@ -339,6 +357,11 @@ class ShimadzuReaderImpl : public ShimadzuReader
         CATCH_AND_FORWARD
     }
 
+    virtual std::string getSystemName() const
+    {
+        return ToStdString(dataObject_->IO->SystemName());
+    }
+
     virtual boost::local_time::local_date_time getAnalysisDate(bool adjustToHostTime) const
     {
         if ((System::Object^)dataObject_ == nullptr)
@@ -406,6 +429,7 @@ class ShimadzuReaderImpl : public ShimadzuReader
         info.scanTime = retentionTime * TIME_MULTIPLIER;
         info.precursorMz = precursorMass * MASS_MULTIPLIER;
         info.polarity = (Polarity) (int) polarity;
+        info.isSrm = getEventInfo(info.event)->AnalysisMode == ShimadzuGeneric::AcqModes::MRM;
         return info;
     }
 
@@ -436,9 +460,9 @@ class ShimadzuReaderImpl : public ShimadzuReader
 
 
 PWIZ_API_DECL
-ShimadzuReaderPtr ShimadzuReader::create(const string& filepath)
+ShimadzuReaderPtr ShimadzuReader::create(const string& filepath, bool srmAsSpectra)
 {
-    try { return ShimadzuReaderPtr(new ShimadzuReaderImpl(filepath)); } CATCH_AND_FORWARD
+    try { return ShimadzuReaderPtr(new ShimadzuReaderImpl(filepath, srmAsSpectra)); } CATCH_AND_FORWARD
 }
 
 
@@ -457,7 +481,7 @@ TOFChromatogramImpl::TOFChromatogramImpl(const ShimadzuReaderImpl& reader, DataO
     mzTransition.StartMassRaw = transition.startMz;
     mzTransition.EndMassRaw = transition.endMz;
 
-    auto result = chromatogramMng->GetChromatogrambyEvent(tofChromatogram, %mzTransition, true, true);
+    auto result = chromatogramMng->GetChromatogrambyEvent(tofChromatogram, %mzTransition, true, false);
     if (ShimadzuUtil::Failed(result))
         throw gcnew System::Exception(ToSystemString("failed to get TOF chromatogram for segment " + lexical_cast<string>(transition.segment) + ", event " + lexical_cast<string>(transition.event)));
 

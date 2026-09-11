@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Ali Marsh <alimarsh .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  * Copyright 2020 University of Washington - Seattle, WA
@@ -731,9 +731,12 @@ namespace SkylineBatch
 
         private void ListViewSizeChanged()
         {
-            listViewConfigs.ColumnWidthChanged -= listViewConfigs_ColumnWidthChanged;
-            _listViewColumnWidths.ListViewContainerResize();
-            listViewConfigs.ColumnWidthChanged += listViewConfigs_ColumnWidthChanged;
+            if (_listViewColumnWidths != null)
+            {
+                listViewConfigs.ColumnWidthChanged -= listViewConfigs_ColumnWidthChanged;
+                _listViewColumnWidths.ListViewContainerResize();
+                listViewConfigs.ColumnWidthChanged += listViewConfigs_ColumnWidthChanged;
+            }
         }
 
         private void listViewConfigs_ColumnWidthChanged(object sender, ColumnWidthChangedEventArgs e)
@@ -756,32 +759,32 @@ namespace SkylineBatch
 
         public void DisplayError(string message)
         {
-            RunUi(() => { AlertDlg.ShowError(this, Program.AppName(), message); });
+            RunUi(() => { AlertDlg.ShowError(this, message); });
         }
 
         public void DisplayWarning(string message)
         {
-            RunUi(() => { AlertDlg.ShowWarning(this, Program.AppName(), message); });
+            RunUi(() => { AlertDlg.ShowWarning(this, message); });
         }
 
         public void DisplayInfo(string message)
         {
-            RunUi(() => { AlertDlg.ShowInfo(this, Program.AppName(), message); });
+            RunUi(() => { AlertDlg.ShowInfo(this, message); });
         }
 
         public void DisplayErrorWithException(string message, Exception exception)
         {
-            RunUi(() => { AlertDlg.ShowErrorWithException(this, Program.AppName(), message, exception); });
+            RunUi(() => { AlertDlg.ShowErrorWithException(this, message, exception); });
         }
 
         public DialogResult DisplayQuestion(string message)
         {
-            return AlertDlg.ShowQuestion(this, Program.AppName(), message);
+            return AlertDlg.ShowQuestion(this, message);
         }
 
         public DialogResult DisplayLargeOkCancel(string message)
         {
-            return AlertDlg.ShowLargeOkCancel(this, Program.AppName(), message);
+            return AlertDlg.ShowLargeOkCancel(this, message);
         }
 
         public void DisplayForm(Form form)
@@ -809,6 +812,37 @@ namespace SkylineBatch
                 if (!baseState.ConfigValidation[configName])
                     count++;
             return count;
+        }
+
+        /// <summary>
+        /// One line per configuration, naming it and either reporting it valid or giving the
+        /// validation error. ConfigManagerState swallows the ArgumentException from Validate()
+        /// when it records a configuration as invalid, so a failing CheckConfigs could only ever
+        /// say "Expected:&lt;0&gt;. Actual:&lt;7&gt;" - true, and useless. Re-runs Validate() rather than
+        /// reading the recorded flags, so the message says WHY.
+        /// </summary>
+        public string ConfigValidationReport()
+        {
+            var report = new List<string>();
+            foreach (var config in _configManager.GetState().BaseState.ConfigList)
+            {
+                string result;
+                try
+                {
+                    config.Validate();
+                    result = @"valid";
+                }
+                catch (ArgumentException e)
+                {
+                    result = e.Message.Replace(Environment.NewLine, @" ");
+                }
+                var skyline = (config as SkylineBatchConfig)?.SkylineSettings;
+                var skylineDesc = skyline == null
+                    ? @"(no Skyline settings)"
+                    : $@"type={skyline.Type} cmd={skyline.CmdPath ?? @"(null)"}";
+                report.Add($@"  {config.GetName()}: {result} [{skylineDesc}]");
+            }
+            return string.Join(Environment.NewLine, report);
         }
 
         public bool ConfigRunning(string name)

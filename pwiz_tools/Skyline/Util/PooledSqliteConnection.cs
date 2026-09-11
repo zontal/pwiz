@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -17,10 +17,10 @@
  * limitations under the License.
  */
 using System;
-using System.Data.Common;
 using System.Data.SQLite;
 using System.IO;
-using pwiz.Common.Database.NHibernate;
+using pwiz.Common.Database;
+using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Properties;
 
 namespace pwiz.Skyline.Util
@@ -33,23 +33,12 @@ namespace pwiz.Skyline.Util
             FileTime = File.GetLastWriteTime(FilePath);
         }
 
-        private string FilePath { get; set; }
+        public string FilePath { get; private set; }
         private DateTime FileTime { get; set; }
 
         protected override IDisposable Connect()
         {
-            DbProviderFactory fact = new SQLiteFactory();
-            SQLiteConnection conn = (SQLiteConnection) fact.CreateConnection();
-            if (conn != null)
-            {
-                var connectionStringBuilder =
-                    SessionFactoryFactory.SQLiteConnectionStringBuilderFromFilePath(FilePath);
-                connectionStringBuilder.Version = 3;
-
-                conn.ConnectionString = connectionStringBuilder.ToString();
-                conn.Open();
-            }
-            return conn;
+            return SqliteOperations.OpenConnection(FilePath);
         }
 
         Stream IPooledStream.Stream
@@ -84,6 +73,11 @@ namespace pwiz.Skyline.Util
         public void CloseStream()
         {
             Disconnect();
+        }
+
+        public override string ToString()
+        {
+            return $@"PooledSqliteConnection({FilePath})"; // Not L10N - debug only
         }
 
         /// <summary>

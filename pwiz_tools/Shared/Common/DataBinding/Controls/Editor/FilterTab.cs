@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -18,11 +18,11 @@
  */
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 using pwiz.Common.Properties;
+using pwiz.Common.SystemUtil;
 
 namespace pwiz.Common.DataBinding.Controls.Editor
 {
@@ -83,7 +83,7 @@ namespace pwiz.Common.DataBinding.Controls.Editor
                 .Select(filterOp => filterOp.DisplayName)
                 .ToArray();
             filterOpCell.DataSource = filterOpItems;
-            if (filterInfo.FilterSpec.Operation.GetOperandType(filterInfo.ColumnDescriptor) == null)
+            if (!filterInfo.FilterSpec.Operation.HasOperand())
             {
                 row.Cells[colFilterOperand.Index].ReadOnly = true;
                 row.Cells[colFilterOperand.Index].Style.BackColor = Color.DarkGray;
@@ -204,11 +204,11 @@ namespace pwiz.Common.DataBinding.Controls.Editor
         {
             try
             {
-                return FilterPredicate.CreateFilterPredicate(dataSchema, columnType, filterOperation, operand);
+                return FilterPredicate.Parse(dataSchema, columnType, filterOperation, operand);
             }
             catch
             {
-                return FilterPredicate.CreateFilterPredicate(dataSchema, typeof(string), filterOperation, operand);
+                return FilterPredicate.Create(filterOperation, operand);
             }
         }
 
@@ -281,9 +281,9 @@ namespace pwiz.Common.DataBinding.Controls.Editor
             }
             var newFilters = ViewSpec.Filters.ToArray();
             var columnDescriptor = ViewInfo.Filters[rowIndex].ColumnDescriptor;
-            newFilters[rowIndex] = newFilters[rowIndex].SetPredicate(
-                FilterPredicate.CreateFilterPredicate(columnDescriptor.DataSchema, columnDescriptor.PropertyType, filterOperation,
-                    dataGridViewFilter.CurrentRow.Cells[colFilterOperand.Index].Value as string));
+            newFilters[rowIndex] = newFilters[rowIndex].SetPredicate(FilterPredicate.SafeParse(
+                columnDescriptor.DataSchema, columnDescriptor.PropertyType, filterOperation,
+                dataGridViewFilter.CurrentRow.Cells[colFilterOperand.Index].Value as string));
             ViewSpec = ViewSpec.SetFilters(newFilters);
         }
 
@@ -301,7 +301,7 @@ namespace pwiz.Common.DataBinding.Controls.Editor
 
         private void dataGridViewFilter_DataError(object sender, DataGridViewDataErrorEventArgs e)
         {
-            Trace.TraceError(@"DataGridViewFilterOnDataError:{0}", e.Exception);
+            Messages.WriteAsyncDebugMessage(@"DataGridViewFilterOnDataError:{0}", e.Exception);
         }
 
         protected override void OnLoad(EventArgs e)

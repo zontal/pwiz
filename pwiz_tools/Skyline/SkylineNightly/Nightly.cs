@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -32,6 +32,7 @@ using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
+using System.Xml;
 using System.Xml.Linq;
 using Ionic.Zip;
 using Microsoft.Win32.TaskScheduler;
@@ -45,16 +46,13 @@ namespace SkylineNightly
 
         private const string NIGHTLY_TASK_NAME = "Skyline nightly build";
 
-        private const string TEAM_CITY_ZIP_URL = "https://teamcity.labkey.org/guestAuth/repository/download/{0}/.lastFinished/SkylineTester.zip{1}";
+        private const string SKYLINETESTER_ZIP_NAME = "SkylineTester.zip";
         private const string TEAM_CITY_BUILD_TYPE_64_MASTER = "bt209";
 
         // N.B. choice of "release" and "integration" branches is made in TeamCity VCS Roots "pwiz Github Skyline_Integration_Only" and "pwiz Github Skyline_Release_Only"
         // Thus TC admins can easily change the "release" and "integration" git branches at http://teamcity.labkey.org/admin/editProject.html?projectId=ProteoWizard&tab=projectVcsRoots
         private const string TEAM_CITY_BUILD_TYPE_64_RELEASE = "ProteoWizard_WindowsX8664SkylineReleaseBranchMsvcProfessional";
         private const string TEAM_CITY_BUILD_TYPE_64_INTEGRATION = "ProteoWizard_SkylineIntegrationBranchX8664";
-
-        private const string TEAM_CITY_USER_NAME = "guest";
-        private const string TEAM_CITY_USER_PASSWORD = "guest";
         private const string LABKEY_PROTOCOL = "https";
         private const string LABKEY_SERVER_ROOT = "skyline.ms";
         private const string LABKEY_MODULE = "testresults";
@@ -87,6 +85,8 @@ namespace SkylineNightly
 
         private const string GIT_MASTER_URL = "https://github.com/ProteoWizard/pwiz";
         private const string GIT_BRANCHES_URL = GIT_MASTER_URL + "/tree/";
+        private const string BRANCH_MARKER = ".branch.";
+        private const string SKYLINETESTER_FILES_DIR = "SkylineTester Files";
 
         private DateTime _startTime;
         public string LogFileName { get; private set; }
@@ -110,7 +110,7 @@ namespace SkylineNightly
         public const int DEFAULT_DURATION_HOURS = 9;
         public const int PERF_DURATION_HOURS = 12;
 
-        public Nightly(RunMode runMode, string decorateSrcDirName = null)
+        public Nightly(RunMode runMode, string decorateSrcDirName = null, string logDir = null)
         {
             _runMode = runMode;
             _nightly = new Xml("nightly");
@@ -119,7 +119,7 @@ namespace SkylineNightly
             
             // Locate relevant directories.
             var nightlyDir = GetNightlyDir();
-            _logDir = Path.Combine(nightlyDir, "Logs");
+            _logDir = logDir ?? Path.Combine(nightlyDir, "Logs");
             // Clean up after any old screengrab directories
             var logDirScreengrabs = Path.Combine(_logDir, "NightlyScreengrabs");
             if (Directory.Exists(logDirScreengrabs))
@@ -442,15 +442,106 @@ namespace SkylineNightly
         }
 
         /// <summary>
+        /// Figures out which branch the downloaded SkylineTester was built from.
+        /// </summary>
+        /// <remarks>
+        /// Two build systems answer this differently, and one SkylineNightly.exe has to cope with
+        /// both. The C++ build writes pwiz\Version.cpp (Jamroot's generate-version.cpp rule); a
+        /// .NET build never runs bjam, so SkylineTester.csproj stamps the same facts into
+        /// SkylineTester's own assembly metadata instead. Since SkylineNightlyShim always
+        /// downloads SkylineNightly.exe from master, this must understand both regardless of which
+        /// branch it happens to be testing - and one machine may test both kinds of branch.
+        /// </remarks>
+        /// <returns>Branch URL, or null if neither stamp names a branch</returns>
+        private string ResolveBranchUrl()
+        {
+            var testerFiles = Path.Combine(_skylineTesterDir, SKYLINETESTER_FILES_DIR);
+            var versionCpp = Path.Combine(testerFiles, "Version.cpp");
+            var testerDll = Path.Combine(testerFiles, "SkylineTester.dll");
+            var haveVersionCpp = File.Exists(versionCpp);
+            var haveTesterDll = File.Exists(testerDll);
+            if (!haveVersionCpp && !haveTesterDll)
+            {
+                // Neither build system's stamp is present, so this is not a complete
+                // SkylineTester. Throw rather than return, so the caller retries - it used to get
+                // this behavior from ReadAllLines failing on a missing Version.cpp.
+                throw new FileNotFoundException(
+                    "Downloaded SkylineTester contains neither Version.cpp nor SkylineTester.dll", versionCpp);
+            }
+
+            // Try each stamp that is present. Do not use ?? to chain these: the first reader can
+            // return an empty string, and it can throw on a malformed file, either of which would
+            // skip a perfectly good stamp from the other build system.
+            var branch = haveVersionCpp ? ReadBranchFromVersionCpp(versionCpp) : null;
+            var source = "Version.cpp";
+            if (string.IsNullOrEmpty(branch) && haveTesterDll)
+            {
+                branch = ReadBranchFromTesterAssembly(testerDll);
+                source = "SkylineTester.dll";
+            }
+
+            if (string.IsNullOrEmpty(branch))
+            {
+                // Not fatal - the caller treats null as "assume master" - but it means a nightly
+                // may test and report master while pointed at a branch, so say so in the log.
+                Log("WARNING: could not determine the branch from the downloaded SkylineTester" +
+                    " (Version.cpp present: " + haveVersionCpp + ", SkylineTester.dll present: " + haveTesterDll +
+                    "). This run will be treated as master.");
+                return null;
+            }
+
+            Log("Branch " + branch + " identified from " + source);
+            return branch.Equals("master")
+                ? GIT_MASTER_URL
+                : GIT_BRANCHES_URL + branch; // Looks like https://github.com/ProteoWizard/pwiz/tree/Skyline/skyline_9_7
+        }
+
+        /// <summary>The C++ build's answer, or null when Version.cpp names no branch.</summary>
+        private string ReadBranchFromVersionCpp(string versionCpp)
+        {
+            // Looks like std::string Version::Branch()   {return "Skyline/skyline_9_7";}
+            var branchLine = File.ReadAllLines(versionCpp).FirstOrDefault(l => l.Contains("Version::Branch"));
+            // Any line merely containing "Version::Branch" matches, including a comment or a
+            // reformatted body, so do not assume the quoted value is there to be indexed.
+            var quoted = branchLine?.Split(new[] { "\"" }, StringSplitOptions.None);
+            return quoted == null || quoted.Length < 2 ? null : quoted[1];
+        }
+
+        /// <summary>
+        /// The .NET build's answer, or null when the assembly carries no branch stamp.
+        /// SkylineTester.csproj stamps InformationalVersion as
+        /// "&lt;version&gt;+&lt;sha&gt;.branch.&lt;branch&gt;".
+        /// </summary>
+        private string ReadBranchFromTesterAssembly(string testerDll)
+        {
+            // Read through FileVersionInfo rather than loading the assembly: this runs against a
+            // build that may target a different framework than SkylineNightly itself. Trim as
+            // Install.cs does - Win32 version resources are padded, and stray characters would
+            // ride into the branch name.
+            var productVersion = FileVersionInfo.GetVersionInfo(testerDll).ProductVersion?.Trim();
+            if (string.IsNullOrEmpty(productVersion))
+                return null;
+            // A branch name contains '/', so it cannot be the last dot-separated token of a
+            // version string; ".branch." delimits it instead of a plain split.
+            var branchIndex = productVersion.IndexOf(BRANCH_MARKER, StringComparison.Ordinal);
+            return branchIndex < 0 ? null : productVersion.Substring(branchIndex + BRANCH_MARKER.Length);
+        }
+
+        /// <summary>
         /// Downloads and extracts SkylineTester ZIP file and determines the branch name.
         /// </summary>
-        /// <param name="skylineTesterZipName">Name of the ZIP file to download</param>
+        /// <param name="skylineTesterZipPath">Full local destination path for the downloaded zip. The remote artifact name is fixed by SKYLINETESTER_ZIP_NAME.</param>
         /// <returns>Branch URL</returns>
         /// <exception cref="IOException">Failure after 2 hours throws an exception with the reason</exception>
-        private string DownloadSkylineTester(string skylineTesterZipName)
+        private string DownloadSkylineTester(string skylineTesterZipPath)
         {
+            // Fetch the token once up front: fails fast on a misconfigured machine (rather
+            // than getting silently retried for the two hours of the loop below) and pins
+            // the token value for the whole run, so behavior is consistent even if the
+            // env var were to change mid-run.
+            var token = TeamCityNightlyAuth.GetRequiredToken();
+
             // Download most recent build of SkylineTester.
-            var skylineTesterZip = Path.Combine(_skylineTesterDir, skylineTesterZipName);
             int attempts = CalcAllowedRetries(120); // Retry for up to two hours
             var useLastSuccessfulInsteadOfLastFinished = false;
             string failedReason = "Unable to download SkylineTester";
@@ -458,7 +549,7 @@ namespace SkylineNightly
             {
                 try
                 {
-                    DownloadSkylineTester(skylineTesterZip, _runMode, useLastSuccessfulInsteadOfLastFinished);
+                    DownloadSkylineTester(skylineTesterZipPath, _runMode, useLastSuccessfulInsteadOfLastFinished, token);
                 }
                 catch (Exception ex)
                 {
@@ -482,7 +573,7 @@ namespace SkylineNightly
                 }
 
                 // Install SkylineTester.
-                if (!InstallSkylineTester(skylineTesterZip, _skylineTesterDir))
+                if (!InstallSkylineTester(skylineTesterZipPath, _skylineTesterDir))
                 {
                     throw new IOException("SkylineTester installation failed.");
                 }
@@ -490,31 +581,15 @@ namespace SkylineNightly
                 try
                 {
                     // Delete zip file.
-                    Log("Delete zip file " + skylineTesterZip);
-                    File.Delete(skylineTesterZip);
+                    Log("Delete zip file " + skylineTesterZipPath);
+                    File.Delete(skylineTesterZipPath);
 
-                    // Figure out which branch we're working in - there's a file in the downloaded SkylineTester zip that tells us.
-                    var branchLine = File.ReadAllLines(Path.Combine(_skylineTesterDir, "SkylineTester Files", "Version.cpp"))
-                        .FirstOrDefault(l => l.Contains("Version::Branch"));
-                    string branchUrl = null;
-                    if (!string.IsNullOrEmpty(branchLine))
-                    {
-                        // Looks like std::string Version::Branch()   {return "Skyline/skyline_9_7";}
-                        var branch = branchLine.Split(new[] { "\"" }, StringSplitOptions.None)[1];
-                        if (branch.Equals("master"))
-                        {
-                            branchUrl = GIT_MASTER_URL;
-                        }
-                        else
-                        {
-                            branchUrl = GIT_BRANCHES_URL + branch; // Looks like https://github.com/ProteoWizard/pwiz/tree/Skyline/skyline_9_7
-                        }
-                    }
-                    return branchUrl;   // success
+                    // Figure out which branch we're working in - the downloaded SkylineTester zip tells us.
+                    return ResolveBranchUrl();   // success
                 }
                 catch (Exception ex)
                 {
-                    failedReason = "Unable to identify branch from Version.cpp in SkylineTester";
+                    failedReason = "Unable to identify branch from the downloaded SkylineTester";
 
                     Log("Exception while unzipping SkylineTester: " + ex.Message +
                         " (Probably still being built, will retry every 60 seconds for 30 minutes.)");
@@ -526,32 +601,19 @@ namespace SkylineNightly
             throw new IOException(failedReason);
         }
 
-        private void DownloadSkylineTester(string skylineTesterZip, RunMode mode, bool desperate)
+        private void DownloadSkylineTester(string skylineTesterZip, RunMode mode, bool desperate, string token)
         {
-            // The current recommendation from MSFT for future-proofing HTTPS https://docs.microsoft.com/en-us/dotnet/framework/network-programming/tls
-            // is don't specify TLS levels at all, let the OS decide. But we worry that this will mess up Win7 and Win8 installs, so we continue to specify explicitly
-            try
-            {
-                var Tls13 = (SecurityProtocolType)12288; // From decompiled SecurityProtocolType - compiler has no definition for some reason
-                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12 | Tls13;
-            }
-            catch (NotSupportedException)
-            {
-                ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls | SecurityProtocolType.Tls11 | SecurityProtocolType.Tls12; // Probably an older Windows Server
-            }
-
             using var client = new WebClient();
+            TeamCityNightlyAuth.ConfigureClient(client, token);
 
-            client.Credentials = new NetworkCredential(TEAM_CITY_USER_NAME, TEAM_CITY_USER_PASSWORD);
             var isRelease = ((mode == RunMode.release) || (mode == RunMode.release_perf));
             var isIntegration = mode == RunMode.integration || mode == RunMode.integration_perf;
             var branchType = (isRelease || isIntegration) ? "" : "?branch=master"; // TC has a config just for release branch, and another for integration branch, but main config builds pull requests, other branches etc
             var buildType = isIntegration ? TEAM_CITY_BUILD_TYPE_64_INTEGRATION : isRelease ? TEAM_CITY_BUILD_TYPE_64_RELEASE : TEAM_CITY_BUILD_TYPE_64_MASTER;
 
-            string zipFileLink = string.Format(TEAM_CITY_ZIP_URL, buildType, branchType);
+            string zipFileLink = TeamCityNightlyAuth.GetArtifactUrl(buildType, SKYLINETESTER_ZIP_NAME, branchType, desperate);
             if (desperate)
             {
-                zipFileLink = zipFileLink.Replace(".lastFinished", ".lastSuccessful");
                 Log("In retry, download possibly stale (\".lastSuccessful\" rather than \".lastFinished\") SkylineTester zip file as " + zipFileLink);
             }
             else
@@ -700,8 +762,9 @@ namespace SkylineNightly
             ParseLeaks(log);
 
             var hasPerftests = log.Contains("# Perf tests");
-            var isIntegration = new Regex(@"git\.exe.*clone.*-b").IsMatch(log);
-            var isTrunk = !isIntegration && !log.Contains("Testing branch at");
+            var matchBranch = new Regex(@"git\.exe.*clone.*-b.*SkylineTesterForNightly_([a-z]+)").Match(log);
+            bool isTrunk = !matchBranch.Success;
+            bool isIntegration = matchBranch.Success && Equals("integration", matchBranch.Groups[1].Value);
 
             var machineName = Environment.MachineName;
             // Get machine name from logfile name, in case it's not from this machine
@@ -995,7 +1058,7 @@ namespace SkylineNightly
                 {
                     try
                     {
-                        doc.Root.Add(new XElement("Log", log));
+                        doc.Root.Add(new XElement("Log", ReplaceInvalidXmlChars(log)));
                         xml = doc.ToString();
                     }
                     catch (Exception e)
@@ -1372,6 +1435,42 @@ namespace SkylineNightly
         {
             [OperationContract]
             void SetEndTime(DateTime endTime);
+        }
+        /// <summary>
+        /// Replace all invalid characters in the string with a backslash followed by 'u' and the hexadecimal code of the character.
+        /// Invalid characters are most of the control characters as well as surrogate characters which are not a high surrogate
+        /// followed by a low surrogate.
+        /// </summary>
+        public static string ReplaceInvalidXmlChars(string s)
+        {
+            StringBuilder stringBuilder = null;
+            for (int i = 0; i < s.Length; i++)
+            {
+                var ch = s[i];
+                if (XmlConvert.IsXmlChar(ch) && !char.IsSurrogate(ch))
+                {
+                    stringBuilder?.Append(ch);
+                    continue;
+                }
+                if (char.IsHighSurrogate(ch) && i < s.Length - 1)
+                {
+                    var chLow = s[i + 1];
+                    if (XmlConvert.IsXmlSurrogatePair(chLow, ch))
+                    {
+                        stringBuilder?.Append(ch);
+                        stringBuilder?.Append(chLow);
+                        i++;
+                        continue;
+                    }
+                }
+                if (stringBuilder == null)
+                {
+                    stringBuilder = new StringBuilder(s.Length);
+                    stringBuilder.Append(s.Substring(0, i));
+                }
+                stringBuilder.Append("\\u" + ((int)ch).ToString("X4"));
+            }
+            return stringBuilder?.ToString() ?? s;
         }
     }
 

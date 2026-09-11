@@ -23,10 +23,14 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Newtonsoft.Json;
 using pwiz.Common.Chemistry;
 using pwiz.Common.DataBinding;
 using pwiz.Common.DataBinding.Controls;
+using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.ProteowizardWrapper;
 using pwiz.Skyline;
 using pwiz.Skyline.Alerts;
@@ -38,10 +42,9 @@ using pwiz.Skyline.EditUI;
 using pwiz.Skyline.FileUI;
 using pwiz.Skyline.FileUI.PeptideSearch;
 using pwiz.Skyline.Model;
+using pwiz.Skyline.Model.AuditLog;
 using pwiz.Skyline.Model.DocSettings;
-using pwiz.Skyline.Model.GroupComparison;
 using pwiz.Skyline.Model.Irt;
-using pwiz.Skyline.Model.Results;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.SettingsUI;
 using pwiz.Skyline.SettingsUI.Irt;
@@ -59,6 +62,8 @@ namespace TestPerf
     {
         private InstrumentSpecificValues _instrumentValues;
         private AnalysisValues _analysisValues;
+        private ExpectedValues _expectedValues;
+        private string _expectedValuesFilePath;
 
         private class InstrumentSpecificValues
         {
@@ -85,18 +90,10 @@ namespace TestPerf
             public bool IsWholeProteome;
             public bool KeepPrecursors;
 
-            public int LibraryPeptideCount;
-            public double IrtSlope;
-            public double IrtIntercept;
-
             public string IrtFilterText;
             public int? MinPeptidesPerProtein;
             public bool RemoveDuplicates;
-            public int[] TargetCounts;
-            public int[] FinalTargetCounts;
-            public string ScoringModelCoefficients;
             public PointF ChromatogramClickPoint;
-            public double[][] MassErrorStats;
 
             public string FastaPathForSearch => "DDA_search\\nodecoys_3mixed_human_yeast_ecoli_20140403_iRT.fasta";
             public string FastaPath =>
@@ -104,6 +101,16 @@ namespace TestPerf
                     ? "DDA_search\\nodecoys_3mixed_human_yeast_ecoli_20140403_iRT.fasta"
                     : "DIA\\target_protein_sequences.fasta";
 
+        }
+
+        private class ExpectedValues
+        {
+            public int LibraryPeptideCount;
+            public double IrtSlope;
+            public double IrtIntercept;
+            public double[][] MassErrorStats;
+            public int[] FinalTargetCounts;
+            public double?[] ScoringModelCoefficients;
         }
 
         private string[] DiaFiles
@@ -116,27 +123,28 @@ namespace TestPerf
         }
         private string RootName { get; set; }
 
-        [TestMethod, NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE), NoUnicodeTesting(TestExclusionReason.MZ5_UNICODE_ISSUES)]
+        private Image _searchLogImage;
+
+        protected override Bitmap ProcessCoverShot(Bitmap bmp)
+        {
+            var result = base.ProcessCoverShot(bmp);
+            using var graph = Graphics.FromImage(result);
+            graph.DrawImageUnscaled(_searchLogImage, result.Width - _searchLogImage.Width - 10, result.Height - _searchLogImage.Height - 30);
+            return result;
+        }
+
+        [TestMethod, NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE)]
         public void TestDiaTtofDiaUmpireTutorial()
         {
+            // Not yet translated
+            if (IsTranslationRequired)
+                return;
+            ReadExpectedValues("TestDiaTtofDiaUmpireTutorial");
             //IsPauseForScreenShots = true;
             _analysisValues = new AnalysisValues
             {
                 KeepPrecursors = false,
                 ChromatogramClickPoint = new PointF(23.02F, 150.0F),
-                LibraryPeptideCount = 18125,
-                IrtSlope = 3.005,
-                IrtIntercept = -67.215,
-
-                TargetCounts = new[] { 14, 213, 277, 1661 },
-                FinalTargetCounts = new[] { 11, 215, 279, 1673 },
-                ScoringModelCoefficients = "0.0967|-0.2729|5.0779|0.0591|-0.5293|0.8507|0.1077|-0.0567",
-                MassErrorStats = new[]
-                {
-                    new[] {3.4, 3.7},
-                    new[] {3.2, 3.3},
-                    new[] {3.5, 4.1},
-                },
             };
 
             TestTtofData();
@@ -144,10 +152,10 @@ namespace TestPerf
 
         [TestMethod, 
          NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE), 
-         NoUnicodeTesting(TestExclusionReason.MZ5_UNICODE_ISSUES),
          NoNightlyTesting(TestExclusionReason.EXCESSIVE_TIME)]
         public void TestDiaTtofDiaUmpireTutorialFullFileset()
         {
+            ReadExpectedValues("TestDiaTtofDiaUmpireTutorialFullFileset");
             _analysisValues = new AnalysisValues
             {
                 KeepPrecursors = false,
@@ -156,23 +164,6 @@ namespace TestPerf
                 MinPeptidesPerProtein = 2,
                 RemoveDuplicates = true,
                 ChromatogramClickPoint = new PointF(23.02F, 150.0F),
-                LibraryPeptideCount = 28370,
-                IrtSlope = 3.006,
-                IrtIntercept = -67.212,
-
-                TargetCounts = new[] { 6945, 41874, 46365, 278190 },
-                FinalTargetCounts = new[] { 2642, 27840, 31188, 187128 },
-                ScoringModelCoefficients = "0.1951|-0.6248|4.0530|0.1456|-0.1801|0.5896|0.1466|-0.0445",
-                MassErrorStats = new[]
-                {
-                    new[] {2.7, 5.1},
-                    new[] {2.6, 4.7},
-                    new[] {3.5, 5.0},
-                    new[] {4.9, 4.7},
-                    new[] {4.0, 5.1},
-                    new[] {-0.1, 4.5},
-                    new[] {1.1, 4.8},
-                },
             };
 
             if (!IsCoverShotMode)
@@ -205,27 +196,15 @@ namespace TestPerf
             RunTest();
         }
 
-        [TestMethod, NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE), NoUnicodeTesting(TestExclusionReason.MSFRAGGER_UNICODE_ISSUES)]
-        public void TestDiaQeDiaUmpireTutorial()
+        [TestMethod, NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE)]
+        public void TestDiaQeDiaUmpireTutorialExtra()
         {
+            ReadExpectedValues("TestDiaQeDiaUmpireTutorialExtra");
             _analysisValues = new AnalysisValues
             {
                 KeepPrecursors = false,
                 IrtFilterText = "standard",
                 ChromatogramClickPoint = new PointF(18.13f, 5.51e5f),
-                LibraryPeptideCount = 9698,
-                IrtSlope = 2.606,
-                IrtIntercept = -45.948,
-
-                TargetCounts = new[] { 14, 173, 203, 1217 },
-                FinalTargetCounts = new[] { 11, 175, 205, 1229 },
-                ScoringModelCoefficients = "0.2010|-0.8474|1.6058|1.7597|-0.0760|0.7606|0.2393|-0.0863",
-                MassErrorStats = new[]
-                {
-                    new[] {1.9, 3.8},
-                    new[] {1.4, 3.7},
-                    new[] {2.3, 3.9},
-                },
             };
 
             if (!IsCoverShotMode)
@@ -234,11 +213,10 @@ namespace TestPerf
 
         [TestMethod, 
          NoParallelTesting(TestExclusionReason.RESOURCE_INTENSIVE), 
-         NoUnicodeTesting(TestExclusionReason.MZ5_UNICODE_ISSUES),
          NoNightlyTesting(TestExclusionReason.EXCESSIVE_TIME)] // do not run full filesets for nightly tests
         public void TestDiaQeDiaUmpireTutorialFullFileset()
         {
-
+            ReadExpectedValues("TestDiaQeDiaUmpireTutorialFullFileset");
             _analysisValues = new AnalysisValues
             {
                 KeepPrecursors = false,
@@ -247,23 +225,6 @@ namespace TestPerf
                 MinPeptidesPerProtein = 2,
                 RemoveDuplicates = true,
                 ChromatogramClickPoint = new PointF(18.13f, 5.51e5f),
-                LibraryPeptideCount = 14541,
-                IrtSlope = 2.599,
-                IrtIntercept = -45.630,
-
-                TargetCounts = new[] { 4424, 25010, 27129, 162774 },
-                FinalTargetCounts = new[] { 1529, 15328, 16793, 100758 },
-                ScoringModelCoefficients = "0.2747|-0.8328|2.9651|1.2701|-0.0728|0.7011|0.0815|-0.0658",
-                MassErrorStats = new[]
-                {
-                    new[] {1.6, 4.6},
-                    new[] {1.2, 4.4},
-                    new[] {1.6, 4.8},
-                    new[] {1.8, 4.3},
-                    new[] {1.8, 4.8},
-                    new[] {1.8, 4.4},
-                    new[] {1.5, 4.8},
-                },
             };
 
             if (!IsCoverShotMode)
@@ -296,6 +257,23 @@ namespace TestPerf
             RunTest();
         }
 
+        private void ReadExpectedValues(string name)
+        {
+            _expectedValuesFilePath = Path.Combine(ExtensionTestContext.GetProjectDirectory(
+                @"TestPerf\DiaUmpireTutorialTest.data"), name + ".json");
+            if (File.Exists(_expectedValuesFilePath))
+            {
+                using var streamReader = File.OpenText(_expectedValuesFilePath);
+                using var jsonReader = new JsonTextReader(streamReader);
+                _expectedValues = JsonSerializer.Create().Deserialize<ExpectedValues>(jsonReader);
+            }
+            else
+            {
+                Assert.IsTrue(IsRecordMode, "Expected values file {0} does not exist", _expectedValuesFilePath);
+                _expectedValues = new ExpectedValues();
+            }
+        }
+
         // disable audit log comparison for FullFileset tests
         public override bool AuditLogCompareLogs => !TestContext.TestName.EndsWith("FullFileset");
 
@@ -313,7 +291,7 @@ namespace TestPerf
                 string.Format(@"TestPerf\DiaSwath{0}Views.zip", InstrumentTypeName)
             };
 
-            TestFilesPersistent = new[] { Path.Combine(RootName, "DDA_search"), Path.Combine(RootName, "DIA") };
+            TestFilesPersistent = new[] { Path.Combine(RootName, "DDA_search"), Path.Combine(RootName, "DIA") + '\\' };
         }
 
         private void RunTest()
@@ -321,11 +299,9 @@ namespace TestPerf
 //            IsPauseForScreenShots = true;
 //            RunPerfTests = true;
 //            IsPauseForCoverShot = true;
-            CoverShotName = "DIA-SWATH with DiaUmpire";
+            CoverShotName = "DIA-Umpire-" + InstrumentTypeName;
 
             RunFunctionalTest();
-
-            Assert.IsFalse(IsRecordMode, "Set IsRecordMode to false before commit");   // Make sure this doesn't get committed as true
         }
 
         private string DataPath { get { return TestFilesDirs.Last().PersistentFilesDir; } }
@@ -342,13 +318,11 @@ namespace TestPerf
         /// <summary>
         /// Change to true to write coefficient arrays.
         /// </summary>
-        private bool IsRecordMode { get { return false; } }
+        protected override bool IsRecordMode => false;
 
         protected override void DoTest()
         {
-            Assert.AreEqual("IrtSlope = 3.005,\r\nIrtIntercept = -67.173,\r\n", ParseIrtProperties("iRT = 3.005 * Measured RT - 67.173", CultureInfo.InvariantCulture));
-            if (IsRecordMode)
-                Console.WriteLine();
+            Assert.IsNotNull(_expectedValues);
 
             // Clean-up before running the test
             RunUI(() => SkylineWindow.ModifyDocument("Set default settings",
@@ -362,17 +336,18 @@ namespace TestPerf
             RunUI(() => SkylineWindow.SaveDocument(documentFile));
 
             // Launch the wizard
-            var importPeptideSearchDlg = ShowDialog<ImportPeptideSearchDlg>(SkylineWindow.ShowImportPeptideSearchDlg);
+            var importPeptideSearchDlg = ShowDialog<ImportPeptideSearchDlg>(SkylineWindow.ShowRunPeptideSearchDlg);
 
-            PauseForScreenShot<ImportPeptideSearchDlg.SpectraPage>("Import Peptide Search - Build Spectral Library empty page", 3);
+            PauseForScreenShot<ImportPeptideSearchDlg.SpectraPage>("Import Peptide Search - Build Spectral Library empty page");
 
             // We're on the "Build Spectral Library" page of the wizard.
             // Add the test xml file to the search files list and try to 
             // build the document library.
-            string diaDir = GetTestPath("DIA");
+            string diaDir = GetTestPath("DIA\\");
 
             // when in regular test mode, delete -diaumpire files so they get regenerated instead of reused
             // (in IsRecordMode, keep these files around so that repeated tests on each language run faster)
+            /* TODO: how can this code work if we aren't running DiaUmpire in the persistent directory? */
             if (!IsRecordMode)
             {
                 var diaumpireFiles = Directory.GetFiles(diaDir, "*-diaumpire.*");
@@ -394,23 +369,33 @@ namespace TestPerf
             RunUI(() =>
             {
                 Assert.IsTrue(importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.spectra_page);
-                importPeptideSearchDlg.BuildPepSearchLibControl.PerformDDASearch = true;
                 importPeptideSearchDlg.BuildPepSearchLibControl.DdaSearchDataSources = searchFiles.Select(f => new MsDataFilePath(f)).ToArray();
                 importPeptideSearchDlg.BuildPepSearchLibControl.IrtStandards = IrtStandard.BIOGNOSYS_11;
                 importPeptideSearchDlg.BuildPepSearchLibControl.WorkflowType = ImportPeptideSearchDlg.Workflow.dia;
-                importPeptideSearchDlg.BuildPepSearchLibControl.InputFileType = ImportPeptideSearchDlg.InputFile.dia_raw;
                 // Check default settings shown in the tutorial
-                Assert.AreEqual(0.95, importPeptideSearchDlg.BuildPepSearchLibControl.CutOffScore);
                 Assert.IsFalse(importPeptideSearchDlg.BuildPepSearchLibControl.IncludeAmbiguousMatches);
             });
-            PauseForScreenShot<ImportPeptideSearchDlg.SpectraPage>("Import Peptide Search - Build Spectral Library populated page", 4);
+            PauseForScreenShot<ImportPeptideSearchDlg.SpectraPage>("Import Peptide Search - Build Spectral Library populated page");
 
-            //WaitForConditionUI(() => importPeptideSearchDlg.IsNextButtonEnabled);
+            RunUI(() =>
+            {
+                Assert.IsTrue(importPeptideSearchDlg.ClickNextButton());
+                Assert.IsTrue(importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.chromatograms_page);
+            });
 
-            var removeSuffix = ShowDialog<ImportResultsNameDlg>(() => importPeptideSearchDlg.ClickNextButton()); // now on remove prefix/suffix dialog
-            PauseForScreenShot<ImportResultsNameDlg>("Import Peptide Search - Remove shared prefix/suffix page", 5);
-            OkDialog(removeSuffix, () => removeSuffix.YesDialog()); // now on modifications
-            WaitForDocumentLoaded();
+            // TODO: Put this back with tutorial text that explains it
+            // PauseForScreenShot<ImportPeptideSearchDlg.ChromatogramsDiaPage>("Import Peptide Search - Extract chromatograms page");
+
+            // With 2 sources, we get the remove prefix/suffix dialog; accept default behavior
+            if (searchFiles.Length > 1)
+            {
+                var removeSuffix = ShowDialog<ImportResultsNameDlg>(() => importPeptideSearchDlg.ClickNextButton()); // now on remove prefix/suffix dialog
+                PauseForScreenShot<ImportResultsNameDlg>("Import Peptide Search - Remove shared prefix/suffix page");
+                OkDialog(removeSuffix, () => removeSuffix.YesDialog()); // now on modifications
+                WaitForDocumentLoaded();
+            }
+            else
+                RunUI(() => importPeptideSearchDlg.ClickNextButton());
 
             RunUI(() => Assert.IsTrue(importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.match_modifications_page));
 
@@ -418,14 +403,14 @@ namespace TestPerf
                 ShowDialog<EditListDlg<SettingsListBase<StaticMod>, StaticMod>>(importPeptideSearchDlg.MatchModificationsControl.ClickAddStructuralModification);
             RunDlg<EditStaticModDlg>(editStructModListUI.AddItem, editModDlg =>
             {
-                editModDlg.SetModification(OXIDATION_M, true); // Not L10N
+                editModDlg.SetModification(OXIDATION_M); // Not L10N
                 editModDlg.OkDialog();
             });
             OkDialog(editStructModListUI, editStructModListUI.OkDialog);
 
             RunUI(() => importPeptideSearchDlg.MatchModificationsControl.ChangeAll(true));
 
-            PauseForScreenShot<ImportPeptideSearchDlg.MatchModsPage>("Import Peptide Search - After adding modifications page", 6);
+            PauseForScreenShot<ImportPeptideSearchDlg.MatchModsPage>("Import Peptide Search - After adding modifications page");
             RunUI(() => Assert.IsTrue(importPeptideSearchDlg.ClickNextButton()));
 
             WaitForConditionUI(() => importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.transition_settings_page);
@@ -456,7 +441,7 @@ namespace TestPerf
                 Assert.AreEqual(MzTolerance.Units.mz, importPeptideSearchDlg.TransitionSettingsControl.IonMatchMzTolerance.Unit);
                 // CONSIDER: Not that easy to validate 1, 2 in ion charges.
             });
-            PauseForScreenShot<ImportPeptideSearchDlg.TransitionSettingsPage>("Transition settings", 7);
+            PauseForScreenShot<ImportPeptideSearchDlg.TransitionSettingsPage>("Transition settings");
             RunUI(() => Assert.IsTrue(importPeptideSearchDlg.ClickNextButton()));
 
             // We're on the "Configure Full-Scan Settings" page of the wizard.
@@ -482,7 +467,7 @@ namespace TestPerf
             });
             RunDlg<OpenDataSourceDialog>(isolationScheme.ImportRanges, importRangesDlg =>
             {
-                importRangesDlg.CurrentDirectory = new MsDataFilePath(diaDir);
+                importRangesDlg.SetCurrentDirectory(new MsDataFilePath(diaDir));
                 importRangesDlg.SelectFile(DiaFiles[0]);
                 importRangesDlg.Open();
             });
@@ -504,45 +489,50 @@ namespace TestPerf
                     Assert.AreEqual(double.Parse(fields[2], CultureInfo.InvariantCulture), isolationWindow.StartMargin ?? 0, 0.01);
                 }
             });
-            PauseForScreenShot("Isolation scheme", 8);
+            PauseForScreenShot<EditIsolationSchemeDlg>("Isolation scheme");
 
             var isolationGraph = ShowDialog<DiaIsolationWindowsGraphForm>(isolationScheme.OpenGraph);
-            PauseForScreenShot("Isolation scheme graph", 9);
+            PauseForScreenShot<DiaIsolationWindowsGraphForm>("Isolation scheme graph");
 
             OkDialog(isolationGraph, isolationGraph.CloseButton);
             OkDialog(isolationScheme, isolationScheme.OkDialog);
 
-            PauseForScreenShot<ImportPeptideSearchDlg.Ms2FullScanPage>("Import Peptide Search - Configure Full-Scan Settings page", 10);
+            PauseForScreenShot<ImportPeptideSearchDlg.Ms2FullScanPage>("Import Peptide Search - Configure Full-Scan Settings page");
 
             WaitForConditionUI(() => importPeptideSearchDlg.IsNextButtonEnabled);
             RunUI(() => Assert.IsTrue(importPeptideSearchDlg.ClickNextButton()));
 
-            PauseForScreenShot<ImportPeptideSearchDlg.FastaPage>("Import Peptide Search - Import FASTA page before settings", 11);
+            PauseForScreenShot<ImportPeptideSearchDlg.FastaPage>("Import Peptide Search - Import FASTA page before settings");
             RunUI(() =>
             {
                 Assert.IsTrue(importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.import_fasta_page);
                 Assert.AreEqual("Trypsin [KR | P]", importPeptideSearchDlg.ImportFastaControl.Enzyme.GetKey());
                 Assert.AreEqual(0, importPeptideSearchDlg.ImportFastaControl.MaxMissedCleavages);
                 importPeptideSearchDlg.ImportFastaControl.SetFastaContent(fastaPathForSearch);
+                importPeptideSearchDlg.ImportFastaControl.ScrollFastaTextToEnd();   // So that the FASTA file name is visible
                 if (!_analysisValues.IsWholeProteome)
+                {
                     importPeptideSearchDlg.ImportFastaControl.FastaImportTargetsFile = fastaPathForImport;
+                    importPeptideSearchDlg.ImportFastaControl.ScrollFastaTargetsToEnd();
+                }
                 Assert.IsTrue(importPeptideSearchDlg.ImportFastaControl.DecoyGenerationEnabled);
                 importPeptideSearchDlg.ImportFastaControl.DecoyGenerationMethod =
                     Resources.DecoyGeneration_SHUFFLE_SEQUENCE_Shuffle_Sequence;
                 importPeptideSearchDlg.ImportFastaControl.AutoTrain = true;
                 Assert.IsTrue(importPeptideSearchDlg.ImportFastaControl.ContainsFastaContent);
             });
-            PauseForScreenShot<ImportPeptideSearchDlg.FastaPage>("Import Peptide Search - Import FASTA page after settings", 12);
+            PauseForScreenShot<ImportPeptideSearchDlg.FastaPage>("Import Peptide Search - Import FASTA page after settings");
 
             RunUI(() =>
             {
                 Assert.IsTrue(importPeptideSearchDlg.ClickNextButton());
 
+                importPeptideSearchDlg.ConverterSettingsControl.UseDiaUmpire = true;
                 importPeptideSearchDlg.ConverterSettingsControl.InstrumentPreset = _instrumentValues.InstrumentPreset;
                 importPeptideSearchDlg.ConverterSettingsControl.EstimateBackground = true;
                 //importPeptideSearchDlg.ConverterSettingsControl.AdditionalSettings = _instrumentValues.AdditionalSettings;
             });
-            PauseForScreenShot<ImportPeptideSearchDlg.ConverterSettingsPage>("Import Peptide Search - DiaUmpire settings page", 14);
+            PauseForScreenShot<ImportPeptideSearchDlg.ConverterSettingsPage>("Import Peptide Search - DiaUmpire settings page");
 
             bool? searchSucceeded = null;
             RunUI(() =>
@@ -554,8 +544,11 @@ namespace TestPerf
                 importPeptideSearchDlg.SearchSettingsControl.PrecursorTolerance = _instrumentValues.PrecursorTolerance;
                 importPeptideSearchDlg.SearchSettingsControl.FragmentTolerance = _instrumentValues.FragmentTolerance;
                 importPeptideSearchDlg.SearchSettingsControl.FragmentIons = "b, y";
+                importPeptideSearchDlg.SearchSettingsControl.CutoffScore = 0.05;
+                Assert.AreEqual(PropertyNames.CutoffScore_PERCOLATOR_QVALUE, importPeptideSearchDlg.SearchSettingsControl.CutoffLabel);
+                Assert.AreEqual(0.05, importPeptideSearchDlg.SearchSettingsControl.CutoffScore);
             });
-            PauseForScreenShot<ImportPeptideSearchDlg.DDASearchSettingsPage>("Import Peptide Search - DDA search settings", 13);
+            PauseForScreenShot<ImportPeptideSearchDlg.DDASearchSettingsPage>("Import Peptide Search - DDA search settings");
 
             IDictionary<string, object> diaUmpireParameters = null;
             SearchSettingsControl.DdaSearchSettings searchSettings = null;
@@ -568,6 +561,12 @@ namespace TestPerf
                 });
             }
 
+            if (IsCoverShotMode)
+            {
+                // Resize the form before running or the output will not appear scrolled to the end
+                RunUI(() => importPeptideSearchDlg.Size = new Size(404, 578));  // minimum height
+            }
+
             RunUI(() =>
             {
                 // Run the search
@@ -577,9 +576,27 @@ namespace TestPerf
                 importPeptideSearchDlg.BuildPepSearchLibControl.IncludeAmbiguousMatches = true;
             });
 
-            PauseForScreenShot("Import Peptide Search - DDA search progress page", 14);
-            WaitForConditionUI(120 * 600000, () => searchSucceeded.HasValue, () => importPeptideSearchDlg.SearchControl.LogText);
-            RunUI(() => Assert.IsTrue(searchSucceeded.Value, importPeptideSearchDlg.SearchControl.LogText));
+            try
+            {
+                WaitForConditionUI(() => importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.dda_search_page);
+                WaitForConditionUI(WAIT_TIME * 4, () => importPeptideSearchDlg.SearchControl.PercentComplete > 17);
+                PauseForScreenShot<ImportPeptideSearchDlg.DDASearchPage>("Import Peptide Search - DDA search progress page", null,
+                    bmp => bmp.CleanupBorder().FillProgressBar(importPeptideSearchDlg.SearchControl.ProgressBar));
+
+                WaitForConditionUI(120 * 600000, () => searchSucceeded.HasValue, () => importPeptideSearchDlg.SearchControl.LogText);
+                RunUI(() => Assert.IsTrue(searchSucceeded.Value, importPeptideSearchDlg.SearchControl.LogText));
+            }
+            finally
+            {
+                File.WriteAllText("SearchControlLog.txt", importPeptideSearchDlg.SearchControl.LogText);
+            }
+
+            if (IsCoverShotMode)
+            {
+                ScreenshotManager.ActivateScreenshotForm(importPeptideSearchDlg);
+                _searchLogImage = ScreenshotManager.TakeShot(importPeptideSearchDlg);
+                Assert.IsNotNull(_searchLogImage);
+            }
 
             var addIrtDlg = ShowDialog<AddIrtPeptidesDlg>(() => importPeptideSearchDlg.ClickNextButton(), 30 * 60000);//peptidesPerProteinDlg.OkDialog());
             RunUI(() =>
@@ -589,26 +606,30 @@ namespace TestPerf
                 var row = addIrtDlg.GetRow(0);
                 Assert.AreEqual(11, row.Cells[1].Value);
 
-                var regressionLine = new RegressionLine(_analysisValues.IrtSlope, _analysisValues.IrtIntercept);
+                var regressionLine = addIrtDlg.GetRegressionRefined(0);
+                Assert.IsNotNull(regressionLine);
+                var actualSlope = Math.Round(regressionLine.Slope, 3);
+                var actualIntercept = Math.Round(regressionLine.Intercept, 3);
                 if (!IsRecordMode)
                 {
-                    Assert.AreEqual(_analysisValues.LibraryPeptideCount, addIrtDlg.PeptidesCount);
-                    Assert.AreEqual(regressionLine.DisplayEquation, row.Cells[2].Value);
+                    Assert.AreEqual(_expectedValues.LibraryPeptideCount, addIrtDlg.PeptidesCount);
+                    Assert.AreEqual(_expectedValues.IrtSlope, actualSlope);
+                    Assert.AreEqual(_expectedValues.IrtIntercept, actualIntercept);
                 }
                 else
                 {
-                    _analysisValues.LibraryPeptideCount = addIrtDlg.PeptidesCount;
-                    Console.WriteLine($@"LibraryPeptideCount = {addIrtDlg.PeptidesCount},");
-                    Console.WriteLine(ParseIrtProperties(row.Cells[2].Value.ToString()));
+                    _expectedValues.LibraryPeptideCount = addIrtDlg.PeptidesCount;
+                    _expectedValues.IrtSlope = actualSlope;
+                    _expectedValues.IrtIntercept = actualIntercept;
                 }
 
                 Assert.AreEqual(1.0, double.Parse(row.Cells[3].Value.ToString()));
                 Assert.AreEqual(Resources.AddIrtPeptidesDlg_AddIrtPeptidesDlg_Success, row.Cells[4].Value);
             });
-            PauseForScreenShot("Add iRT peptides form", 15);
+            PauseForScreenShot<AddIrtPeptidesDlg>("Add iRT peptides form");
 
             var irtGraph = ShowDialog<GraphRegression>(() => addIrtDlg.ShowRegression(0));
-            PauseForScreenShot("iRT regression graph", 15);
+            PauseForScreenShot<GraphRegression>("iRT regression graph");
 
             OkDialog(irtGraph, irtGraph.CloseDialog);
             var recalibrateMessage = ShowDialog<MultiButtonMsgDlg>(addIrtDlg.OkDialog);
@@ -645,17 +666,26 @@ namespace TestPerf
             {
                 int proteinCount, peptideCount, precursorCount, transitionCount;
                 peptidesPerProteinDlg.NewTargetsFinal(out proteinCount, out peptideCount, out precursorCount, out transitionCount);
-                ValidateTargets(ref _analysisValues.FinalTargetCounts, proteinCount, peptideCount, precursorCount, transitionCount, @"FinalTargetCounts");
+                ValidateTargets(ref _expectedValues.FinalTargetCounts, proteinCount, peptideCount, precursorCount, transitionCount);
             });
-            PauseForScreenShot("Import FASTA summary form", 16);
+            PauseForScreenShot<AssociateProteinsDlg>("Import FASTA summary form");
             OkDialog(peptidesPerProteinDlg, peptidesPerProteinDlg.OkDialog);
 
-            PauseForScreenShot<AllChromatogramsGraph>("Loading chromatograms window", 13, 30*1000); // 30 second timeout to avoid getting stuck
+            if (!PauseForAllChromatogramsGraphScreenShot("Loading chromatograms window", 40, @"00:00:22", 39f, 1e4f,
+                    new Dictionary<string, int>
+                    {
+                        { "collinsb_I180316_001", 40 },
+                        { "collinsb_I180316_002", 41 }
+                    }))
+            {
+                CleanUpPersistentDir(diaDir);
+                return;
+            }
             WaitForDocumentChangeLoaded(doc, 15 * 60 * 1000); // 15 minutes
 
             var peakScoringModelDlg = WaitForOpenForm<EditPeakScoringModelDlg>();
-            ValidateCoefficients(peakScoringModelDlg, _analysisValues.ScoringModelCoefficients);
-            PauseForScreenShot("mProphet model form", 17);
+            ValidateCoefficients(peakScoringModelDlg, ref _expectedValues.ScoringModelCoefficients);
+            PauseForScreenShot<EditPeakScoringModelDlg>("mProphet model form");
 
             OkDialog(peakScoringModelDlg, peakScoringModelDlg.OkDialog);
 
@@ -675,6 +705,36 @@ namespace TestPerf
 
             RunUI(() => SkylineWindow.SaveDocument());
 
+            if (IsPauseForScreenShots)
+            {
+                RestoreViewOnScreenNoSelChange(17);
+                SelectNode(SrmDocument.Level.MoleculeGroups, 0);
+                Rectangle rectFrame = Rectangle.Empty;
+                RunUI(() =>
+                {
+                    SkylineWindow.Size = new Size(900, 900);
+                    SkylineWindow.ForceOnScreen();  // Avoid this shifting the window under the floating window later
+                });
+                Thread.Sleep(200);  // Give layout time to adjust
+                RunUI(() =>
+                {
+                    var chromPane1 = SkylineWindow.GetGraphChrom(SkylineWindow.Document.Settings.MeasuredResults.Chromatograms[0].Name);
+                    var chromPane2 = SkylineWindow.GetGraphChrom(SkylineWindow.Document.Settings.MeasuredResults.Chromatograms[1].Name);
+                    var rtGraphFrame = FindFloatingWindow(SkylineWindow.GraphRetentionTime);
+                    var chromTopLeft = chromPane1.PointToScreen(new Point(0, 0));
+                    var chromTopRight = chromPane2.PointToScreen(new Point(chromPane2.Width, 0));
+                    rtGraphFrame.Location = chromPane1.PointToScreen(new Point(((chromTopRight.X - chromTopLeft.X) - rtGraphFrame.Width) / 2, 50));
+                    rectFrame = rtGraphFrame.Bounds;
+                    rtGraphFrame.Activate();    // TODO: Want the graph activated but a screenshot of screen
+                });
+                PauseForScreenShot<ScreenForm>("Docking floating image with cursor", null, bmp =>
+                    DrawLArrowCursorOnBitmap(ClipDockingRect(bmp, rectFrame), 0.5, 0.155));
+                BeginDragDisplay(SkylineWindow.GraphRetentionTime, 0.62, 0.11);
+                PauseForScreenShot<ScreenForm>("Docking image cursor on upper dock indicator", null, bmp =>
+                    ClipDockingRect(bmp, rectFrame));
+                EndDragDisplay();
+            }
+
             const string proteinNameToSelect = "sp|P63284|CLPB_ECOLI";
             if (Equals(proteinNameToSelect, SkylineWindow.Document.MoleculeGroups.Skip(1).First().Name))
                 SelectNode(SrmDocument.Level.MoleculeGroups, 1);
@@ -691,42 +751,38 @@ namespace TestPerf
             });
             RestoreViewOnScreenNoSelChange(18);
             WaitForGraphs();
-            PauseForScreenShot("Manual review window layout with protein selected", 19);
+            RunUIForScreenShot(() => SkylineWindow.SequenceTree.TopNode = SkylineWindow.SequenceTree.SelectedNode);
+            PauseForScreenShot("Manual review window layout with protein selected");
 
             FindNode("TDINQALNR");
             WaitForGraphs();
-            PauseForScreenShot("Manual review window layout with peptide selected", 20);
+            PauseForScreenShot("Manual review window layout with peptide selected");
 
             FindNode("_HUMAN");
             WaitForGraphs();
             FindNode("TDINQALNR");
             RunUI(SkylineWindow.AutoZoomBestPeak);
             WaitForGraphs();
-            PauseForScreenShot("Snip just one chromatogram pane", 21);
+            PauseForChromGraphScreenShot("Snip just one chromatogram pane", "1_SW-A");
 
             ClickChromatogram(SkylineWindow.Document.MeasuredResults.Chromatograms[0].Name,
                 _analysisValues.ChromatogramClickPoint.X,
                 _analysisValues.ChromatogramClickPoint.Y);
-            PauseForScreenShot<GraphFullScan>("Full-Scan graph window - zoomed", 21);
+            PauseForScreenShot<GraphFullScan>("Full-Scan graph window - zoomed");
             
             RunUI(() => SkylineWindow.GraphFullScan.ZoomToSelection(false));
             WaitForGraphs();
-            PauseForScreenShot<GraphFullScan>("Full-Scan graph window - unzoomed", 22);
+            PauseForScreenShot<GraphFullScan>("Full-Scan graph window - unzoomed");
 
             RunUI(SkylineWindow.GraphFullScan.Close);
             RunUI(SkylineWindow.ShowMassErrorHistogramGraph);
             WaitForGraphs();
             Assert.IsTrue(SkylineWindow.GraphMassError.TryGetGraphPane(out MassErrorHistogramGraphPane massErrorPane));
             int massErrorStatsIndex = 0;
-            if (IsRecordMode)
-            {
-                Console.WriteLine(@"MassErrorStats = new[]");
-                Console.WriteLine(@"{");
-            }
             ValidateMassErrors(massErrorPane, massErrorStatsIndex++);
 
             // CONSIDER: No way to specify mass error graph window in PauseForScreenShot or ShowDialog
-            PauseForScreenShot("Mass errors histogram graph window", 23);
+            PauseForMassErrorGraphScreenShot("Mass errors histogram graph window");
 
             // Review single replicates
             RunUI(SkylineWindow.ShowSingleReplicate);
@@ -739,7 +795,6 @@ namespace TestPerf
 
             if (IsRecordMode)
             {
-                Console.WriteLine(@"},");
                 PrintAnalysisSettingsAndResultSummary(diaUmpireParameters, searchSettings, _analysisValues);
             }
 
@@ -755,11 +810,11 @@ namespace TestPerf
             RunUI(SkylineWindow.ShowRTRegressionGraphScoreToRun);
             WaitForGraphs();
             RestoreViewOnScreenNoSelChange(24);
-            PauseForScreenShot("Retention time regression graph window - regression", 24);
+            PauseForRetentionTimeGraphScreenShot("Retention time regression graph window - regression");
 
             RunUI(() => SkylineWindow.ShowPlotType(PlotTypeRT.residuals));
             WaitForGraphs();
-            PauseForScreenShot("Retention time regression graph window - residuals", 25);
+            PauseForRetentionTimeGraphScreenShot("Retention time regression graph window - residuals");
             RunUI(() => SkylineWindow.ShowGraphRetentionTime(false, GraphTypeSummary.score_to_run_regression));
 
             if (IsCoverShotMode)
@@ -772,8 +827,13 @@ namespace TestPerf
                 });
 
                 RestoreCoverViewOnScreen();
-                /*fcGrid = WaitForOpenForm<FoldChangeGrid>();
-                fcGridControlFinal = fcGrid.DataboundGridControl;
+                
+                // No fold-change with only 2 runs
+                // CONSIDER: Could remove the fold-change floating window from the cover.view
+                var fcGrid = WaitForOpenForm<FoldChangeGrid>();
+                RunUI(FindFloatingWindow(fcGrid).Close);
+
+                /* fcGridControlFinal = fcGrid.DataboundGridControl;
                 FilterIrtProtein(fcGridControlFinal);
                 changeGroupComparisonSettings = ShowDialog<EditGroupComparisonDlg>(fcGrid.ShowChangeSettings);
                 RunUI(() => changeGroupComparisonSettings.RadioScopePerPeptide.Checked = true);
@@ -787,6 +847,42 @@ namespace TestPerf
                 });*/
                 TakeCoverShot();
             }
+
+            // Cleanup output files in persistent dir
+            // (in IsRecordMode, keep these files around so that repeated tests on each language run faster)
+            if (!IsRecordMode)
+            {
+                CleanUpPersistentDir(diaDir);
+            }
+
+            if (IsRecordMode)
+            {
+                Assert.IsNotNull(_expectedValues);
+                Assert.IsNotNull(_expectedValuesFilePath);
+                using var streamWriter = new StreamWriter(_expectedValuesFilePath);
+                using var jsonTextWriter = new JsonTextWriter(streamWriter);
+                JsonSerializer.Create(new JsonSerializerSettings
+                {
+                    Formatting = Formatting.Indented
+                }).Serialize(jsonTextWriter, _expectedValues);
+            }
+        }
+
+        private static void CleanUpPersistentDir(string diaDir)
+        {
+            foreach (var file in Directory.GetFiles(diaDir, "*-diaumpire.*"))
+                FileEx.SafeDelete(file);
+        }
+
+        private static Bitmap ClipDockingRect(Bitmap bmp, Rectangle rectFrame)
+        {
+            const int hBorder = 20;
+            const int topBorder = 100;
+            const int bottomBorder = 10;
+            var rectClip = new Rectangle(rectFrame.X - hBorder, rectFrame.Y - topBorder, rectFrame.Width + hBorder * 2,
+                rectFrame.Height + topBorder + bottomBorder);
+            bmp = ClipBitmap(bmp, rectClip);
+            return bmp;
         }
 
         private void PrintAnalysisSettingsAndResultSummary(IDictionary<string, object> diaUmpireParameters, SearchSettingsControl.DdaSearchSettings searchSettings, AnalysisValues analysisValues)
@@ -796,11 +892,9 @@ namespace TestPerf
                 interestingParameters.Add(diaUmpireParameters[key].ToString());
             interestingParameters.Add(searchSettings.PrecursorTolerance.Value.ToString(CultureInfo.InvariantCulture));
             interestingParameters.Add(searchSettings.FragmentTolerance.Value.ToString(CultureInfo.InvariantCulture));
-            interestingParameters.Add(analysisValues.LibraryPeptideCount.ToString());
+            interestingParameters.Add(_expectedValues.LibraryPeptideCount.ToString());
             for (int i = 0; i < 4; ++i)
-                interestingParameters.Add(analysisValues.TargetCounts[i].ToString());
-            for (int i = 0; i < 4; ++i)
-                interestingParameters.Add(analysisValues.FinalTargetCounts[i].ToString());
+                interestingParameters.Add(_expectedValues.FinalTargetCounts[i].ToString());
             Console.WriteLine(string.Join("\t", interestingParameters));
         }
 
@@ -833,29 +927,15 @@ namespace TestPerf
             }
         }
 
-        private void ApplyFormatting(VolcanoPlotFormattingDlg formattingDlg, string matchText, string rgbText)
+        private void ValidateTargets(ref int[] targetCounts, int proteinCount, int peptideCount, int precursorCount, int transitionCount)
         {
-            RunUI(() =>
-            {
-                var bindingList = formattingDlg.GetCurrentBindingList();
-                var color = RgbHexColor.ParseRgb(rgbText).Value;
-                bindingList.Add(new MatchRgbHexColor("ProteinName: " + matchText, false, color, PointSymbol.Circle, PointSize.normal));
-            });
-        }
-
-        private void ValidateTargets(ref int[] targetCounts, int proteinCount, int peptideCount, int precursorCount, int transitionCount, string propName)
-        {
+            var targetCountsActual = new[] { proteinCount, peptideCount, precursorCount, transitionCount };
             if (IsRecordMode)
             {
-                targetCounts[0] = proteinCount;
-                targetCounts[1] = peptideCount;
-                targetCounts[2] = precursorCount;
-                targetCounts[3] = transitionCount;
-                Console.WriteLine(@"{0} = new[] {{ {1}, {2}, {3}, {4} }},", propName, proteinCount, peptideCount, precursorCount, transitionCount);
+                targetCounts = targetCountsActual;
                 return;
             }
 
-            var targetCountsActual = new[] {proteinCount, peptideCount, precursorCount, transitionCount};
             if (!ArrayUtil.EqualsDeep(targetCounts, targetCountsActual))
             {
                 Assert.Fail("Expected target counts <{0}> do not match actual <{1}>.",
@@ -864,24 +944,34 @@ namespace TestPerf
             }
         }
 
-        private void ValidateCoefficients(EditPeakScoringModelDlg editDlgFromSrm, string expectedCoefficients)
+        private void ValidateCoefficients(EditPeakScoringModelDlg editDlgFromSrm, ref double?[] expectedCoefficients)
         {
-            string coefficients = string.Join(@"|", GetCoefficientStrings(editDlgFromSrm));
+            var actualCoefficients = editDlgFromSrm.PeakCalculatorsGrid.Items
+                .Select(item => item.Weight.HasValue ? Math.Round(item.Weight.Value, 4) : (double?)null).ToArray();
             if (IsRecordMode)
-                Console.WriteLine(@"ScoringModelCoefficients = ""{0}"",", coefficients);  // Not L10N
+                expectedCoefficients = actualCoefficients;
             else
-                AssertEx.AreEqualLines(expectedCoefficients, coefficients);
+                AssertEx.AreEqual(string.Join("|", expectedCoefficients), string.Join("|", actualCoefficients));
         }
 
         private void ValidateMassErrors(MassErrorHistogramGraphPane massErrorPane, int index)
         {
             double mean = massErrorPane.Mean, stdDev = massErrorPane.StdDev;
             if (IsRecordMode)
-                Console.WriteLine(@"new[] {{{0:0.0}, {1:0.0}}},", mean, stdDev);  // Not L10N
+            {
+                _expectedValues.MassErrorStats ??= Array.Empty<double[]>();
+                while (_expectedValues.MassErrorStats.Length <= index)
+                {
+                    _expectedValues.MassErrorStats =
+                        _expectedValues.MassErrorStats.Append(Array.Empty<double>()).ToArray();
+                }
+
+                _expectedValues.MassErrorStats[index] = new[] { mean, stdDev };
+            }
             else
             {
-                Assert.AreEqual(_analysisValues.MassErrorStats[index][0], mean, 0.05);
-                Assert.AreEqual(_analysisValues.MassErrorStats[index][1], stdDev, 0.05);
+                Assert.AreEqual(_expectedValues.MassErrorStats[index][0], mean, 0.05);
+                Assert.AreEqual(_expectedValues.MassErrorStats[index][1], stdDev, 0.05);
             }
         }
 

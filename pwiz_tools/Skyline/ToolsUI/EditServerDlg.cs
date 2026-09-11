@@ -61,12 +61,19 @@ namespace pwiz.Skyline.ToolsUI
                 }
                 else
                 {
-                    textServerURL.Text = _server.URI.ToString();
-                    textPassword.Text = _server.Password;
-                    textUsername.Text = _server.Username;
+                    textServerURL.Text = _server.GetFullUri();
                     string labelText = lblProjectInfo.Text;
-                    if (labelText.Contains(textServerURL.Text))
+                    if (labelText.Contains(_server.URI.ToString()))
                         lblProjectInfo.Text = labelText.Substring(0, labelText.IndexOf(' ')) + ':';
+                    if (!_server.HasUserAccount() && _existing.Contains(server => ReferenceEquals(server, _server)))
+                    {
+                        cbAnonymous.Checked = true;
+                    }
+                    else
+                    {
+                        textPassword.Text = _server.Password;
+                        textUsername.Text = _server.Username;
+                    }
                 }
             }
         }
@@ -74,6 +81,8 @@ namespace pwiz.Skyline.ToolsUI
         public string URL { get { return textServerURL.Text; } set { textServerURL.Text = value; } }
         public string Username { get { return textUsername.Text; } set { textUsername.Text = value; } }
         public string Password { get { return textPassword.Text; } set { textPassword.Text = value; } }
+
+        public bool AnonymousServer { get { return cbAnonymous.Checked; } set { cbAnonymous.Checked = value; } }
 
         public void OkDialog()
         {
@@ -89,44 +98,54 @@ namespace pwiz.Skyline.ToolsUI
                 return;
             }
 
-            if (!(helper.ValidateNotEmptyTextBox(textUsername, out _) && helper.ValidateNotEmptyTextBox(textPassword, out _)))
-                return;
-
-            try
+            if (AnonymousServer)
             {
-                var unused = new MailAddress(textUsername.Text);
+                Username = string.Empty;
+                Password = string.Empty;
             }
-            catch (Exception)
+            else
             {
-                helper.ShowTextBoxError(textServerURL, Resources.EditServerDlg_OkDialog__0__is_not_a_valid_email_address_, textUsername.Text);
-                return;
-            }
+                if (!(helper.ValidateNotEmptyTextBox(textUsername, out _) && helper.ValidateNotEmptyTextBox(textPassword, out _)))
+                    return;
 
-            var panoramaClient = PanoramaClient ?? new WebPanoramaClient(uriServer);
-
-            using (var waitDlg = new LongWaitDlg())
-            {
-                waitDlg.Text = Resources.EditServerDlg_OkDialog_Verifying_server_information;
                 try
                 {
-                    waitDlg.PerformWork(this, 1000, () => PanoramaUtil.VerifyServerInformation( panoramaClient, Username, Password));
+                    var unused = new MailAddress(textUsername.Text);
                 }
-                catch (Exception x)
+                catch (Exception)
                 {
-                    helper.ShowTextBoxError(textServerURL, x.Message);
+                    helper.ShowTextBoxError(textServerURL,
+                        ToolsUIResources.EditServerDlg_OkDialog__0__is_not_a_valid_email_address_, textUsername.Text);
                     return;
                 }
             }
 
-            Uri updatedUri = panoramaClient.ServerUri ?? uriServer;
+            var panoramaClient = PanoramaClient ?? new WebPanoramaClient(uriServer, Username, Password);
 
-            if (_existing.Contains(server => !ReferenceEquals(_server, server) && Equals(updatedUri, server.URI)))
+            PanoramaServer validatedServer = null;
+            using (var waitDlg = new LongWaitDlg())
             {
-                helper.ShowTextBoxError(textServerURL, Resources.EditServerDlg_OkDialog_The_server__0__already_exists_, uriServer.AbsoluteUri);
+                waitDlg.Text = ToolsUIResources.EditServerDlg_OkDialog_Verifying_server_information;
+                try
+                {
+                    waitDlg.PerformWork(this, 1000, () => validatedServer = panoramaClient.ValidateServer());
+                }
+                catch (Exception x)
+                {
+                    // Message may contain braces ({}) that will cause an exception if passed as a format string
+                    helper.ShowTextBoxError(textServerURL, @"{0}", x.Message);
+                    return;
+                }
+            }
+
+            string finalUri = validatedServer.GetFullUri(); // URI with FolderPath
+            if (_existing.Contains(server => !ReferenceEquals(_server, server) && Equals(finalUri, server.GetFullUri())))
+            {
+                helper.ShowTextBoxError(textServerURL, Resources.EditServerDlg_OkDialog_The_server__0__already_exists_, finalUri);
                 return;
             }
 
-            _server = new Server(updatedUri, Username, Password);
+            _server = new Server(finalUri, Username, Password);
             DialogResult = DialogResult.OK;
         }
 
@@ -135,9 +154,30 @@ namespace pwiz.Skyline.ToolsUI
             OkDialog();
         }
 
+        private void cbAnonymous_CheckedChanged(object sender, EventArgs e)
+        {
+            var anonymousServer = cbAnonymous.Checked;
+            textPassword.Enabled = !anonymousServer;
+            textPassword.Text = string.Empty;
+            textUsername.Enabled = !anonymousServer;
+            textUsername.Text = string.Empty;
+        }
+
         public string GetTextServerUrlControlLabel()
         {
             return new MessageBoxHelper(this).GetControlMessage(textServerURL);
         }
+
+        public string GetTextUsernameControlLabel()
+        {
+            return new MessageBoxHelper(this).GetControlMessage(textUsername);
+        }
+
+        #region Test Support
+        public bool AnonymousSeverCbEnabled()
+        {
+            return cbAnonymous.Enabled;
+        }
+        #endregion
     }
 }

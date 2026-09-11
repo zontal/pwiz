@@ -24,9 +24,11 @@
 
 #include "pwiz/utility/misc/Std.hpp"
 #include "pwiz/data/common/obo.hpp"
+#include "pwiz/data/common/cvgen_common.hpp"
 #include "pwiz/utility/misc/Filesystem.hpp"
 
 using namespace pwiz::data;
+using namespace pwiz::cv;
 namespace bfs = boost::filesystem;
 
 
@@ -93,20 +95,13 @@ void namespaceEnd(ostream& os, const string& name)
 }
 
 
-inline char toAllowableChar(char a)
-{
-    return isalnum(a) ? a : '_';
-}
-
-
 string enumName(const string& prefix, const string& name, bool isObsolete)
 {
-    string result = name;
-    transform(result.begin(), result.end(), result.begin(), toAllowableChar);
+    // Always use escaped characters for better handling of special chars
+    string result = toEscapedCharacters(name);
     result = prefix + "_" + result + (isObsolete ? "_OBSOLETE" : "");
     return result;
 }
-
 
 string enumName(const Term& term)
 {
@@ -232,17 +227,17 @@ void writeHpp(const vector<OBO>& obos, const string& basename, const bfs::path& 
        << "    /// <summary>\n"
        << "    /// returns a list of terms which this term has an IS_A relationship with\n"
        << "    /// </summary>\n"
-       << "    property CVIDList^ parentsIsA { CVIDList^ get() {return gcnew CVIDList(&base_->parentsIsA);} }\n"
+       << "    property CVIDList^ parentsIsA { CVIDList^ get() {return gcnew CVIDList(&base_->parentsIsA, gcnew Object());} }\n"
        << "\n"
        << "    /// <summary>\n"
        << "    /// returns a list of terms which this term has a PART_OF relationship with\n"
        << "    /// </summary>\n"
-       << "    property CVIDList^ parentsPartOf { CVIDList^ get() {return gcnew CVIDList(&base_->parentsPartOf);} }\n"
+       << "    property CVIDList^ parentsPartOf { CVIDList^ get() {return gcnew CVIDList(&base_->parentsPartOf, gcnew Object());} }\n"
        << "\n"
        << "    /// <summary>\n"
        << "    /// returns a list of term names synonymous with this term\n"
        << "    /// </summary>\n"
-       << "    property StringList^ exactSynonyms { StringList^ get() {return gcnew StringList(&base_->exactSynonyms);} }\n"
+       << "    property StringList^ exactSynonyms { StringList^ get() {return gcnew StringList(&base_->exactSynonyms, gcnew Object());} }\n"
        << "\n"
        << "    CVTermInfo() : base_(new pwiz::cv::CVTermInfo()) {}\n"
        << "\n"
@@ -505,7 +500,7 @@ int main(int argc, char* argv[])
 
     try
     {
-        bfs::path exeDir(bfs::path(argv[0]).branch_path());
+        bfs::path exeDir(bfs::path(argv[0]).parent_path());
 
         vector<OBO> obos;
         map<string, int> enumMultiplierByPrefix;

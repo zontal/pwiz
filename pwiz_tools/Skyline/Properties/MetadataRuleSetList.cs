@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -20,12 +20,15 @@
 using System.Collections.Generic;
 using System.Windows.Forms;
 using pwiz.Skyline.Model;
+using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.DocSettings.MetadataExtraction;
 using pwiz.Skyline.SettingsUI;
+using SkylineTool;
 
 namespace pwiz.Skyline.Properties
 {
-    public class MetadataRuleSetList : SettingsList<MetadataRuleSet>
+    [LlmName("Metadata Rule Sets")]
+    public class MetadataRuleSetList : SettingsList<MetadataRuleSet>, ISettingsListDocumentSelection
     {
         public override IEnumerable<MetadataRuleSet> GetDefaults(int revisionIndex)
         {
@@ -34,11 +37,11 @@ namespace pwiz.Skyline.Properties
 
         public override string Title
         {
-            get { return Resources.MetadataRuleSetList_Title_Rule_Sets; }
+            get { return PropertiesResources.MetadataRuleSetList_Title_Rule_Sets; }
         }
         public override string Label
         {
-            get { return Resources.MetadataRuleSetList_Label_Rule_Set; }
+            get { return PropertiesResources.MetadataRuleSetList_Label_Rule_Set; }
         }
 
         public override MetadataRuleSet CopyItem(MetadataRuleSet item)
@@ -61,5 +64,13 @@ namespace pwiz.Skyline.Properties
                 }
             }
         }
+
+        public bool SingleSelect => false;
+
+        public string[] GetSelectedItems(SrmSettings settings) =>
+            GetKeys(settings.DataSettings.MetadataRuleSets);
+
+        public SrmSettings SetSelectedItems(SrmSettings settings, string[] keys) =>
+            settings.ChangeDataSettings(settings.DataSettings.ChangeExtractedMetadata(ResolveKeys(keys)));
     }
 }

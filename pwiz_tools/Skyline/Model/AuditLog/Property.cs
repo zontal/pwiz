@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Tobias Rohde <tobiasr .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -21,7 +21,6 @@ using System.Linq;
 using System.Reflection;
 using pwiz.Common.DataBinding;
 using pwiz.Common.SystemUtil;
-using pwiz.Skyline.Util;
 
 namespace pwiz.Skyline.Model.AuditLog
 {
@@ -225,9 +224,14 @@ namespace pwiz.Skyline.Model.AuditLog
             var accessors = propertyInfo.GetAccessors(true);
             if (accessors.Length > 0)
             {
-                var baseDef = accessors[0].GetBaseDefinition();
+                var firstAccessor = accessors[0];
+                var baseDef = firstAccessor.GetBaseDefinition();
                 if (baseDef.DeclaringType != null)
-                    DeclaringType = baseDef.DeclaringType;    
+                {
+                    DeclaringType = baseDef.DeclaringType;
+                    GetValue = o => baseDef.Invoke(o, Array.Empty<object>());
+                }
+
             }
 
             PropertyInfo = propertyInfo;

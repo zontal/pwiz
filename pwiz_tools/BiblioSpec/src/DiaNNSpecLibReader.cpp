@@ -19,7 +19,16 @@
 #include "DiaNNSpecLibReader.h"
 #include "pwiz/data/common/Unimod.hpp"
 #include "libraries/csv.h"
+#ifdef USE_PARQUET_READER
+#include "arrow/io/api.h"
+#include "arrow/api.h"
+#include "parquet/arrow/reader.h"
+#endif
 #include <boost/type_index.hpp>
+#include <pwiz/data/proteome/AminoAcid.hpp>
+#include <boost/range/algorithm/find.hpp>
+#include <set>
+//#include "pwiz/data/msdata/MSDataFile.hpp"
 
 namespace BiblioSpec
 {
@@ -27,7 +36,16 @@ const int LATEST_SUPPORTED_VERSION = -3;
 
 // code adapted from CC4-by-licensed diann.cpp by Vadim Demichev (https://github.com/vdemichev/DiaNN)
 namespace {
-        
+
+// PSM with retention time info
+struct RtPSM
+{
+    float rt, rtStart, rtEnd;
+    int fileId;
+    float score;
+    float ionMobility;
+};
+
 template <class F, class T> void read_vector(F &in, std::vector<T> &v) {
     int size = 0; in.read((char*)&size, sizeof(int));
     if (size) {
@@ -184,14 +202,29 @@ inline std::string get_aas(const std::string &name, vector<SeqMod>& mods)
         if (symbol < 'A' || symbol > 'Z') {
             if (symbol != '(' && symbol != '[') continue;
             end = closing_bracket(name, symbol, i);
+            int position = max(1, static_cast<int>(j));
 
             if (name.find("(UniMod:", i, modPrefixLength) != i)
-                throw std::runtime_error("unable to handle mod in library entry: " + name);
+            {
+                string potentialMass = name.substr(i + 1, end - i - 1);
+                if (potentialMass.find_first_not_of("01234567890.") != string::npos)
+                    throw std::runtime_error("unable to handle mod in library entry as either a UniMod id or delta mass: " + potentialMass + " in " + name);
+                double modMass = lexical_cast<double>(potentialMass);
+
+                if (!mods.empty() && mods.back().position == position)
+                    mods.back().deltaMass += modMass;
+                else
+                    mods.emplace_back(position, modMass);
+                continue;
+            }
 
             i += modPrefixLength;
-            mod = name.substr(i, end-i);
+            mod = name.substr(i, end - i);
             CVID unimodCvid = (CVID) (UNIMOD_unimod_root_node + lexical_cast<int>(mod));
-            mods.emplace_back(SeqMod((int) j, pwiz::data::unimod::modification(unimodCvid).deltaMonoisotopicMass()));
+            if (!mods.empty() && mods.back().position == position)
+                mods.back().deltaMass += unimod::modification(unimodCvid).deltaMonoisotopicMass();
+            else 
+                mods.emplace_back(position, unimod::modification(unimodCvid).deltaMonoisotopicMass());
             continue;
         }
         ++j;
@@ -419,7 +452,8 @@ class Library {
         float qvalue = 0.0, pg_qvalue = 0.0, best_fr_mz = 0.0, ptm_qvalue, site_conf;
 
         // temporary variables used while processing rows from a single run in the report file
-        float curQValue, curPEP, curRT, curRTStart, curRTStop, curIM;
+        float bestQValue;
+        RtPSM* bestPSM;
 
         friend bool operator < (const Entry &left, const Entry &right) { return left.name < right.name; }
 
@@ -502,8 +536,9 @@ class Library {
     }
 
     void elution_group_index() {
-        size_t i, egt = 0, peg;
-        for (i = 0; i < elution_groups.size(); i++) if (elution_groups[i] > egt) egt = elution_groups[i]; egt++;
+        int egt = 0;
+        size_t i, peg;
+        for (i = 0; i < elution_groups.size(); i++) { if (elution_groups[i] > egt) { egt = elution_groups[i]; } egt++; }
         co_elution_index.resize(egt, std::pair<int, int>(0, 1));
         std::set<std::pair<int, int> > ce;
         for (i = 0; i < elution_groups.size(); i++) ce.insert(std::pair<int, int>(elution_groups[i], (int) i));
@@ -564,21 +599,535 @@ class Library {
 class DiaNNSpecLibReader::Impl
 {
     public:
-    Impl(const char* specLibFile) : specLibFile_(specLibFile) {}
+    Impl(const char* specLibFile, BlibBuilder& blibMaker) : specLibFile_(specLibFile), blibMaker_(blibMaker)
+    {
+        if (blibMaker.isScoreLookupMode())
+            return;
+
+        // the DIANN reader directly creates a non-redundant library
+        string createRetentionTimes =
+            "CREATE TABLE RetentionTimes (RefSpectraID INTEGER, "
+            "RedundantRefSpectraID INTEGER, "
+            "SpectrumSourceID INTEGER, "
+            "ionMobility REAL, "
+            "collisionalCrossSectionSqA REAL, "
+            "ionMobilityHighEnergyOffset REAL, "
+            "ionMobilityType TINYINT, "
+            "retentionTime REAL, "
+            "startTime REAL, "
+            "endTime REAL, "
+            "score REAL, "
+            "bestSpectrum INTEGER, " // boolean
+            "FOREIGN KEY(RefSpectraID) REFERENCES RefSpectra(id) )";
+        blibMaker_.sql_stmt(createRetentionTimes.c_str());
+
+        if (sqlite3_prepare(blibMaker_.getDb(),
+            "INSERT INTO RetentionTimes (RefSpectraID, RedundantRefSpectraID, "
+            "SpectrumSourceID, ionMobility, collisionalCrossSectionSqA, ionMobilityHighEnergyOffset, ionMobilityType, "
+            "retentionTime, startTime, endTime, score, bestSpectrum) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            -1, &insertRetentionTimesStmt_, NULL) != SQLITE_OK)
+        {
+            throw BlibException(false, "Error preparing insert statement: %s", sqlite3_errmsg(blibMaker_.getDb()));
+        }
+    }
+
+    ~Impl()
+    {
+        if (blibMaker_.isScoreLookupMode())
+            return;
+
+        sqlite3_finalize(insertRetentionTimesStmt_);
+    }
 
     Library specLib;
     const char* specLibFile_;
+    sqlite3_stmt* insertRetentionTimesStmt_;
+    BlibBuilder& blibMaker_;
+    IONMOBILITY_TYPE ionMobilityType_ = IONMOBILITY_NONE;
+
+    template<int column_count>
+    class Reader
+    {
+        typedef io::CSVReader<column_count, io::trim_chars<' ', ' '>, io::no_quote_escape<'\t'>> CsvReader;
+        public:
+        class ParquetReader;
+
+        private:
+        unique_ptr<CsvReader> csvReader_;
+        unique_ptr<ParquetReader> parquetReader_;
+        string filepath_;
+
+        public:
+
+        void open_file(const string& filepath)
+        {
+            filepath_ = filepath;
+
+            if (ParquetReader::is_parquet(filepath))
+                parquetReader_.reset(new ParquetReader(filepath_));
+            else
+                csvReader_.reset(new CsvReader(filepath_));
+        }
+
+        void close()
+        {
+            if (parquetReader_)
+                parquetReader_->close();
+        }
+
+        // a wrapper for reading Parquet files that provides the same interface as CSVReader
+        class ParquetReader
+        {
+            const string& filepath_;
+
+#ifdef USE_PARQUET_READER
+            unique_ptr<parquet::arrow::FileReader> reader_;
+            vector<string> columnNames_; // and order
+            vector<int> columnIndices_; // -1 means "missing column, tolerated by ignore_missing_column"
+            io::ignore_column ignore_policy_ = io::ignore_no_column;
+            int64_t numRowGroups_;
+            int64_t rowIndex_ = 0;
+            int64_t rowGroup_ = -1;
+
+            // an enum of supported types for columns
+            enum ColumnType { int64, fp, str };
+
+            std::shared_ptr<arrow::Table> table_;
+            vector<std::shared_ptr<arrow::Array>> columnArrays_;
+            vector<ColumnType> columnTypes_;
+
+            inline std::shared_ptr<arrow::Array> get_arrow_column_chunk(std::shared_ptr<arrow::Table> table, string column_name)
+            {
+                return table->GetColumnByName(column_name)->chunk(0);
+            }
+#endif
+
+        public:
+
+            ParquetReader(const string& filepath) : filepath_(filepath)
+            {
+#ifndef USE_PARQUET_READER
+#ifdef WIN32
+                Verbosity::error("parquet files are not supported in current build (runtime debugging on)");
+#else
+                Verbosity::error("parquet files are not supported in current build (Linux)");
+#endif
+#else
+                auto input = arrow::io::ReadableFile::Open(filepath);
+                if (!input.ok())
+                    Verbosity::error("cannot open %s: %s", filepath.c_str(), input.status().message().c_str());
+
+                auto got_reader = parquet::arrow::OpenFile(input.ValueOrDie(), arrow::default_memory_pool(), &reader_);
+                if (!got_reader.ok())
+                    Verbosity::error("cannot initialise arrow reader for %s: %s", filepath.c_str(), got_reader.message().c_str());
+
+                numRowGroups_ = reader_->num_row_groups();
+                if (!numRowGroups_)
+                    Verbosity::error("parquet library contains zero row groups for %s", filepath.c_str());
+#endif
+            }
+
+            static bool is_parquet(const string& filepath)
+            {
+#ifndef USE_PARQUET_READER
+                return bal::iends_with(filepath, ".parquet");
+#else
+                auto input = arrow::io::ReadableFile::Open(filepath);
+                if (!input.ok())
+                    return false;
+
+                unique_ptr<parquet::arrow::FileReader> reader;
+                auto got_reader = parquet::arrow::OpenFile(input.ValueOrDie(), arrow::default_memory_pool(), &reader);
+                return got_reader.ok();
+#endif
+            }
+
+#ifndef USE_PARQUET_READER
+            void close() {}
+            template<class ...ColNames> void read_header(io::ignore_column ignore_policy, ColNames...cols) {}
+            bool has_column(const std::string& name) const { return false; }
+            void assert_present_except(const std::set<std::string>&) const {}
+            template<class ...ColType> bool read_row(ColType& ...cols) { return false; }
+            void seek_begin() {}
+            uint64_t num_rows() const { return 0; }
+#else
+            void close()
+            {
+                table_.reset();
+                columnArrays_.clear();
+                reader_.reset();
+            }
+
+            void read_header_helper(int fieldIndex, const char* columnName)
+            {
+                columnIndices_.emplace_back(fieldIndex);
+                columnNames_.emplace_back(columnName);
+            }
+
+            void read_header_helper(const std::shared_ptr<arrow::Schema>& schema, const char* columnName)
+            {
+                int fieldIndex = schema->GetFieldIndex(columnName);
+                if (fieldIndex < 0 && !(ignore_policy_ & io::ignore_missing_column))
+                    Verbosity::error("file %s does not have a column called %s", filepath_.c_str(), columnName);
+
+                // -1 marks the slot as missing-but-tolerated; read_row will plug in a default.
+                read_header_helper(fieldIndex, columnName);
+            }
+
+            template<class ...ColNames>
+            void read_header_helper(const std::shared_ptr<arrow::Schema>& schema, const char* columnName, ColNames...cols)
+            {
+                read_header_helper(schema, columnName);
+                read_header_helper(schema, cols...);
+            }
+
+            template<class ...ColNames>
+            void read_header(io::ignore_column ignore_policy, ColNames...cols)
+            {
+                ignore_policy_ = ignore_policy;
+                std::shared_ptr<arrow::Schema> schema;
+                auto got_schema = reader_->GetSchema(&schema);
+                if (!got_schema.ok())
+                    Verbosity::error("cannot read schema from %s: %s", filepath_.c_str(), got_schema.message().c_str());
+
+                read_header_helper(schema, cols...);
+
+                // Guard against ALL requested columns being missing: Arrow's ReadTable
+                // treats an empty index vector as "read every column", which combined
+                // with read_column's nullptr fallback would silently emit default-valued
+                // rows for the entire library instead of failing.
+                if (!columnIndices_.empty() &&
+                    std::all_of(columnIndices_.begin(), columnIndices_.end(),
+                                [](int i) { return i < 0; }))
+                {
+                    Verbosity::error("file %s has none of the requested columns", filepath_.c_str());
+                }
+
+                // Arrow's ReadTable rejects -1 indices, so pass only the real columns.
+                std::vector<int> presentIndices;
+                for (int idx : columnIndices_) if (idx >= 0) presentIndices.push_back(idx);
+                auto got_table = reader_->ReadTable(presentIndices, &table_);
+                if (!got_table.ok())
+                    Verbosity::error("cannot read table from %s: %s", filepath_.c_str(), got_table.message().c_str());
+            }
+
+            bool has_column(const std::string& name) const
+            {
+                auto column_names = table_->ColumnNames();
+                return boost::range::find(column_names, name) != column_names.end();
+            }
+
+            /// Error out if any column declared in read_header() but NOT in `optional`
+            /// was actually missing (sentinel -1 in columnIndices_). Lets the caller
+            /// scope ignore_missing_column to a small allowlist of optional fields.
+            void assert_present_except(const std::set<std::string>& optional) const
+            {
+                for (size_t i = 0; i < columnIndices_.size(); ++i)
+                {
+                    if (columnIndices_[i] < 0 && !optional.count(columnNames_[i]))
+                        Verbosity::error("file %s missing required column %s",
+                            filepath_.c_str(), columnNames_[i].c_str());
+                }
+            }
+
+            // For missing-but-tolerated columns columnArrays_[i] is nullptr — write a default.
+            void read_column(std::size_t i, int& t) const
+            {
+                if (!columnArrays_[i]) { t = 0; return; }
+                const auto& intArray = std::static_pointer_cast<arrow::Int64Array>(columnArrays_[i]);
+                t = intArray->Value(rowIndex_);
+            }
+
+            void read_column(std::size_t i, int64_t& t) const
+            {
+                if (!columnArrays_[i]) { t = 0; return; }
+                const auto& intArray = std::static_pointer_cast<arrow::Int64Array>(columnArrays_[i]);
+                t = intArray->Value(rowIndex_);
+            }
+
+            void read_column(std::size_t i, float& t) const
+            {
+                if (!columnArrays_[i]) { t = 0.0f; return; }
+                const auto& fpArray = std::static_pointer_cast<arrow::FloatArray>(columnArrays_[i]);
+                t = fpArray->Value(rowIndex_);
+            }
+
+            void read_column(std::size_t i, double& t) const
+            {
+                if (!columnArrays_[i]) { t = 0.0; return; }
+                const auto& fpArray = std::static_pointer_cast<arrow::FloatArray>(columnArrays_[i]);
+                t = fpArray->Value(rowIndex_);
+            }
+
+            void read_column(std::size_t i, std::string_view& t) const
+            {
+                if (!columnArrays_[i]) { t = std::string_view{}; return; }
+                const auto& strArray = std::static_pointer_cast<arrow::StringArray>(columnArrays_[i]);
+                t = strArray->Value(rowIndex_);
+            }
+
+            void read_column(std::size_t i, std::string& t) const
+            {
+                if (!columnArrays_[i]) { t.clear(); return; }
+                const auto& strArray = std::static_pointer_cast<arrow::StringArray>(columnArrays_[i]);
+                t = strArray->Value(rowIndex_);
+            }
+
+            template<class... ColType>
+            void read_row_helper(std::size_t i, ColType&... cols) const
+            {
+                std::size_t col = i;
+                ((read_column(col++, cols)), ...);
+            }
+
+            template<class ...ColType>
+            bool read_row(ColType& ...cols)
+            {
+                constexpr auto numColumns = sizeof...(ColType);
+                static_assert(numColumns >= column_count, "not enough columns specified");
+                static_assert(numColumns <= column_count, "too many columns specified");
+
+                // go to first row group, or next group if rowIndex has reached num_rows()
+                if (rowGroup_ == -1 || rowIndex_ >= table_->num_rows())
+                {
+                    ++rowGroup_;
+                    if (rowGroup_ >= numRowGroups_)
+                        return false;
+
+                    rowIndex_ = 0;
+                    std::vector<int> presentIndices;
+                    for (int idx : columnIndices_) if (idx >= 0) presentIndices.push_back(idx);
+                    auto got_row_group = reader_->ReadRowGroup(rowGroup_, presentIndices, &table_);
+                    if (!got_row_group.ok())
+                        Verbosity::error("cannot read row group %d from %s", rowGroup_, filepath_.c_str());
+
+                    if (table_->num_rows() == 0)
+                        return false;
+
+                    columnArrays_.clear();
+                    for (size_t i = 0; i < columnNames_.size(); ++i)
+                        columnArrays_.emplace_back(columnIndices_[i] >= 0
+                            ? get_arrow_column_chunk(table_, columnNames_[i])
+                            : nullptr); // missing-but-tolerated; read_column returns default
+                }
+
+                read_row_helper(0, cols...);
+                ++rowIndex_;
+
+                return true;
+            }
+
+            void seek_begin()
+            {
+                rowIndex_ = 0;
+                rowGroup_ = -1;
+                columnArrays_.clear();
+            }
+
+            mutable std::optional<uint64_t> num_rows_;
+
+            uint64_t num_rows() const
+            {
+                if (num_rows_)
+                    return num_rows_.value();
+
+                uint64_t num_rows = 0;
+                for (int i=0; i < reader_->num_row_groups(); ++i)
+                {
+                    std::shared_ptr<arrow::Table> table;
+                    auto got_row_group = reader_->ReadRowGroup(i, vector {0}, &table);
+                    if (!got_row_group.ok())
+                        Verbosity::error("cannot read row group %d from %s", i, filepath_.c_str());
+                    num_rows += table->num_rows();
+                }
+                Verbosity::debug("Found %d rows in parquet file.", num_rows);
+                num_rows_ = num_rows;
+                return num_rows;
+            }
+#endif
+        };
+
+        static bool is_parquet(const string& filepath) { return ParquetReader::is_parquet(filepath); }
+
+        template<class ...ColNames>
+        void read_header(io::ignore_column ignore_policy, ColNames...cols)
+        {
+            if (csvReader_)
+                csvReader_->read_header(ignore_policy, std::forward<ColNames>(cols)...);
+            else
+                parquetReader_->read_header(ignore_policy, std::forward<ColNames>(cols)...);
+        }
+
+        /// After a read_header() call with io::ignore_missing_column, fail loudly if any
+        /// requested column outside `optional` was actually missing. Keeps the tolerance
+        /// scoped to the names the caller declares as optional, instead of silently
+        /// accepting any schema mismatch.
+        void assert_present_except(const std::set<std::string>& optional) const
+        {
+            if (csvReader_) return; // CSV reader keeps the strict-by-name semantics already
+            parquetReader_->assert_present_except(optional);
+        }
+
+        bool has_column(const std::string& name) const
+        {
+            if (csvReader_)
+                return csvReader_->has_column(name);
+            return parquetReader_->has_column(name);
+        }
+
+        template<class ...ColType>
+        bool read_row(ColType& ...cols)
+        {
+            if (csvReader_)
+                return csvReader_->read_row(std::forward<ColType&>(cols)...);
+            return parquetReader_->read_row(std::forward<ColType&>(cols)...);
+        }
+
+        void seek_begin()
+        {
+            if (csvReader_)
+                csvReader_.reset(new CsvReader(filepath_));
+            else
+                parquetReader_->seek_begin();
+        }
+
+        uint64_t num_rows()
+        {
+            if (csvReader_)
+            {
+                ifstream fin(filepath_, ios::binary);
+                return std::count(std::istream_iterator<char>(fin >> std::noskipws), {}, '\n');
+            }
+            return parquetReader_->num_rows();
+        }
+    };
+
+    // Populate `lib` from a DIA-NN v2+ report-lib.parquet file (one row per fragment).
+    // Decoy rows are skipped; only target precursors are loaded.
+    void loadSpecLibFromParquet(const string& filepath, Library& lib)
+    {
+        Reader<16> reader;
+        reader.open_file(filepath);
+        // DIA-NN 1.9.1 doesn't emit a Flags column — tolerate the missing column and let
+        // read_column default the flags to 0 for those rows. (The Flags bits aren't
+        // consumed downstream in BiblioSpec anyway.) Every OTHER column is required:
+        // a future DIA-NN release that renames or drops e.g. Modified.Sequence should
+        // surface a clean error here rather than silently filling rows with defaults.
+        reader.read_header(io::ignore_extra_column | io::ignore_missing_column,
+            "Precursor.Id", "Modified.Sequence", "Precursor.Charge", "Precursor.Mz",
+            "RT", "IM", "Q.Value", "Decoy", "Proteotypic", "Flags",
+            "Product.Mz", "Relative.Intensity", "Fragment.Type",
+            "Fragment.Charge", "Fragment.Series.Number", "Fragment.Loss.Type");
+        const std::set<std::string> optionalColumns = { "Flags" };
+        reader.assert_present_except(optionalColumns);
+
+        std::string precursorId, modSeq, fragType, fragLoss;
+        int64_t charge, decoy, proteotypic, flags, fragCharge, fragSeries;
+        float precursorMz, rt, im, qvalue, productMz, relInten;
+
+        std::string lastPrecursorId;
+        size_t currentIdx = std::numeric_limits<size_t>::max();
+
+        while (reader.read_row(precursorId, modSeq, charge, precursorMz,
+                               rt, im, qvalue, decoy, proteotypic, flags,
+                               productMz, relInten, fragType, fragCharge, fragSeries, fragLoss))
+        {
+            if (decoy != 0)
+                continue;
+
+            if (precursorId != lastPrecursorId)
+            {
+                lib.entries.emplace_back();
+                currentIdx = lib.entries.size() - 1;
+                auto& e = lib.entries[currentIdx];
+                e.lib = &lib;
+                e.name = precursorId;
+                e.target.index = static_cast<int>(currentIdx);
+                e.target.charge = static_cast<int>(charge);
+                e.target.length = static_cast<int>(modSeq.size());
+                e.target.mz = precursorMz;
+                e.target.iRT = rt;
+                e.target.sRT = 0.0f;
+                e.target.iIM = im;
+                e.target.sIM = 0.0f;
+                e.target.lib_qvalue = qvalue;
+                e.proteotypic = static_cast<int>(proteotypic);
+                e.entry_flags = static_cast<int>(flags);
+                lib.precursors.push_back(precursorId);
+                lastPrecursorId = precursorId;
+            }
+
+            int ftype = fragType.empty() ? 0 : fragType[0];
+
+            int ltype = loss_none;
+            if (fragLoss.empty() || fragLoss == "noloss") ltype = loss_none;
+            else if (fragLoss == "H2O") ltype = loss_H2O;
+            else if (fragLoss == "NH3") ltype = loss_NH3;
+            else if (fragLoss == "CO") ltype = loss_CO;
+            else if (fragLoss == "N") ltype = loss_N;
+            else ltype = loss_other;
+
+            lib.entries[currentIdx].target.fragments.emplace_back(
+                productMz, relInten,
+                static_cast<int>(fragCharge),
+                ftype,
+                static_cast<int>(fragSeries),
+                ltype);
+        }
+        reader.close();
+
+        lib.iRT_min = std::numeric_limits<double>::max();
+        lib.iRT_max = std::numeric_limits<double>::lowest();
+        for (auto& e : lib.entries)
+        {
+            e.lib = &lib;
+            lib.entryByModPeptideAndCharge.emplace(e.name, std::ref(e));
+            lib.iRT_min = std::min(lib.iRT_min, (double)e.target.iRT);
+            lib.iRT_max = std::max(lib.iRT_max, (double)e.target.iRT);
+
+            // Normalize fragment intensities to max=1 and sort descending — matches the
+            // canonical layout in the binary .skyline.speclib. DIA-NN writes pre-normalized
+            // intensities to parquet for predicted libraries, but raw observed intensities
+            // for MBR/analyzed libraries; either way this pass is idempotent.
+            auto& frags = e.target.fragments;
+            if (!frags.empty())
+            {
+                float maxInten = 0;
+                for (const auto& f : frags) maxInten = std::max(maxInten, f.height);
+                if (maxInten > 0)
+                    for (auto& f : frags) f.height /= maxInten;
+                std::stable_sort(frags.begin(), frags.end(),
+                    [](const Product& a, const Product& b) { return a.height > b.height; });
+            }
+        }
+        if (lib.entries.empty())
+            lib.iRT_min = lib.iRT_max = 0.0;
+
+        lib.from_speclib = true;
+        // Skip assemble_elution_groups/elution_group_index: their outputs (eg, elution_groups,
+        // co_elution[_index]) are not consumed by parseFile() or getSpectrum(), and the upstream
+        // to_eg() helper assumes a populated UniMod table that the parquet path doesn't provide.
+
+        Verbosity::status("Spectral library (parquet) loaded: %d precursors.",
+                          (int) lib.entries.size());
+    }
 };
 
 DiaNNSpecLibReader::DiaNNSpecLibReader(BlibBuilder& maker, const char* specLibFile, const ProgressIndicator* parent_progress)
     : BuildParser(maker, specLibFile, parent_progress),
-    impl_(new Impl(specLibFile))
+    impl_(new Impl(specLibFile, blibMaker_) )
 {
     setSpecFileName(specLibFile, false);
     lookUpBy_ = INDEX_ID;
     // point to self as spec reader
     delete specReader_;
     specReader_ = this;
+
+    if (!bfs::exists(specLibFile))
+        Verbosity::error("speclib %s does not exist", specLibFile);
+
+    prepareInsertSpectrumStatement(); // must reprepare after adding RetentionTimes table
 }
 
 DiaNNSpecLibReader::~DiaNNSpecLibReader()
@@ -589,23 +1138,95 @@ DiaNNSpecLibReader::~DiaNNSpecLibReader()
 bool DiaNNSpecLibReader::parseFile()
 {
     {
-        ifstream specLibStream(impl_->specLibFile_, ios::binary);
-        impl_->specLib.read(specLibStream);
+        // Prefer DIA-NN v2's report-lib.parquet over the binary .skyline.speclib sibling
+        // (or the user passes the parquet directly). Fall back to the binary path otherwise.
+        string libParquetPath;
+#ifdef USE_PARQUET_READER
+        string specLibStr = impl_->specLibFile_;
+        if (bal::iends_with(specLibStr, ".parquet.skyline.speclib"))
+        {
+            string candidate = specLibStr.substr(0, specLibStr.size() - (sizeof(".skyline.speclib") - 1));
+            if (bfs::exists(candidate) && Impl::Reader<1>::is_parquet(candidate))
+                libParquetPath = candidate;
+        }
+        else if (bal::iends_with(specLibStr, ".parquet"))
+        {
+            if (bfs::exists(specLibStr) && Impl::Reader<1>::is_parquet(specLibStr))
+                libParquetPath = specLibStr;
+        }
+#endif
+
+        if (!libParquetPath.empty())
+        {
+            Verbosity::status("Reading library entries from parquet %s.", libParquetPath.c_str());
+            impl_->loadSpecLibFromParquet(libParquetPath, impl_->specLib);
+        }
+        else
+        {
+            ifstream specLibStream(impl_->specLibFile_, ios::binary);
+            if (!specLibStream)
+                Verbosity::error("failed to open stream for speclib %s", impl_->specLibFile_);
+            impl_->specLib.read(specLibStream);
+        }
+        Verbosity::status("Read %d entries from speclib.", impl_->specLib.entries.size());
     }
-
-    typedef io::CSVReader<9, io::trim_chars<' ', ' '>, io::no_quote_escape<'\t'>> ReportReaderType;
-
     string specLibFile = impl_->specLibFile_;
+
+    // crude output for viewing speclib files
+    /*MSData msd;
+    msd.id = msd.run.id = specLibFile;
+    auto sl = new SpectrumListSimple;
+    msd.run.spectrumListPtr.reset(sl);
+    for (const auto& speclibEntry : impl_->specLib.entries)
+    {
+        SpectrumPtr s(new pwiz::msdata::Spectrum);
+        s->index = sl->size();
+        s->id = "merged=" + pwiz::util::toString(s->index) + " target=" + speclibEntry.name;
+        s->set(MS_MSn_spectrum);
+        s->set(MS_ms_level, 2);
+        s->setMZIntensityArrays(vector<double>(), vector<double>(), MS_number_of_detector_counts);
+        s->precursors.emplace_back(speclibEntry.target.mz, speclibEntry.target.charge);
+        auto& mz = s->getMZArray()->data;
+        auto& inten = s->getIntensityArray()->data;
+        for (auto fragment : speclibEntry.target.fragments)
+        {
+            mz.push_back(fragment.mz);
+            inten.push_back(fragment.height);
+        }
+        s->defaultArrayLength = mz.size();
+        sl->spectra.emplace_back(s);
+    }
+    MSDataFile::write(msd, specLibFile + ".mzML");*/
+
     bfs::path specLibFilePath(specLibFile);
 
     auto diannReportFilepath = bal::replace_last_copy(specLibFile, "-lib.tsv.speclib", "-report.tsv");
+    if (diannReportFilepath == specLibFile)
+        diannReportFilepath = bal::replace_last_copy(specLibFile, "-lib.parquet.skyline.speclib", ".parquet");
+    if (diannReportFilepath == specLibFile)
+        diannReportFilepath = bal::replace_last_copy(specLibFile, "-lib.skyline.speclib", ".parquet");
+    if (diannReportFilepath == specLibFile)
+        diannReportFilepath = bal::replace_last_copy(specLibFile, "-lib.parquet", ".parquet");
 
     // special case for FragPipe
-    if (specLibFilePath.filename().string() == "library.tsv.speclib" && bfs::exists(specLibFilePath.parent_path() / "diann-output" / "diann-output.tsv"))
+    if (specLibFilePath.filename().string() == "library.tsv.speclib" ||
+        specLibFilePath.filename().string() == "library.tsv.skyline.speclib" ||
+        specLibFilePath.filename().string() == "lib.predicted.speclib")
     {
-        Verbosity::debug("Found DIA-NN tsv/speclib from FragPipe.");
-        diannReportFilepath = (specLibFilePath.parent_path() / "diann-output" / "diann-output.tsv").string();
+        for (auto filename : vector<string>{ "diann-output.parquet", "report.parquet", "diann-output.tsv", "report.tsv" })
+        {
+            auto fragpipeDiannReport = specLibFilePath.parent_path() / "diann-output" / filename;
+            if (bfs::exists(fragpipeDiannReport))
+            {
+                Verbosity::debug("Found DIA-NN tsv/speclib from FragPipe.");
+                diannReportFilepath = fragpipeDiannReport.string();
+                break;
+            }
+        }
     }
+
+    string diannStatsFilepath;
+    map<string, string> diannFilenameByRun;
 
     /*if (diannReportFilepath == impl_->specLibFile_)
         throw BlibException(true, "unable to determine DIA-NN report filename for '%s': speclib must end in -lib.tsv.speclib and report must end in -report.tsv", impl_->specLibFile_);
@@ -614,107 +1235,263 @@ bool DiaNNSpecLibReader::parseFile()
     if (diannReportFilepath == specLibFile || !bfs::exists(diannReportFilepath))
     {
         // iterate all TSV files in the same directory as the speclib, check the ones sharing the most leading characters, and look for the report headers in them
-        vector<bfs::path> siblingTsvFiles;
+        vector<bfs::path> siblingTsvFiles, siblingParquetFiles;
         pwiz::util::expand_pathmask(bfs::path(impl_->specLibFile_).parent_path() / "*.tsv", siblingTsvFiles);
-        multimap<int, bfs::path> tsvFilepathBySharedPrefixLength;
+        pwiz::util::expand_pathmask(bfs::path(impl_->specLibFile_).parent_path() / "*.parquet", siblingParquetFiles);
+        vector<bfs::path> siblingFiles;
+        siblingFiles.insert(siblingFiles.end(), siblingParquetFiles.begin(), siblingParquetFiles.end());
+        siblingFiles.insert(siblingFiles.end(), siblingTsvFiles.begin(), siblingTsvFiles.end());
+        map<size_t, vector<bfs::path>, std::greater<size_t>> tsvFilepathBySharedPrefixLength;
         auto speclibFilename = bfs::path(impl_->specLibFile_).filename().string();
-        for (const auto& tsvFilepath : siblingTsvFiles)
+        for (const auto& tsvFilepath : siblingFiles)
         {
             if (!bfs::is_regular_file(tsvFilepath))
                 continue;
             if (bal::contains(tsvFilepath.filename().string(), "first-pass") && !bal::contains(speclibFilename, "first-pass"))
                 continue;
-            int sharedPrefixLength = 0, i;
+            if (bal::ends_with(tsvFilepath.string(), ".stats.tsv"))
+            {
+                diannStatsFilepath = tsvFilepath.string();
+                continue;
+            }
+            size_t sharedPrefixLength = 0, i;
             auto tsvFilename = tsvFilepath.filename().string();
             for (i = 0; i < tsvFilename.length() && i < speclibFilename.length(); ++i)
                 if (tsvFilename[i] != speclibFilename[i])
                     break;
             sharedPrefixLength = i;
-            tsvFilepathBySharedPrefixLength.emplace(sharedPrefixLength, tsvFilepath);
+            tsvFilepathBySharedPrefixLength[sharedPrefixLength].emplace_back(tsvFilepath);
         }
 
         diannReportFilepath.clear();
-        for (const auto& kvp : boost::make_iterator_range(tsvFilepathBySharedPrefixLength.rbegin(), tsvFilepathBySharedPrefixLength.rend()))
+        for (const auto& sharedPrefixLengthAndFilepathsPair : tsvFilepathBySharedPrefixLength)
         {
-            if (kvp.first < 1)
-                break;
-
-            io::CSVReader<3, io::trim_chars<' ', ' '>, io::no_quote_escape<'\t'>> reportReader(kvp.second.string().c_str());
-            reportReader.read_header(io::ignore_extra_column | io::ignore_missing_column, "Precursor.Id", "Q.Value", "RT");
-            if (reportReader.has_column("Precursor.Id") && reportReader.has_column("Q.Value") && reportReader.has_column("RT"))
+            for (const auto& tsvFilepath : sharedPrefixLengthAndFilepathsPair.second)
             {
-                diannReportFilepath = kvp.second.string();
-                break;
+                Impl::Reader<3> reader;
+                reader.open_file(tsvFilepath.string());
+                reader.read_header(io::ignore_extra_column | io::ignore_missing_column, "Precursor.Id", "Global.Q.Value", "RT");
+                if (reader.has_column("Precursor.Id") && reader.has_column("Global.Q.Value") && reader.has_column("RT"))
+                {
+                    diannReportFilepath = tsvFilepath.string();
+                    break;
+                }
             }
+            if (!diannReportFilepath.empty())
+                break;
         }
 
         if (diannReportFilepath.empty())
-            throw BlibException(true, "unable to determine DIA-NN report filename for '%s': the TSV report is required to read speclib files and must be in the same directory as the speclib and share some leading characters (e.g. somedata-tsv.speclib and somedata-report.tsv)",
+            throw BlibException(true, "unable to determine DIA-NN report filename for '%s': the Parquet or TSV report is required to read speclib files and must be in the same directory as the speclib and share some leading characters (e.g. somedata-tsv.speclib and somedata-report.parquet)",
                 impl_->specLibFile_);
+    }
+    else
+    {
+        // iterate all TSV files in the same directory as the speclib, looking for stats.tsv
+        vector<bfs::path> siblingTsvFiles;
+        pwiz::util::expand_pathmask(bfs::path(impl_->specLibFile_).parent_path() / "*.stats.tsv", siblingTsvFiles);
+        for (const auto& tsvFilepath : siblingTsvFiles)
+        {
+            if (!bfs::is_regular_file(tsvFilepath))
+                continue;
+            if (bal::contains(tsvFilepath.filename().string(), "first-pass") && !bal::contains(diannReportFilepath, "first-pass"))
+                continue;
+            if (bal::ends_with(tsvFilepath.string(), ".stats.tsv"))
+            {
+                diannStatsFilepath = tsvFilepath.string();
+                break;
+            }
+        }
+    }
+
+    if (!diannStatsFilepath.empty())
+    {
+        try
+        {
+            Verbosity::debug("Reading filenames from stats.tsv: %s", diannStatsFilepath.c_str());
+            Impl::Reader<3> reader;
+            reader.open_file(diannStatsFilepath);
+            reader.read_header(io::ignore_extra_column, "File.Name", "Precursors.Identified", "Proteins.Identified");
+            string fileName, id1, id2;
+            while (reader.read_row(fileName, id1, id2))
+            {
+                string runName = bfs::path(fileName).filename().replace_extension("").string();
+                fileName = bfs::path(fileName).filename().string();
+                diannFilenameByRun[runName] = fileName;
+                Verbosity::debug("%s -> %s", runName.c_str(), fileName.c_str());
+            }
+        }
+        catch (std::exception& e)
+        {
+            Verbosity::warn("error reading filepaths from stats report \"%s\": %s", diannStatsFilepath.c_str(), e.what());
+        }
     }
 
     auto& speclib = impl_->specLib;
-    set<string> processedRuns;
-    map<string, int> runNameByIndex;
-    map<int, string> runIndexByName;
-    bool hasSkippedRuns = false;
-    // read runs one at a time from the report file in a loop until all runs have been processed
-    do
+    Impl::Reader<10> reader;
+    reader.open_file(diannReportFilepath);
+    Verbosity::debug("Opened report file %s.", diannReportFilepath.c_str());
+    const char* fileNameColumn = reader.is_parquet(diannReportFilepath) ? "Run" : "File.Name"; // DIANN v2 doesn't provide File.Name column
+    Verbosity::status("Reading report headers.");
+    reader.read_header(io::ignore_extra_column, "Run", fileNameColumn, "Protein.Group", "Precursor.Id", "Global.Q.Value", "Q.Value", "RT", "RT.Start", "RT.Stop", "IM");
+    Verbosity::debug("Read report headers.");
+
+    std::string_view run, fileName, proteinGrp, precursorId;
+    float globalQValue;
+    RtPSM redundantPSM;
+    string firstRun; // used as a placeholder for setSpecFileName; SpectrumSourceFile/fileId is actually managed while reading rows
+    int64_t redundantPsmCount = 0;
+
+    // build PSM list from speclib; but filename and retention time info will be missing
+    // iterate through report rows, keep track of best PSM for each precursorId
+    // after reading entire report, we can build RefSpectra, rows will have rt[start/end] from the best PSM
+    // then populate RetentionTimes table from redundant PSMs for each precursorId
+    map<string, list<RtPSM>> retentionTimesByPrecursorId;
+    map<string, NonRedundantPSM*> psmByPrecursorId;
+    Verbosity::debug("Creating PSMs for %d speclib entries.", speclib.entries.size());
+    for (const auto& speclibEntry : speclib.entries)
     {
-        ReportReaderType reportReader(diannReportFilepath.c_str());
-        reportReader.read_header(io::ignore_extra_column, "Run", "File.Name", "Protein.Group", "Precursor.Id", "Q.Value", "RT", "RT.Start", "RT.Stop", "IM");
-        char *run, *fileName, *proteinGrp, *precursorId;
-        float qValue, rt, rtStart, rtStop, im;
-        string currentRun;
-        hasSkippedRuns = false;
-        while (reportReader.read_row(run, fileName, proteinGrp, precursorId, qValue, rt, rtStart, rtStop, im))
+        auto psm = new NonRedundantPSM;
+        psm->charge = speclibEntry.target.charge;
+        psm->unmodSeq = get_aas(speclibEntry.name, psm->mods);
+        psm->specIndex = speclibEntry.target.index;
+        psm->score = 2; // not a valid q-value; indicates the PSM hasn't been added to psm list yet
+        psmByPrecursorId[speclibEntry.name] = psm;
+    }
+    Verbosity::debug("Finished creating PSMs.");
+
+    Verbosity::status("Reading %d rows from report.", reader.num_rows());
+    readAddProgress_ = parentProgress_->newNestedIndicator(reader.num_rows());
+    int missingFromSpeclibCount = 0;
+    while (reader.read_row(run, fileName, proteinGrp, precursorId, globalQValue, redundantPSM.score, redundantPSM.rt, redundantPSM.rtStart, redundantPSM.rtEnd, redundantPSM.ionMobility))
+    {
+        string precursorIdStr(precursorId);
+        auto findItr = psmByPrecursorId.find(precursorIdStr);
+        if (findItr == psmByPrecursorId.end())
         {
-            if (currentRun.empty())
-            {
-                // skip rows from runs that have already been processed
-                if (processedRuns.count(run) > 0)
-                    continue;
-                currentRun = run;
-                setSpecFileName(run, false);  // make status output report the current spec file
-            }
-            else if (!bal::equals(currentRun.c_str(), run))
-            {
-                // skip rows not from the current runs being processed; another loop iteration will be required
-                hasSkippedRuns = hasSkippedRuns || processedRuns.count(run) == 0;
+            // skip contaminant proteins if they are not included in the speclib file
+            if (bal::starts_with(proteinGrp, "contaminant_"))
                 continue;
-            }
 
-            auto findItr = speclib.entryByModPeptideAndCharge.find(precursorId);
-            if (findItr == speclib.entryByModPeptideAndCharge.end())
-            {
-                // skip contaminant proteins if they are not included in the speclib file
-                if (bal::starts_with(proteinGrp, "contaminant_"))
-                    continue;
-
-                throw BlibException(false, "could not find precursorId '%s' in speclib; is '%s' the correct report TSV file?", precursorId, bfs::path(diannReportFilepath).filename().string().c_str());
-            }
-
-            auto& speclibEntry = findItr->second.get();
-            speclibEntry.curQValue = qValue;
-            speclibEntry.curRT = rt;
-            speclibEntry.curRTStart = rtStart;
-            speclibEntry.curRTStop = rtStop;
-            speclibEntry.curIM = im;
-
-            PSM* psm = new PSM;
-            psm->charge = speclibEntry.target.charge;
-            psm->unmodSeq = get_aas(speclibEntry.name, psm->mods);
-            psm->specIndex = speclibEntry.target.index;
-            psm->score = qValue;
-            psms_.emplace_back(psm);
+            // DIA-NN may report precursors that are not in the spectral library (e.g. some
+            // identifications without confident predicted spectra). Skip them rather than
+            // erroring out; we still validate at the end that *some* report rows matched.
+            ++missingFromSpeclibCount;
+            continue;
         }
 
-        // insert PSMs for the current run
-        buildTables(GENERIC_QVALUE, currentRun);
-        processedRuns.insert(currentRun);
-        currentRun.clear();
+        bfs::path currentRunFilepath = bal::replace_all_copy(string(fileName), "\\", "/"); // backslash to slash should work on both Linux and Windows
+        string currentRunFilename = currentRunFilepath.filename().string();
+        if (bal::iends_with(currentRunFilename, ".dia")) // trim DIA extension if present
+            currentRunFilename = currentRunFilename.substr(0, currentRunFilename.length() - 4);
+        if (firstRun.empty())
+            firstRun = currentRunFilename;
+
+        bool rowPassesFilter = globalQValue <= getScoreThreshold(GENERIC_QVALUE_INPUT);
+
+        auto& retentionTimes = retentionTimesByPrecursorId[precursorIdStr];
+        if (rowPassesFilter)
+        {
+            string spectrumFilepath = currentRunFilename;
+            auto findItr2 = diannFilenameByRun.find(currentRunFilename);
+            if (findItr2 != diannFilenameByRun.end())
+                spectrumFilepath = findItr2->second;
+
+            retentionTimes.emplace_back(redundantPSM);
+            retentionTimes.back().fileId = insertSpectrumFilename(spectrumFilepath, true, DIA);
+            ++redundantPsmCount;
+        }
+
+        auto psm = findItr->second;
+
+        // if this is the first row for the precursorId, add it to psm list
+        if (rowPassesFilter && psm->score == 2)
+        {
+            psms_.emplace_back(psm);
+            if (redundantPSM.ionMobility > 0)
+                impl_->ionMobilityType_ = IONMOBILITY_INVERSEREDUCED_VSECPERCM2;
+        }
+
+        // update bestQValue and bestPSM if this row is better than any previous one
+        if (rowPassesFilter && globalQValue < psm->score)
+        {
+            auto findItr2 = speclib.entryByModPeptideAndCharge.find(precursorIdStr);
+            if (findItr2 == speclib.entryByModPeptideAndCharge.end())
+                throw BlibException(false, "could not find precursorId '%s' in speclib; is '%s' the correct report TSV file?", precursorId, bfs::path(diannReportFilepath).filename().string().c_str());
+
+            psm->score = globalQValue;
+            psm->fileId = retentionTimes.back().fileId;
+
+            auto& speclibEntry = findItr2->second.get();
+            speclibEntry.bestQValue = globalQValue;
+            speclibEntry.bestPSM = &retentionTimes.back();
+        }
+
+        readAddProgress_->increment();
     }
-    while (hasSkippedRuns);
+    reader.close();
+
+    if (missingFromSpeclibCount > 0)
+        Verbosity::warn("Skipped %d report rows whose precursors were not in the spectral library.", missingFromSpeclibCount);
+    if (psms_.empty() && missingFromSpeclibCount > 0)
+        throw BlibException(false, "no report rows matched the spectral library; is '%s' the correct report file for '%s'?",
+            bfs::path(diannReportFilepath).filename().string().c_str(), bfs::path(impl_->specLibFile_).filename().string().c_str());
+
+    filteredOutPsmCount_ = speclib.entries.size() - psms_.size();
+
+
+    // CONSIDER: when/if another input type needs to build a non-redundant library directly, move this code to a common location
+    Verbosity::status("Building retention time table with %ld entries.", redundantPsmCount);
+    blibMaker_.beginTransaction();
+    for (const auto& kvp : retentionTimesByPrecursorId)
+    {
+        const auto& precursorIdStr = kvp.first;
+        const auto& redundantPsms = kvp.second;
+
+        auto findItr = speclib.entryByModPeptideAndCharge.find(precursorIdStr);
+        const auto& speclibEntry = findItr->second.get();
+
+        for (const auto& psm : redundantPsms)
+        {
+            // RefSpectraID, RedundantRefSpectraID, SpectrumSourceID, ionMobility, collisionalCrossSectionSqA, ionMobilityHighEnergyOffset, ionMobilityType, retentionTime, startTime, endTime, score, bestSpectrum
+            int bestSpectrum = speclibEntry.bestPSM->fileId == psm.fileId ? 1 : 0;
+
+            auto& insertStmt_ = impl_->insertRetentionTimesStmt_;
+            sqlite3_bind_int(insertStmt_, 1, speclibEntry.target.index);
+            sqlite3_bind_int(insertStmt_, 2, 0);
+            sqlite3_bind_int(insertStmt_, 3, psm.fileId);
+            sqlite3_bind_double(insertStmt_, 4, psm.ionMobility);
+            sqlite3_bind_double(insertStmt_, 5, 0);
+            sqlite3_bind_double(insertStmt_, 6, 0);
+            sqlite3_bind_int(insertStmt_, 7, psm.ionMobility > 0 ? impl_->ionMobilityType_ : 0);
+            sqlite3_bind_double(insertStmt_, 8, psm.rt);
+            sqlite3_bind_double(insertStmt_, 9, psm.rtStart);
+            sqlite3_bind_double(insertStmt_, 10, psm.rtEnd);
+            sqlite3_bind_double(insertStmt_, 11, psm.score);
+            sqlite3_bind_int(insertStmt_, 12, bestSpectrum);
+            if (sqlite3_step(insertStmt_) != SQLITE_DONE) {
+                throw BlibException(false, "Error inserting row into RetentionTimes: %s", sqlite3_errmsg(blibMaker_.getDb()));
+            }
+            else if (sqlite3_reset(insertStmt_) != SQLITE_OK) {
+                throw BlibException(false, "Error resetting insert statement: %s", sqlite3_errmsg(blibMaker_.getDb()));
+            }
+        }
+
+        // update copies field for PSM
+        auto findItr2 = psmByPrecursorId.find(precursorIdStr);
+        findItr2->second->copies = redundantPsms.size();
+    }
+    blibMaker_.endTransaction();
+
+    Verbosity::status("Reading %d spectra from speclib.", psms_.size());
+    setSpecFileName(firstRun, false);
+    buildTables(GENERIC_QVALUE);
+
+    // update RetentionTimes.RefSpectraID field after filtering
+    Verbosity::status("Updating RetentionTimes table after filtering.");
+    blibMaker_.sql_stmt("UPDATE RetentionTimes SET RefSpectraID = newId "
+                        "FROM (SELECT DISTINCT t.[RefSpectraID] as oldId, s.[id] as newId FROM RefSpectra s, RetentionTimes t WHERE s.[SpecIdInFile] = t.[RefSpectraID]) AS IdMapping "
+                        "WHERE RefSpectraID == IdMapping.oldId");
 
     return true;
 }
@@ -744,19 +1521,19 @@ bool DiaNNSpecLibReader::getSpectrum(int identifier, SpecData& returnData, SPEC_
     returnData.id = entry.target.index;
     returnData.numPeaks = entry.target.fragments.size();
     returnData.mz = entry.target.mz;
-    returnData.retentionTime = entry.curRT;
-    returnData.startTime = entry.curRTStart;
-    returnData.endTime = entry.curRTStop;
-    returnData.ionMobility = entry.curIM;
+    returnData.retentionTime = entry.bestPSM->rt;
+    returnData.startTime = entry.bestPSM->rtStart;
+    returnData.endTime = entry.bestPSM->rtEnd;
+    returnData.ionMobility = entry.bestPSM->ionMobility;
     if (returnData.ionMobility > 0)
-        returnData.ionMobilityType = IONMOBILITY_INVERSEREDUCED_VSECPERCM2;
+        returnData.ionMobilityType = impl_->ionMobilityType_;
 
     if (!getPeaks)
         return true;
 
     returnData.mzs = new double[returnData.numPeaks];
     returnData.intensities = new float[returnData.numPeaks];
-    for (size_t i=0; i < returnData.numPeaks; ++i)
+    for (int i=0; i < returnData.numPeaks; ++i)
     {
         const auto& product = entry.target.fragments[i];
         returnData.mzs[i] = product.mz;

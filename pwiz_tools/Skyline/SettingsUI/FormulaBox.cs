@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Max Horowitz-Gelb <maxhg .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -19,10 +19,13 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Drawing;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Windows.Forms;
+using pwiz.Common.Chemistry;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Controls;
 using pwiz.Skyline.Model;
@@ -89,7 +92,7 @@ namespace pwiz.Skyline.SettingsUI
             labelFormula.Text = labelFormulaText;
             labelAverage.Text = labelAverageText;
             labelMono.Text = labelMonoText;
-            helpToolStripMenuItem.Text = Resources.FormulaBox_FormulaBox_Help;
+            helpToolStripMenuItem.Text = SettingsUIResources.FormulaBox_FormulaBox_Help;
 
 
             Bitmap bm = Resources.PopupBtn;
@@ -103,6 +106,12 @@ namespace pwiz.Skyline.SettingsUI
         }
 
         public event EventHandler ChargeChange;
+
+        public string FormulaText // For test support
+        {
+            get { return textFormula.Text; }
+            set { textFormula.Text = value; }
+        }
 
         public string DisplayFormula
         {
@@ -293,6 +302,19 @@ namespace pwiz.Skyline.SettingsUI
                 labelFormula.Visible = value;
             }
         }
+
+        [DefaultValue(false)]
+        public bool AllowNegativeAtomCounts { get; set; }
+
+        public string FormulaToolTip
+        {
+            get { return toolTip1.GetToolTip(textFormula); } // For test support
+        }
+
+        /// <summary>
+        /// Non-null when the current formula text has a validation error (shown as tooltip)
+        /// </summary>
+        public string FormulaError { get; private set; }
 
         public bool MassEnabled
         {
@@ -520,9 +542,9 @@ namespace pwiz.Skyline.SettingsUI
         {
             get
             {
-                var helpText = TextUtil.LineSeparate(Resources.FormulaBox_helpToolStripMenuItem_Click_Formula_Help, 
+                var helpText = TextUtil.LineSeparate(SettingsUIResources.FormulaBox_helpToolStripMenuItem_Click_Formula_Help, 
                     string.Empty,
-                    Resources.FormulaBox_FormulaHelpText_Formulas_are_written_in_standard_chemical_notation__e_g___C2H6O____Heavy_isotopes_are_indicated_by_a_prime__e_g__C__for_C13__or_double_prime_for_less_abundant_stable_iostopes__e_g__O__for_O17__O__for_O18__);
+                    SettingsUIResources.FormulaBox_FormulaHelpText_Formulas_are_written_in_standard_chemical_notation__e_g___C2H6O____Heavy_isotopes_are_indicated_by_a_prime__e_g__C__for_C13__or_double_prime_for_less_abundant_stable_iostopes__e_g__O__for_O17__O__for_O18__);
                 if (_editMode != EditMode.formula_only)
                 {
                     helpText = TextUtil.LineSeparate(helpText, string.Empty, Adduct.Tips); // Charge implies ion formula, so help with adduct descriptions as well
@@ -601,7 +623,7 @@ namespace pwiz.Skyline.SettingsUI
 
         private void UpdateMonoTextForMass()
         {
-            // Avoid a casecade of text-changed events
+            // Avoid a cascade of text-changed events
             var text = GetTextFromMass(_monoMass, MassType.Monoisotopic);
             if (!Equals(GetMassFromText(text, MassType.Monoisotopic), GetMassFromText(textMono.Text, MassType.Monoisotopic)))
                 textMono.Text = text;
@@ -609,7 +631,7 @@ namespace pwiz.Skyline.SettingsUI
 
         private void UpdateAverageTextForMass()
         {
-            // Avoid a casecade of text-changed events
+            // Avoid a cascade of text-changed events
             var text = GetTextFromMass(_averageMass, MassType.Average);
             if (!Equals(GetMassFromText(text, MassType.Average), GetMassFromText(textAverage.Text, MassType.Average)))
                 textAverage.Text = text;
@@ -618,6 +640,7 @@ namespace pwiz.Skyline.SettingsUI
         private void UpdateAverageAndMonoTextsForFormula()
         {
             bool valid;
+            FormulaError = null;
             try
             {
                 var formula = Formula; // Get current formula and adduct
@@ -675,6 +698,17 @@ namespace pwiz.Skyline.SettingsUI
                 }
                 else
                 {
+                    if (!AllowNegativeAtomCounts)
+                    {
+                        // Check for negative atom counts (e.g. "U-H2O" produces negative H and O)
+                        var molecule = Molecule.Parse(neutralFormula);
+                        if (molecule.Values.Any(count => count < 0))
+                        {
+                            throw new InvalidOperationException(
+                                string.Format(SettingsUIResources.FormulaBox_UpdateAverageAndMonoTextsForFormula_The_formula___0___would_result_in_negative_atom_counts,
+                                    neutralFormula));
+                        }
+                    }
                     // Is there an isotopic label we should apply to get the mass?
                     if (IsotopeLabelsForMassCalc != null && (Adduct.IsEmpty || !Adduct.HasIsotopeLabels)) // If adduct declares an isotope, that takes precedence
                     {
@@ -702,13 +736,13 @@ namespace pwiz.Skyline.SettingsUI
                     valid &= adduct.IsEmpty; // Should not have anything going on with adduct here
                 }
             }
-            catch (InvalidOperationException)
+            catch (Exception ex) when (ex is InvalidOperationException ||
+                                        ex is InvalidDataException ||
+                                        ex is ArgumentException ||
+                                        ex is InvalidChemicalModificationException)
             {
                 valid = false;
-            }
-            catch (ArgumentException)
-            {
-                valid = false;
+                FormulaError = ex.Message;
             }
             if (valid)
             {
@@ -719,6 +753,9 @@ namespace pwiz.Skyline.SettingsUI
                 textFormula.ForeColor = Color.Red;
                 textMono.Text = textAverage.Text = string.Empty;
             }
+
+            toolTip1.SetToolTip(textFormula, FormulaError ??
+                (_editMode == EditMode.adduct_only ? AdductHelpText : FormulaHelpText));
 
             // Allow direct editing of masses if direct editing of formula is allowed, but formula is empty
             MassEnabled = _editMode != EditMode.adduct_only && string.IsNullOrEmpty(_neutralFormula);

@@ -1,4 +1,4 @@
-﻿namespace pwiz.Common.DataBinding.Controls
+namespace pwiz.Common.DataBinding.Controls
 {
     partial class NavBar
     {
@@ -6,19 +6,6 @@
         /// Required designer variable.
         /// </summary>
         private System.ComponentModel.IContainer components = null;
-
-        /// <summary> 
-        /// Clean up any resources being used.
-        /// </summary>
-        /// <param name="disposing">true if managed resources should be disposed; otherwise, false.</param>
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing && (components != null))
-            {
-                components.Dispose();
-            }
-            base.Dispose(disposing);
-        }
 
         #region Component Designer generated code
 
@@ -50,6 +37,7 @@
             this.lblFilterApplied = new System.Windows.Forms.ToolStripLabel();
             this.bindingNavigator1 = new System.Windows.Forms.BindingNavigator(this.components);
             this.btnGroupTotal = new System.Windows.Forms.ToolStripSplitButton();
+            this.freezeColumnsUpToToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
             this.navBarButtonCluster = new System.Windows.Forms.ToolStripSplitButton();
             this.navBarButtonClusterGrid = new System.Windows.Forms.ToolStripMenuItem();
             this.advancedToolStripMenuItem = new System.Windows.Forms.ToolStripMenuItem();
@@ -206,10 +194,18 @@
             // btnGroupTotal
             // 
             this.btnGroupTotal.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.btnGroupTotal.DropDownItems.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.freezeColumnsUpToToolStripMenuItem});
             resources.ApplyResources(this.btnGroupTotal, "btnGroupTotal");
             this.btnGroupTotal.Name = "btnGroupTotal";
             this.btnGroupTotal.ButtonClick += new System.EventHandler(this.btnGroupTotal_Click);
             this.btnGroupTotal.DropDownOpening += new System.EventHandler(this.btnGroupTotal_DropDownOpening);
+            // 
+            // freezeColumnsUpToToolStripMenuItem
+            // 
+            this.freezeColumnsUpToToolStripMenuItem.Image = global::pwiz.Common.Properties.Resources.FreezeCells;
+            resources.ApplyResources(this.freezeColumnsUpToToolStripMenuItem, "freezeColumnsUpToToolStripMenuItem");
+            this.freezeColumnsUpToToolStripMenuItem.Name = "freezeColumnsUpToToolStripMenuItem";
             // 
             // navBarButtonCluster
             // 
@@ -295,5 +291,6 @@
         private System.Windows.Forms.ToolStripSplitButton navBarButtonCluster;
         private System.Windows.Forms.ToolStripMenuItem advancedToolStripMenuItem;
         private System.Windows.Forms.ToolStripMenuItem navBarButtonClusterGrid;
+        private System.Windows.Forms.ToolStripMenuItem freezeColumnsUpToToolStripMenuItem;
     }
 }

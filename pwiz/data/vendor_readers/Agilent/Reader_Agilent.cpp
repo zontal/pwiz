@@ -87,6 +87,14 @@ void initializeInstrumentConfigurationPtrs(MSData& msd,
         commonInstrumentParams->userParams.push_back(UserParam("instrument model", rawfile->getDeviceName(deviceType)));
     commonInstrumentParams->set(cvidModel);
 
+    auto sampleName = rawfile->getSampleInfoValue("Sample Name");
+    if (!sampleName.empty())
+    {
+        SamplePtr samplePtr(new Sample(sampleName));
+        samplePtr->set(MS_sample_name, sampleName);
+        msd.samplePtrs.push_back(samplePtr);
+    }
+
     auto serialNumber = rawfile->getDeviceSerialNumber(deviceType);
     if (!serialNumber.empty())
         commonInstrumentParams->set(MS_instrument_serial_number, serialNumber);
@@ -117,6 +125,8 @@ void fillInMetadata(const string& rawpath, MassHunterDataPtr rawfile, MSData& ms
     if (scanTypes & MSScanType_Scan)         msd.fileDescription.fileContent.set(MS_MS1_spectrum);
     if (scanTypes & MSScanType_ProductIon)   msd.fileDescription.fileContent.set(MS_MSn_spectrum);
     if (scanTypes & MSScanType_PrecursorIon) msd.fileDescription.fileContent.set(MS_precursor_ion_spectrum);
+    if (scanTypes & MSScanType_NeutralLoss)  msd.fileDescription.fileContent.set(MS_constant_neutral_loss_spectrum);
+    if (scanTypes & MSScanType_NeutralGain)  msd.fileDescription.fileContent.set(MS_constant_neutral_gain_spectrum);
     // other scan types are not enumerated
 
     if (!msd.fileDescription.fileContent.empty())
@@ -161,9 +171,9 @@ void fillInMetadata(const string& rawpath, MassHunterDataPtr rawfile, MSData& ms
             continue;
 
         SourceFilePtr sourceFile(new SourceFile);
-        sourceFile->id = BFS_STRING(sourcePath.leaf());
-        sourceFile->name = BFS_STRING(sourcePath.leaf());
-        sourceFile->location = "file:///" + BFS_GENERIC_STRING(BFS_COMPLETE(sourcePath.branch_path()));
+        sourceFile->id = BFS_STRING(sourcePath.filename());
+        sourceFile->name = BFS_STRING(sourcePath.filename());
+        sourceFile->location = "file:///" + BFS_GENERIC_STRING(BFS_COMPLETE(sourcePath.parent_path()));
         sourceFile->set(MS_Agilent_MassHunter_nativeID_format);
         sourceFile->set(MS_Agilent_MassHunter_format);
         msd.fileDescription.sourceFilePtrs.push_back(sourceFile);

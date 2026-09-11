@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -26,7 +26,9 @@ using System.Text;
 using pwiz.Skyline.Util;
 using pwiz.Skyline.Util.Extensions;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using pwiz.Common.CommonResources;
 using pwiz.Common.SystemUtil;
+using pwiz.PanoramaClient;
 using pwiz.Skyline.Model;
 using pwiz.SkylineTestUtil;
 
@@ -166,7 +168,127 @@ namespace pwiz.SkylineTest
 
         }
 
+        // Test the code to compare strings with same files on different paths
         [TestMethod]
+        public void TestNoDiffIgnoringPathDifferences()
+        {
+            // No quotes, tab separated
+            var line1 = "C:\\Dev\\FeatureFinding\\pwiz_tools\\Skyline\\SkylineTester Results\\HardklorFeatureDetectionTest\\MS1FilteringMzml_2\\Ms1FilteringMzml\\100803_0001_MCF7_TiB_L.mzML\t4056\t4065\t10\t2\t1223.5398\t612.7772\t6858\tc:\\tmp\\greeble\t21379\t36.4559\t36.9732\t36.6144\t0.9993\t_\t4057\tH104C54N15O16[+4.761216]\tc:\\tmp\\blorf";
+            var line2 = "D:\\Nightly\\SkylineTesterForNightly_integration_perf\\SkylineTester Files\\SkylineTester Results\\HardklorFeatureDetectionTest\\MS1FilteringMzml_2\\Ms1FilteringMzml\\100803_0001_MCF7_TiB_L.mzML\t4056\t4065\t10\t2\t1223.5398\t612.7772\t6858\td:\\tmp\\greeble\t21379\t36.4559\t36.9732\t36.6144\t0.9993\t_\t4057\tH104C54N15O16[+4.761216]\tj:\\dogs\\cats\\blorf";
+            AssertEx.NoDiff(line1, line2, null, null, true);
+            // With quotes, tab separated
+            line1 = "\"C:\\Dev\\FeatureFinding\\pwiz_tools\\Skyline\\SkylineTester Results\\HardklorFeatureDetectionTest\\MS1FilteringMzml_2\\Ms1FilteringMzml\\100803_0001_MCF7_TiB_L.mzML\"\t4056\t4065\t10\t2\t1223.5398\t612.7772\t6858\tc:\\tmp\\greeble\t21379\t36.4559\t36.9732\t36.6144\t0.9993\t_\t4057\tH104C54N15O16[+4.761216]\tc:\\tmp\\blorf";
+            line2 = "\"D:\\Nightly\\SkylineTesterForNightly_integration_perf\\SkylineTester Files\\SkylineTester Results\\HardklorFeatureDetectionTest\\MS1FilteringMzml_2\\Ms1FilteringMzml\\100803_0001_MCF7_TiB_L.mzML\"\t4056\t4065\t10\t2\t1223.5398\t612.7772\t6858\td:\\tmp\\greeble\t21379\t36.4559\t36.9732\t36.6144\t0.9993\t_\t4057\tH104C54N15O16[+4.761216]\tj:\\dogs\\birds\\blorf";
+            AssertEx.NoDiff(line1, line2, null, null, true);
+            // CSV
+            line1 = line1.Replace("\t", ",");
+            line2 = line2.Replace("\t", ",");
+            AssertEx.NoDiff(line1, line2, null, null, true);
+            // European ; separated
+            line1 = line1.Replace(",", ";");
+            line2 = line2.Replace(",", ";");
+            AssertEx.NoDiff(line1, line2, null, null, true);
+            // Make sure it actually does catch differences
+            line1 = line1.Replace("MCF", "zzz");
+            AssertEx.ThrowsException<AssertFailedException>(() => AssertEx.NoDiff(line1, line2));
+        }
+
+        // Test the code used to compare DSV files with tiny numerical differences (e.g. BullseyeSharp MS2 output files)
+        [TestMethod]
+        public void TestFieldsEqual()
+        {
+
+            AssertEx.FieldsEqual(new StringReader("747.3871 1.01456e+07"),
+                new StringReader("747.3871 1.014561e+07"),
+                null, // Variable field count
+                null, // Ignore no columns
+                true); // Allow for rounding errors
+
+
+            var txtA =
+                "H\tCreationDate Thu May 18 10:22:17 2023\n" +
+                "H\tExtractor\tProteoWizard\n" +
+                "H\tExtractor version\tXcalibur\n" +
+                "H\tSource file\t2021_0810_Eclipse_LiPExp_05_SS3.raw\n" +
+                "S\t3\t3\t613.3168\n" +
+                "I\tNativeID\tcontrollerType=0 controllerNumber=1 scan=3\n" +
+                "I\tRTime\t0.01054074\n" +
+                "I\tBPI\t34995.21\n" +
+                "I\tBPM\t7754\n" +
+                "I\tTIC\t247701.8\n" +
+                "Z\t1\t5432\n" +
+                "181.6542 21635.59\n" +
+                "203.9089 9885.277\n" +
+                "221.082 10638.83\n" +
+                "251.8089 9747.531\n" +
+                "268.5652 8213.748\n" +
+                "300.0618 11877.35\n" +
+                "355.0699 12373.97\n" +
+                "356.0695 23859.23\n" +
+                "357.0657 33525.14\n" +
+                "358.0672 34995.21\n" +
+                "373.2889 8678.741\n" +
+                "510.3278 11798.26\n" +
+                "588.6589 10310.75\n" +
+                "594.7731 10238.01\n" +
+                "940.1085 9085.032\n" +
+                "1124.124 10834.5\n" +
+                "1208.332 10004.55\n" +
+                "S\t6\t6\t422.7364\n" +
+                "I\tNativeID\tcontrollerType=0 controllerNumber=1 scan=6\n" +
+                "I\tRTime\t0.01241985\n" +
+                "I\tBPI\t36354.39\n" +
+                "I\tBPM\t157.0823\n" +
+                "I\tTIC\t150800.6\n" +
+                "Z\t2\t1682.29\n" +
+                "157.0823 36354.39\n" +
+                "181.659 32937.68\n" +
+                "230.6742 8594.602\n" +
+                "384.1447 10770.04\n" +
+                "422.3313 22468.13\n" +
+                "487.0845 9533.217\n" +
+                "780.8187 9651.796\n" +
+                "1014.462 9763.788\n" +
+                "1582.427 10726.89\n";
+
+            var txtB = txtA.Replace("247701.8", "247701.7"). // Could be serializations of 247701.751 and 247701.749
+                Replace("36354.39", "36354.40").
+                Replace("34995.21", "34995.22").
+                Replace("7754", "7754.0").
+                Replace("5432", "5433").
+                Replace("10726.89", "10726.9");
+            AssertEx.FieldsEqual(new StringReader(txtA),
+                new StringReader(txtB),
+                null, // Variable field count
+                null, // Ignore no columns
+                true, // Allow for rounding errors - the TIC line in particular is an issue here
+                0, // Allow no extra lines
+                null, // No overall tolerance
+                1); // Skip first line with its timestamp
+
+            // And make sure it catches actual errors
+            var txtC = txtA.Replace("247701.8", "247701.6");
+            AssertEx.ThrowsException<AssertFailedException>(() => AssertEx.FieldsEqual(new StringReader(txtA),
+                new StringReader(txtC),
+                null, // Variable field count
+                null, // Ignore no columns
+                true, // Allow for rounding errors - the TIC line in particular is an issue here
+                0, // Allow no extra lines
+                null, // No overall tolerance
+                1)); // Skip first line with its timestamp);
+
+            var txtD = txtA.Replace("10726.89", "10726.896");
+            AssertEx.ThrowsException<AssertFailedException>(() => AssertEx.FieldsEqual(new StringReader(txtA),
+                new StringReader(txtD),
+                null, // Variable field count
+                null, // Ignore no columns
+                true, // Allow for rounding errors - the TIC line in particular is an issue here
+                0, // Allow no extra lines
+                null, // No overall tolerance
+                1)); // Skip first line with its timestamp);
+        }
+
+        [TestMethod, NoParallelTesting(TestExclusionReason.SHARED_DIRECTORY_WRITE)]
         public void SafeDeleteTest()
         {
             // Test ArgumentException.
@@ -285,6 +407,79 @@ namespace pwiz.SkylineTest
             AssertEx.AreEqualDeep(arrayBase, array2);
             AssertEx.AreEqualDeep(arrayBase, array3);
             AssertEx.AreEqualDeep(arrayBase, array4);
+
+            // Double-specific overload: IsSorted fast path and custom three-array sort.
+            Assert.IsTrue(ArrayUtil.IsSorted(new double[0]));
+            Assert.IsTrue(ArrayUtil.IsSorted(new[] { 1.0 }));
+            Assert.IsTrue(ArrayUtil.IsSorted(new[] { 1.0, 1.0, 2.0, 3.0, 3.0 }));
+            Assert.IsFalse(ArrayUtil.IsSorted(new[] { 1.0, 2.0, 1.5 }));
+
+            // Fast path returns true without mutating inputs.
+            var mzSorted = new[] { 100.0, 200.0, 300.0 };
+            var intSorted = new[] { 10.0, 20.0, 30.0 };
+            var imSorted = new[] { 0.5, 0.6, 0.7 };
+            Assert.IsTrue(ArrayUtil.Sort(mzSorted, intSorted, imSorted));
+            AssertEx.AreEqualDeep(new[] { 100.0, 200.0, 300.0 }, mzSorted);
+            AssertEx.AreEqualDeep(new[] { 10.0, 20.0, 30.0 }, intSorted);
+            AssertEx.AreEqualDeep(new[] { 0.5, 0.6, 0.7 }, imSorted);
+
+            // Randomized correctness: new sort must produce the same m/z ordering as
+            // Array.Sort, with parallel arrays permuted consistently.
+            VerifyDoubleSortAgainstReference(new[] { 3.0, 1.0, 2.0 });
+            VerifyDoubleSortAgainstReference(new[] { 5.0, 5.0, 5.0, 5.0 });
+            VerifyDoubleSortAgainstReference(new[] { 5.0, 4.0, 3.0, 2.0, 1.0 });
+            var rand = new Random(20260421);
+            foreach (int n in new[] { 2, 15, 16, 17, 100, 1000, 10000 })
+            {
+                var arr = new double[n];
+                for (int i = 0; i < n; i++)
+                    arr[i] = rand.NextDouble() * 2000;
+                VerifyDoubleSortAgainstReference(arr);
+            }
+
+            // Null secondary arrays must be tolerated.
+            var unsorted = new[] { 3.0, 1.0, 2.0 };
+            Assert.IsFalse(ArrayUtil.Sort(unsorted, null, null));
+            AssertEx.AreEqualDeep(new[] { 1.0, 2.0, 3.0 }, unsorted);
+        }
+
+        private static void VerifyDoubleSortAgainstReference(double[] mzs)
+        {
+            var intensities = new double[mzs.Length];
+            var ionMobilities = new double[mzs.Length];
+            for (int i = 0; i < mzs.Length; i++)
+            {
+                // Tag each row so we can check secondary arrays permuted with m/z.
+                intensities[i] = i * 1000.0 + mzs[i];
+                ionMobilities[i] = i * 0.001;
+            }
+            var mzCopy = (double[])mzs.Clone();
+            var intCopy = (double[])intensities.Clone();
+            var imCopy = (double[])ionMobilities.Clone();
+
+            ArrayUtil.Sort(mzs, intensities, ionMobilities);
+
+            ArrayUtil.Sort(mzCopy, out _);
+
+            AssertEx.AreEqualDeep(mzCopy, mzs);
+            // For each position, secondary values must match SOME row that had the same key
+            // in the original input (covers both stable and unstable sorts).
+            for (int i = 0; i < mzs.Length; i++)
+            {
+                int origIdx = FindMatchingRow(intCopy, imCopy, intensities[i], ionMobilities[i]);
+                Assert.IsTrue(origIdx >= 0, @"secondary arrays lost a row at index {0}", i);
+                Assert.AreEqual(mzCopy[i], intCopy[origIdx] - origIdx * 1000.0, 1e-9);
+            }
+        }
+
+        private static int FindMatchingRow(double[] intCopy, double[] imCopy, double intensity, double ionMobility)
+        {
+            for (int i = 0; i < intCopy.Length; i++)
+            {
+                if (intCopy[i] == intensity && imCopy[i] == ionMobility)
+                    return i;
+            }
+            return -1;
         }
 
         [TestMethod]
@@ -339,8 +534,27 @@ namespace pwiz.SkylineTest
                         AssertEx.ThrowsException<IOException>(testFilesDir.Cleanup, x => AssertEx.Contains(x.Message, fileName));
                         DesiredCleanupLevel = DesiredCleanupLevel.all;  // Folders deleted
                         AssertEx.ThrowsException<IOException>(testFilesDir.Cleanup, x => AssertEx.Contains(x.Message, fileName));
+                        
+                        // Test FileLockingProcessFinder utility
+                        VerifyDeleteDirectoryWithFileLockingDetails(testFilesDir.FullPath, filePath);
+                        
+                        // Make sure it works recursively
+                        var subfolderPath = testFilesDir.GetTestPath(@"sub1\sub2\sub3");
+                        Directory.CreateDirectory(subfolderPath);
+                        var filePathDeep = Path.Combine(subfolderPath, "lock.txt");
+                        File.WriteAllText(filePathDeep, @"test");
+                        using (new StreamReader(filePathDeep))
+                        {
+                            VerifyDeleteDirectoryWithFileLockingDetails(testFilesDir.GetTestPath("sub1"), filePathDeep);
+                        }
                     }
                 }
+
+                if (!Install.IsRunningOnWine)
+                {
+                    VerifyAccessDeniedNamesTheLockingProcess(filePath);
+                }
+
                 // Now test successful cleanup
                 DesiredCleanupLevel = DesiredCleanupLevel.downloads; // Folders renamed
                 testFilesDir.Cleanup();
@@ -356,6 +570,93 @@ namespace pwiz.SkylineTest
             {
                 DesiredCleanupLevel = cleanupLevel;
             }
+        }
+
+        /// <summary>
+        /// A lock is reported as a sharing violation when the file is opened, but as access-denied
+        /// when it is deleted or replaced - which is what an overwriting unzip does, and how the
+        /// crux tool extraction fails. Both must name the process holding the file.
+        /// </summary>
+        private static void VerifyAccessDeniedNamesTheLockingProcess(string filePath)
+        {
+            // The message shape .NET uses for access-denied, with the path it could not replace
+            var accessDenied = new UnauthorizedAccessException(
+                string.Format(@"Access to the path '{0}' is denied.", filePath));
+
+            using (File.Open(filePath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            {
+                var described = FileLockingProcessFinder.ToFileLockingException(accessDenied, null);
+                if (!ReferenceEquals(described, accessDenied))
+                {
+                    // Only assert the naming when the Restart Manager was actually able to answer.
+                    // Where it is unavailable - a container, or an account without the rights - it
+                    // names no process and the original exception is returned untouched, which the
+                    // locking test above tolerates for the same reason.
+                    AssertEx.Contains(described.Message, filePath,
+                        MessageResources.FileLockingProcessFinder_ToFileLockingException_this_process);
+                }
+            }
+
+            // Unlocked by us now, so nothing of OURS holds it and the original should survive
+            // untouched. Not asserted as identity though: this asks the Restart Manager about a file
+            // on a shared machine, where a scanner or an indexer may legitimately be holding it for a
+            // moment - and naming that holder would be the finder working correctly, not failing.
+            // Asserting identity here would make the test fail on other software's timing.
+            var whenUnlocked = FileLockingProcessFinder.ToFileLockingException(accessDenied, null);
+            if (!ReferenceEquals(accessDenied, whenUnlocked))
+            {
+                AssertEx.IsFalse(whenUnlocked.Message.Contains(
+                        MessageResources.FileLockingProcessFinder_ToFileLockingException_this_process),
+                    TextUtil.LineSeparate(@"A file this process had already closed was reported as locked by it.",
+                        whenUnlocked.Message));
+            }
+        }
+
+        private static void VerifyDeleteDirectoryWithFileLockingDetails(string dirPath, string lockedFile)
+        {
+            // NB: We really do not want to see the error "was locked but has since been deleted"
+            //     since we know the file is locked and cannot have been deleted.
+            AssertEx.ThrowsException<IOException>(() => FileLockingProcessFinder.DeleteDirectoryWithFileLockingDetails(dirPath),
+                x => AssertEx.Contains(x.Message, lockedFile, MessageResources.FileLockingProcessFinder_ToFileLockingException_this_process));
+        }
+
+        /// <summary>
+        /// Verifies that Panorama exceptions are recognized as user-actionable errors,
+        /// not programming defects. This ensures users see friendly error messages
+        /// instead of crash dialogs when Panorama operations fail.
+        /// </summary>
+        [TestMethod]
+        public void TestPanoramaExceptionsUserActionable()
+        {
+            // PanoramaException and its subclasses should NOT be treated as programming defects
+            // because they inherit from IOException, which is recognized as user-actionable
+            var testUri = new Uri("https://panoramaweb.org/");
+
+            // Base class
+            Assert.IsFalse(ExceptionUtil.IsProgrammingDefect(new PanoramaException("Test error")));
+
+            // PanoramaServerException - used for server communication errors
+            Assert.IsFalse(ExceptionUtil.IsProgrammingDefect(new PanoramaServerException("Server error")));
+
+            // PanoramaImportErrorException - used when document import fails on server
+            // This was the bug reported in issue #3808: before the fix, this exception
+            // inherited from Exception instead of IOException, causing it to be treated
+            // as a programming defect and showing a crash dialog instead of a friendly error
+            Assert.IsFalse(ExceptionUtil.IsProgrammingDefect(
+                new PanoramaImportErrorException(testUri, testUri, "Import failed")));
+        }
+
+        [TestMethod]
+        public void TestTryMatchUnicode()
+        {
+            // Test TryMatch with case-insensitive filename matching (Issue #4142)
+            // On Windows, filenames are case-insensitive, so "µ-Sample.mzML" should match "µ-sample.mzML"
+            var ips = new ImportPeptideSearch();
+            ips.SpectrumSourceFiles.Add(@"µ-sample.mzML",
+                new ImportPeptideSearch.FoundResultsFilePossibilities(@"µ-sample"));
+            ips.TryMatch(@"C:\Data\µ-Experiment\µ-Sample.mzML", false);
+            Assert.IsTrue(ips.SpectrumSourceFiles[@"µ-sample.mzML"].HasExactMatch,
+                "TryMatch should find case-insensitive match for Unicode filename");
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -24,7 +24,6 @@ using System.Windows.Forms;
 using pwiz.Skyline.Model;
 using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.Proteome;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 
 namespace pwiz.Skyline.Controls
@@ -50,8 +49,17 @@ namespace pwiz.Skyline.Controls
 
         protected override string GetPersistentString()
         {
-            return base.GetPersistentString() + @"|" + SequenceTree.GetPersistentString();
-        } 
+            // Write a token to the .view file indicating Skyline showed the new Files tab. Absence of this token tells Skyline to show Files as 
+            // part of upgrading all existing .sky documents. Presence of the token indicates that happened for the Skyline document and should 
+            // not happen again.
+            return base.GetPersistentString() + @"|" + SequenceTree.GetPersistentString() + @"|" + FilesTree.FilesTree.FILES_TREE_SHOWN_ONCE_TOKEN;
+        }
+
+        // Used to make the persistent string available to tests
+        public string GetPersistentStringForTests()
+        {
+            return GetPersistentString();
+        }
 
         public SequenceTree SequenceTree { get { return sequenceTree; } }
         public ToolStripComboBox ComboResults { get { return comboResults; } }
@@ -86,13 +94,13 @@ namespace pwiz.Skyline.Controls
                     newTitle = _defaultTabText;
                     break;
                 case ProteinMetadataManager.ProteinDisplayMode.ByAccession:
-                    newTitle = Resources.SequenceTreeForm_UpdateTitle_Targets_by_Accession;
+                    newTitle = ControlsResources.SequenceTreeForm_UpdateTitle_Targets_by_Accession;
                     break;
                 case ProteinMetadataManager.ProteinDisplayMode.ByPreferredName:
-                    newTitle = Resources.SequenceTreeForm_UpdateTitle_Targets_by_Preferred_Name;
+                    newTitle = ControlsResources.SequenceTreeForm_UpdateTitle_Targets_by_Preferred_Name;
                     break;
                 case ProteinMetadataManager.ProteinDisplayMode.ByGene:
-                    newTitle = Resources.SequenceTreeForm_UpdateTitle_Targets_by_Gene;
+                    newTitle = ControlsResources.SequenceTreeForm_UpdateTitle_Targets_by_Gene;
                     break;
             }
             TabText = newTitle ?? _defaultTabText;

@@ -144,6 +144,9 @@
   <data name="eIonMobilityUnits_waters_sonar" xml:space="preserve">
     <value>Waters SONAR</value>
   </data>
+  <data name="FullScanAcquisitionMethod_EI" xml:space="preserve">
+    <value>EI</value>
+  </data>
   <data name="FullScanAcquisitionMethod_DDA" xml:space="preserve">
     <value>DDA</value>
   </data>
@@ -372,6 +375,9 @@
   <data name="Workflow_prm" xml:space="preserve">
     <value>PRM（并行反应离子监测）</value>
   </data>
+  <data name="Workflow_feature_detection" xml:space="preserve">
+    <value>特征检测</value>
+  </data>
   <data name="TransitionLibraryPick_none" xml:space="preserve">
     <value>无</value>
   </data>
@@ -435,6 +441,9 @@
   <data name="ListSortDirection_Descending" xml:space="preserve">
     <value>降序</value>
   </data>
+  <data name="CountDistinctImpl_CountDistinct" xml:space="preserve">
+    <value>计数唯一值</value>
+  </data>
   <data name="CountImpl_Count" xml:space="preserve">
     <value>计数</value>
   </data>
@@ -449,6 +458,9 @@
   </data>
   <data name="NumericAggregate_Sum" xml:space="preserve">
     <value>总和</value>
+  </data>
+  <data name="NumericAggregate_Median" xml:space="preserve">
+    <value>中位数</value>
   </data>
   <data name="SelectOne_Max" xml:space="preserve">
     <value>最大</value>
@@ -595,7 +607,7 @@
     <value>DDA 原始（搜索和构建库）</value>
   </data>
   <data name="InputFile_dia_raw" xml:space="preserve">
-    <value>DIA 原始（去卷积、搜索和构建库）</value>
+    <value>DIA 原始文件（搜索并建库）</value>
   </data>
   <data name="InputFile_search_result" xml:space="preserve">
     <value>搜索结果（直接构建库）</value>
@@ -633,6 +645,9 @@
   <data name="SearchEngine_MSGFPlus" xml:space="preserve">
     <value>MS-GF+</value>
   </data>
+  <data name="SearchEngine_Hardklor" xml:space="preserve">
+    <value>Hardklör</value>
+  </data>
   <data name="SharedPeptides_AssignedToBestProtein" xml:space="preserve">
     <value>已分配给肽段最多的蛋白质</value>
   </data>
@@ -657,6 +672,42 @@
   <data name="SharedPeptidesGroup_Removed" xml:space="preserve">
     <value>已删除（肽段必须为单一蛋白质组独有）</value>
   </data>
+  <data name="RelativeRT_Matching" xml:space="preserve">
+    <value>匹配</value>
+  </data>
+  <data name="RelativeRT_Overlapping" xml:space="preserve">
+    <value>重叠</value>
+  </data>
+  <data name="RelativeRT_Preceding" xml:space="preserve">
+    <value>先前</value>
+  </data>
+  <data name="RelativeRT_Unknown" xml:space="preserve">
+    <value>未知</value>
+  </data>
+  <data name="MsLevelOption_" xml:space="preserve">
+    <value>全部</value>
+  </data>
+  <data name="MsLevelOption_1" xml:space="preserve">
+    <value>1</value>
+  </data>
+  <data name="MsLevelOption_2" xml:space="preserve">
+    <value>2</value>
+  </data>
+  <data name="MsLevelOption_default" xml:space="preserve">
+    <value>默认</value>
+  </data>
+  <data name="Special_maximum" xml:space="preserve">
+    <value>最大值</value>
+  </data>
+  <data name="Special_total" xml:space="preserve">
+    <value>总计</value>
+  </data>
+  <data name="Special_default" xml:space="preserve">
+    <value>默认归一化方法</value>
+  </data>
+  <data name="Special_calibrated" xml:space="preserve">
+    <value>校准曲线</value>
+  </data>
   <data name="Simple_equalize_medians" xml:space="preserve">
     <value>均衡中位数</value>
   </data>
@@ -666,10 +717,40 @@
   <data name="Simple_none" xml:space="preserve">
     <value>无</value>
   </data>
+  <data name="Simple_quantile" xml:space="preserve">
+    <value>分位数</value>
+  </data>
+  <data name="Simple_tic" xml:space="preserve">
+    <value>总离子电流</value>
+  </data>
   <data name="Simple_ratio_to_heavy" xml:space="preserve">
     <value>相对于重的比率</value>
   </data>
   <data name="Simple_ratio_to_light" xml:space="preserve">
     <value>相对于轻的比率</value>
+  </data>
+  <data name="LodCalculation_turning_point_stderr" xml:space="preserve">
+    <value>双线性拐点标准误差</value>
+  </data>
+  <data name="BilinearRegressionFit_bilinear" xml:space="preserve">
+    <value>双线性</value>
+  </data>
+  <data name="SharedPeptidesGene_AssignedToBestProtein" xml:space="preserve">
+    <value>已分配给肽段最多的基因 </value>
+  </data>
+  <data name="SharedPeptidesGene_AssignedToFirstProtein" xml:space="preserve">
+    <value>已分配给第一个基因</value>
+  </data>
+  <data name="SharedPeptidesGene_DuplicatedBetweenProteins" xml:space="preserve">
+    <value>基因之间重复</value>
+  </data>
+  <data name="SharedPeptidesGene_Removed" xml:space="preserve">
+    <value>已删除（肽段必须对单个基因唯一）</value>
+  </data>
+  <data name="SearchEngine_Comet" xml:space="preserve">
+    <value>Comet</value>
+  </data>
+  <data name="SearchEngine_Tide" xml:space="preserve">
+    <value>肽段搜索</value>
   </data>
 </root>

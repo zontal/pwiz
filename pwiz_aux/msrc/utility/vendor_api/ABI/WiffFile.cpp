@@ -40,9 +40,11 @@
 #pragma managed
 #include "pwiz/utility/misc/cpp_cli_utilities.hpp"
 #include <msclr/auto_gcroot.h>
+#using <System.dll>
 #using <System.Xml.dll>
 using namespace pwiz::util;
 using namespace System;
+using namespace System::Text::RegularExpressions;
 using namespace Clearcore2::Data;
 using namespace Clearcore2::Data::AnalystDataProvider;
 using namespace Clearcore2::Data::Client;
@@ -103,9 +105,36 @@ class WiffFileImpl : public WiffFile
     void setExperiment(int sample, int period, int experiment) const;
     void setCycle(int sample, int period, int experiment, int cycle) const;
 
+    /// The ZT Scan sweep bin for a 1-based experiment, or NULL when the acquisition is not a
+    /// ZT Scan (in which case the SDK's collision energy is used unchanged). See ZtScanBin.
+    const ZtScanBin* getZtScanBin(int sample, int period, int experiment) const;
+
     mutable int currentSample, currentPeriod, currentExperiment, currentCycle;
 
     private:
+    /// Detects a ZT Scan acquisition and maps each Product experiment to its bin within the
+    /// quadrupole sweep. The result (empty for a non-ZT Scan) is cached per (sample, period) so
+    /// an ordinary acquisition is probed only once.
+    ///
+    /// A legacy WIFF flags the mode with the sample-level custom field "Is ZT Scan", and carries
+    /// the CE ramp only as the legacy CE / CES pair, which encodes it as midpoint -/+ half-range.
+    /// That is a lossy projection - an 18 -> 43 eV ramp round-trips as 30 / 12, i.e. 18 -> 42 - so
+    /// the reconstructed top end is up to 1 eV low. The wiff2 container stores the true endpoints
+    /// (see WiffFile2.ipp) and is preferred where available.
+    void initializeZtScanBins(int sample, int period) const;
+
+    /// True when the sample carries SCIEX OS's "Is ZT Scan" custom field set to true. The field
+    /// name is matched loosely because it is a rendered method label, not a programmatic key; a
+    /// localized acquisition that fails to match simply falls back to the SDK's flat value.
+    static bool isZtScanSample(Clearcore2::Data::DataAccess::SampleData::Sample^ sample);
+
+    /// Recovers the sweep's CE ramp endpoints from an experiment's legacy CE / CES pair. Both are
+    /// taken as magnitudes so a negative-polarity method (which stores CE negative) yields the
+    /// same increasing ramp as positive mode.
+    static bool tryReadZtCeRamp(MSExperiment^ msExperiment, double& rampStart, double& rampEnd);
+
+    mutable map<pair<int, int>, vector<ZtScanBin> > ztScanBinsByPeriod_;
+
     // on first access, sample names are made unique (giving duplicates a count suffix) and cached
     mutable vector<string> sampleNames;
     string wiffpath;
@@ -128,9 +157,9 @@ struct ExperimentImpl : public Experiment
     virtual size_t getSRMSize() const;
     virtual void getSRM(size_t index, Target& target) const;
 
-    virtual void getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities) const;
+    virtual double getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities, bool ignoreScheduledLimits) const;
     virtual void getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities,
-                        double& basePeakX, double& basePeakY) const;
+                        double& basePeakX, double& basePeakY, bool ignoreScheduledLimits) const;
 
     virtual void getAcquisitionMassRange(double& startMz, double& stopMz) const;
     virtual ScanType getScanType() const;
@@ -147,6 +176,10 @@ struct ExperimentImpl : public Experiment
     const WiffFileImpl* wifffile_;
     gcroot<MSExperiment^> msExperiment;
     int sample, period, experiment;
+    bool hasHalfSizeRTWindow;
+
+    /// Valid only when this experiment is one encoded bin of a ZT Scan quadrupole sweep.
+    ZtScanBin ztScanBin;
 
     ExperimentType experimentType;
     size_t simCount;
@@ -183,7 +216,7 @@ struct SpectrumImpl : public Spectrum
     virtual int getMSLevel() const;
 
     virtual bool getHasIsolationInfo() const;
-    virtual void getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy) const;
+    virtual void getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy, double& electronKineticEnergy, FragmentationMode& fragmentationMode) const;
 
     virtual bool getHasPrecursorInfo() const;
     virtual void getPrecursorInfo(double& selectedMz, double& intensity, int& charge) const;
@@ -377,6 +410,7 @@ InstrumentModel WiffFileImpl::getInstrumentModel() const
         if (modelName->Contains("365"))             return API365; // predicted
         if (modelName->Contains("X500QTOF"))        return X500QTOF;
         if (modelName->Contains("ZENOTOF7600"))     return ZenoTOF7600;
+        if (modelName->Contains("ZENOTOF8600"))     return ZenoTOF8600;
         throw gcnew Exception("unknown instrument type: " + sample->Details->InstrumentName);
     }
     CATCH_AND_FORWARD
@@ -439,6 +473,31 @@ ExperimentImpl::ExperimentImpl(const WiffFileImpl* wifffile, int sample, int per
             transitionCount = msExperiment->Details->MassRangeInfo->Length;
         else if (experimentType == SIM)
             simCount = msExperiment->Details->MassRangeInfo->Length;
+
+        const ZtScanBin* bin = wifffile_->getZtScanBin(sample, period, experiment);
+        if (bin != NULL)
+            ztScanBin = *bin;
+
+        hasHalfSizeRTWindow = false;
+        try
+        {
+            auto softwareVersion = wifffile_->batch->GetSample(sample)->Details->SoftwareVersion;
+            auto sciexOsVersionRegex = gcnew Regex(R"(SCIEX OS (\d+)\.(\d+))");
+
+            auto match = sciexOsVersionRegex->Match(softwareVersion);
+            if (match->Success)
+            {
+                int major = Convert::ToInt32(match->Groups[1]->Value);
+                int minor = Convert::ToInt32(match->Groups[2]->Value);
+                hasHalfSizeRTWindow = !(major >= 3 && minor >= 1); // currently assumed present in SCIEX OS lower than v3.1
+                //if (hasHalfSizeRTWindow)
+                //    Console::Error->WriteLine("NOTE: data from " + softwareVersion + " has bugged half-width RTWindows");
+            }
+        }
+        catch (Exception^)
+        {
+            // ignore read past end of stream: no version details? probably acquired with Analyst?
+        }
     }
     CATCH_AND_FORWARD
 }
@@ -523,11 +582,12 @@ void ExperimentImpl::getSIM(size_t index, Target& target) const
 
         SIMMassRange^ transition = (SIMMassRange^) msExperiment->Details->MassRangeInfo[index];
 
+        double rtWindowMultiplier = hasHalfSizeRTWindow ? 1 : 0.5;
         target.type = TargetType_SIM;
         target.Q1 = transition->Mass;
         target.dwellTime = transition->DwellTime;
-        target.startTime = transition->ExpectedRT - transition->RTWindow / 2;
-        target.endTime = transition->ExpectedRT + transition->RTWindow / 2;
+        target.startTime = transition->ExpectedRT - transition->RTWindow * rtWindowMultiplier;
+        target.endTime = transition->ExpectedRT + transition->RTWindow * rtWindowMultiplier;
         target.compoundID = ToStdString(transition->Name);
         
         auto parameters = transition->CompoundDepParameters;
@@ -561,12 +621,13 @@ void ExperimentImpl::getSRM(size_t index, Target& target) const
 
         MRMMassRange^ transition = (MRMMassRange^) msExperiment->Details->MassRangeInfo[index];
 
+        double rtWindowMultiplier = hasHalfSizeRTWindow ? 1 : 0.5;
         target.type = TargetType_SRM;
         target.Q1 = transition->Q1Mass;
         target.Q3 = transition->Q3Mass;
         target.dwellTime = transition->DwellTime;
-        target.startTime = transition->ExpectedRT - transition->RTWindow;
-        target.endTime = transition->ExpectedRT + transition->RTWindow;
+        target.startTime = transition->ExpectedRT - transition->RTWindow * rtWindowMultiplier;
+        target.endTime = transition->ExpectedRT + transition->RTWindow * rtWindowMultiplier;
         target.compoundID = ToStdString(transition->Name);
 
         auto parameters = transition->CompoundDepParameters;
@@ -583,37 +644,46 @@ void ExperimentImpl::getSRM(size_t index, Target& target) const
     CATCH_AND_FORWARD
 }
 
-void ExperimentImpl::getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities) const
+double ExperimentImpl::getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities, bool ignoreScheduledLimits) const
 {
     try
     {
         if (index >= transitionCount+simCount)
-            throw std::out_of_range("[Experiment::getSIC()] index out of range");
+            throw std::out_of_range("[Experiment::getSIC()] index " + lexical_cast<string>(index) + " out of range");
+
+        Target target;
+        getSRM(index, target);
 
         ExtractedIonChromatogramSettings^ option = gcnew ExtractedIonChromatogramSettings(index);
+        if (ignoreScheduledLimits)
+        {
+            option->StartCycle = 0;
+            option->EndCycle = convertRetentionTimeToCycle(cycleTimes().back());
+            option->UseStartEndCycle = true;
+        }
+        else if (target.startTime != target.endTime)
+        {
+            option->StartCycle = convertRetentionTimeToCycle(target.startTime);
+            option->EndCycle = convertRetentionTimeToCycle(target.endTime);
+            option->UseStartEndCycle = true;
+        }
+
         ExtractedIonChromatogram^ xic = msExperiment->GetExtractedIonChromatogram(option);
 
         ToBinaryData(xic->GetActualXValues(), times);
         ToBinaryData(xic->GetActualYValues(), intensities);
+        return xic->MaxYValue;
     }
     CATCH_AND_FORWARD
 }
 
 void ExperimentImpl::getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities,
-                            double& basePeakX, double& basePeakY) const
+                            double& basePeakX, double& basePeakY, bool ignoreScheduledLimits) const
 {
+    basePeakY = getSIC(index, times, intensities, ignoreScheduledLimits);
+
     try
     {
-        if (index >= transitionCount)
-            throw std::out_of_range("[Experiment::getSIC()] index " + lexical_cast<string>(index) + " out of range");
-
-        ExtractedIonChromatogramSettings^ option = gcnew ExtractedIonChromatogramSettings(index);
-        ExtractedIonChromatogram^ xic = msExperiment->GetExtractedIonChromatogram(option);
-
-        ToBinaryData(xic->GetActualXValues(), times);
-        ToBinaryData(xic->GetActualYValues(), intensities);
-
-        basePeakY = xic->MaximumYValue;
         basePeakX = 0;
         for (size_t i=0; i < intensities.size(); ++i)
             if (intensities[i] == basePeakY)
@@ -728,7 +798,7 @@ bool SpectrumImpl::getHasIsolationInfo() const
            experiment->msExperiment->Details->MassRangeInfo->Length > 0;
 }
 
-void SpectrumImpl::getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy) const
+void SpectrumImpl::getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy, double& electronKineticEnergy, FragmentationMode& fragmentationMode) const
 {
     if (!getHasIsolationInfo())
         return;
@@ -739,7 +809,31 @@ void SpectrumImpl::getIsolationInfo(double& centerMz, double& lowerLimit, double
         centerMz = getHasPrecursorInfo() ? selectedMz : (double)((FragmentBasedScanMassRange^)(experiment->msExperiment->Details->MassRangeInfo[0]))->FixedMasses[0];
         lowerLimit = centerMz - isolationWidth / 2;
         upperLimit = centerMz + isolationWidth / 2;
-        collisionEnergy = 0;
+
+        // A ZT Scan bin's CE is a point on a hardware ramp the SDK does not record per bin:
+        // Details->Parameters["CE"] is the ramp MIDPOINT on every bin of the sweep. Reconstruct
+        // it instead. See ZtScanBin.
+        if (experiment->ztScanBin.isValid())
+            collisionEnergy = experiment->ztScanBin.collisionEnergy();
+        else
+        {
+            auto parameters = experiment->msExperiment->Details->Parameters;
+            if (parameters->ContainsKey("CE"))
+            {
+                auto ceRamp = parameters["CE"];
+                if (ceRamp->Start == 0)
+                    collisionEnergy = fabs(ceRamp->Stop);
+                else if (ceRamp->Stop == 0)
+                    collisionEnergy = ceRamp->Start;
+                else
+                    collisionEnergy = (ceRamp->Stop + ceRamp->Start) / 2;
+                collisionEnergy = fabs(collisionEnergy);
+            }
+            else
+                collisionEnergy = 0;
+        }
+        
+        fragmentationMode = FragmentationMode_CID;        
     }
     CATCH_AND_FORWARD
 }
@@ -927,6 +1021,92 @@ void WiffFileImpl::getTWC(int sample, ADCTrace& totalWavelengthChromatogram) con
     CATCH_AND_FORWARD
 }
 
+
+bool WiffFileImpl::isZtScanSample(Clearcore2::Data::DataAccess::SampleData::Sample^ sample)
+{
+    SampleInfo^ details = sample->Details;
+    for (int i = 0; i < details->NumCustomFields; ++i)
+    {
+        String^ name = details->GetCustomFieldName(i);
+        if (name == nullptr)
+            continue;
+        if (!String::Equals(name->Replace(" ", String::Empty), "IsZTScan", StringComparison::OrdinalIgnoreCase))
+            continue;
+        bool isZt = false;
+        return Boolean::TryParse(details->GetCustomFieldValue(i), isZt) && isZt;
+    }
+    return false;
+}
+
+bool WiffFileImpl::tryReadZtCeRamp(MSExperiment^ msExperiment, double& rampStart, double& rampEnd)
+{
+    rampStart = rampEnd = 0;
+    auto parameters = msExperiment->Details->Parameters;
+    if (parameters == nullptr || !parameters->ContainsKey("CE") || !parameters->ContainsKey("CES"))
+        return false;
+    double centre = fabs((double) parameters["CE"]->Start);
+    double halfRange = fabs((double) parameters["CES"]->Start);
+    if (centre <= 0 || halfRange <= 0)
+        return false; // no ramp to interpolate
+    rampStart = centre - halfRange;
+    rampEnd = centre + halfRange;
+    return true;
+}
+
+void WiffFileImpl::initializeZtScanBins(int sample, int period) const
+{
+    pair<int, int> key = make_pair(sample, period);
+    if (ztScanBinsByPeriod_.count(key) > 0)
+        return;
+
+    // Insert (possibly empty) up front so a non-ZT acquisition is probed only once.
+    vector<ZtScanBin>& bins = ztScanBinsByPeriod_[key];
+
+    try
+    {
+        setPeriod(sample, period);
+        if (!isZtScanSample(this->sample.get()))
+            return;
+
+        int experimentCount = msSample->ExperimentCount;
+        vector<int> productExperiments;
+        for (int i = 0; i < experimentCount; ++i)
+            if ((ExperimentType) msSample->GetMSExperiment(i)->Details->ExperimentType == Product)
+                productExperiments.push_back(i);
+
+        // One bin is not a sweep; leave such a file on the SDK's value.
+        if (productExperiments.size() < 2)
+            return;
+
+        double rampStart, rampEnd;
+        if (!tryReadZtCeRamp(msSample->GetMSExperiment(productExperiments[0]), rampStart, rampEnd))
+            return;
+
+        bins.resize(experimentCount);
+        for (size_t bin = 0; bin < productExperiments.size(); ++bin)
+        {
+            ZtScanBin& ztBin = bins[productExperiments[bin]];
+            ztBin.ceRampStart = rampStart;
+            ztBin.ceRampEnd = rampEnd;
+            ztBin.binIndex = (int) bin;
+            ztBin.binCount = (int) productExperiments.size();
+        }
+    }
+    catch (...)
+    {
+        bins.clear(); // any trouble reading the method: fall back to the SDK's collision energy
+    }
+}
+
+const ZtScanBin* WiffFileImpl::getZtScanBin(int sample, int period, int experiment) const
+{
+    initializeZtScanBins(sample, period);
+    const vector<ZtScanBin>& bins = ztScanBinsByPeriod_[make_pair(sample, period)];
+    int index = experiment - 1; // experiment is 1-based
+    if (index < 0 || index >= (int) bins.size())
+        return NULL;
+    return bins[index].isValid() ? &bins[index] : NULL;
+}
 
 void WiffFileImpl::setSample(int sample) const
 {

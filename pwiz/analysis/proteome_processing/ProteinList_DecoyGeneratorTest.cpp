@@ -26,6 +26,7 @@
 #include "boost/random.hpp"
 #include "pwiz/utility/misc/Std.hpp"
 #include <cstring>
+#include <random>
 
 
 using namespace pwiz::proteome;
@@ -53,6 +54,10 @@ void testReversedList(ProteinListPtr pl)
         unit_assert(decoy->description.empty());
         unit_assert(string(target->sequence().rbegin(), target->sequence().rend()) == decoy->sequence());
     }
+
+    // an out of bounds index must throw rather than wrapping around to the first decoy
+    unit_assert_throws_what(decoyList.protein(decoyList.size()), out_of_range, "[ProteinList_DecoyGenerator::protein] Index out of range");
+    unit_assert_throws_what(decoyList.protein(decoyList.size() + 1), out_of_range, "[ProteinList_DecoyGenerator::protein] Index out of range");
 }
 
 
@@ -62,9 +67,7 @@ void testShuffledList(ProteinListPtr pl)
     ProteinList_DecoyGenerator decoyList(pl, ProteinList_DecoyGenerator::PredicatePtr(new ProteinList_DecoyGeneratorPredicate_Shuffled("shuffled_")));
     unit_assert(decoyList.size() == 6);
 
-    boost::mt19937 engine(0);
-    boost::uniform_int<> distribution;
-    boost::variate_generator<boost::mt19937, boost::uniform_int<> > rng(engine, distribution);
+    std::mt19937 rng(0);
 
     for (size_t i=0; i < pl->size(); ++i)
     {
@@ -77,7 +80,7 @@ void testShuffledList(ProteinListPtr pl)
         unit_assert("shuffled_" + target->id == decoy->id);
         unit_assert(decoy->description.empty());
         string sequence = target->sequence();
-        random_shuffle(sequence.begin(), sequence.end(), rng);
+        std::shuffle(sequence.begin(), sequence.end(), rng);
         unit_assert(sequence == decoy->sequence());
     }
 }

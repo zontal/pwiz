@@ -1,6 +1,6 @@
 //============================================================================
 //ZedGraph Class Library - A Flexible Line Graph/Bar Graph Library in C#
-//Copyright © 2007  John Champion
+//Copyright Â© 2007  John Champion
 //
 //This library is free software; you can redistribute it and/or
 //modify it under the terms of the GNU Lesser General Public
@@ -19,6 +19,7 @@
 
 using System;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Windows.Forms;
@@ -72,6 +73,25 @@ namespace ZedGraph
 		[Bindable( true ), Category( "Events" ),
 		 Description( "Subscribe to this event to be notified when the graph is zoomed or panned" )]
 		public event ZoomEventHandler ZoomEvent;
+
+		/// <summary>
+		/// A delegate that allows notification of "Zoom All Out" events.
+		/// </summary>
+		/// <param name="sender">The source <see cref="ZedGraphControl"/> object</param>
+		/// <param name="oldState">A <see cref="ZoomState"/> object that corresponds to the state of the
+		/// <see cref="GraphPane"/> before the zoom event.</param>
+		/// <param name="newState">A <see cref="ZoomState"/> object that corresponds to the state of the
+		/// <see cref="GraphPane"/> after the zoom event</param>
+		/// <seealso cref="ZoomAllOutEvent" />
+		public delegate void ZoomAllOutEventHandler( ZedGraphControl sender, ZoomState oldState, ZoomState newState );
+
+		/// <summary>
+		/// Subscribe to this event to be notified when the <see cref="GraphPane"/> is fully zoomed out
+		/// via the "Undo All Zoom/Pan" command.
+		/// </summary>
+		[Bindable( true ), Category( "Events" ),
+		 Description( "Subscribe to this event to be notified when the graph is zoomed all the way out" )]
+		public event ZoomAllOutEventHandler ZoomAllOutEvent;
 
 		/// <summary>
 		/// A delegate that allows notification of scroll events.
@@ -299,7 +319,12 @@ namespace ZedGraph
 		[Bindable( true ), Category( "Events" ),
 		 Description( "Subscribe to be notified when the left mouse button is released" )]
 		public event ZedMouseEventHandler MouseUpEvent;
-		/// <summary>
+
+        [Bindable(true), Category("Events"),
+         Description("Subscribe to be notified when a label drag is complete")]
+        public event ZedMouseEventHandler LabelDragEvent;
+
+/// <summary>
 		/// Subscribe to this event to provide notification of MouseMove events over graph
 		/// objects
 		/// </summary>
@@ -396,7 +421,9 @@ namespace ZedGraph
 			_isZooming = false;
 			_isEditing = false;
 			_isSelecting = false;
+			_isTextDragging = false;
 			_dragPane = null;
+			_dragText = null;
 
 			Point mousePt = new Point( e.X, e.Y );
 
@@ -454,6 +481,8 @@ namespace ZedGraph
 
 			// Second, Check to see if it's within a Chart Rect
 			pane = this.MasterPane.FindChartRect( mousePt );
+            var isOverBoundary = false;
+            var label = pane?.OverLabel(mousePt, out isOverBoundary);
 			//Rectangle rect = new Rectangle( mousePt, new Size( 1, 1 ) );
 
 			if ( pane != null &&
@@ -467,7 +496,7 @@ namespace ZedGraph
 				//_zoomState = new ZoomState( _dragPane, ZoomState.StateType.Pan );
 				ZoomStateSave( _dragPane, ZoomState.StateType.Pan );
 			}
-			else if ( pane != null && ( _isEnableHZoom || _isEnableVZoom ) &&
+			else if ( pane != null && ( _isEnableHZoom || _isEnableVZoom ) && !isOverBoundary &&
 				( ( e.Button == _zoomButtons && Control.ModifierKeys == _zoomModifierKeys ) ||
 				( e.Button == _zoomButtons2 && Control.ModifierKeys == _zoomModifierKeys2 ) ) )
 			{
@@ -504,6 +533,16 @@ namespace ZedGraph
 					_dragStartPair = _dragCurve[_dragIndex];
 				}
 			}
+            else if (pane != null && label != null && (isOverBoundary || Control.ModifierKeys == _editModifierKeys) && e.Button == _selectButtons)
+			{
+				_isTextDragging = true;
+				_dragPane = pane;
+				_dragText = label; 
+				_dragText.UpdatePositions();
+				_dragStartPt = mousePt;
+				_dragToolTip?.Destroy();
+
+			}
 		}
 
 		/// <summary>
@@ -525,6 +564,13 @@ namespace ZedGraph
 				if ( ( _isEnableHPan || _isEnableVPan ) && ( Control.ModifierKeys == Keys.Shift || _isPanning ) &&
 					( pane != null || _isPanning ) )
 					this.Cursor = Cursors.Hand;
+				else if (pane != null && pane.OverLabel(mousePt, out var isOverBoundary) is LabeledPoint labeledPoint)
+				{
+					if (isOverBoundary || Control.ModifierKeys == _editModifierKeys)
+						this.Cursor = Cursors.SizeAll;
+					else
+						this.Cursor = Cursors.Hand;
+				}
 				else if ( ( _isEnableVZoom || _isEnableHZoom ) && ( pane != null || _isZooming ) )
 					this.Cursor = Cursors.Cross;
 				else if ( _isEnableSelection && ( pane != null || _isSelecting ) )
@@ -604,6 +650,8 @@ namespace ZedGraph
 				//Revision: JCarpenter 10/06
 				else if ( _isSelecting )
 					HandleSelectionFinish( sender, e );
+				else if( _isTextDragging )
+					HandleLabelDragFinish(e);
 			}
 
 			// Reset the rectangle.
@@ -613,11 +661,125 @@ namespace ZedGraph
 			_isPanning = false;
 			_isEditing = false;
 			_isSelecting = false;
+			_isTextDragging = false;
 
 			Invalidate();
 
 			Cursor.Current = Cursors.Default;
 		}
+
+		#region Automated mouse input
+
+		// Produce a mouse gesture without a mouse, in the spirit of IButtonControl.PerformClick.
+		// Each raises the event the operating system raises for a real mouse message, so every
+		// subscriber and the control's own zoom/pan/edit state machine behave as they would for
+		// a genuine press, drag and release. A stationary click is a down and an up with no move
+		// between them; a drag is a down, one or more moves, then an up.
+
+		/// <summary>
+		/// Perform a mouse-down at the client point carried by <paramref name="e" />
+		/// exactly as if the operating system had delivered it.
+		/// </summary>
+		public void PerformMouseDown( MouseEventArgs e )
+		{
+			OnMouseDown( e );
+		}
+
+		/// <summary>
+		/// Perform a mouse-move to the client point carried by <paramref name="e" />
+		/// exactly as if the operating system had delivered it.
+		/// </summary>
+		public void PerformMouseMove( MouseEventArgs e )
+		{
+			OnMouseMove( e );
+		}
+
+		/// <summary>
+		/// Perform a mouse-up at the client point carried by <paramref name="e" />
+		/// exactly as if the operating system had delivered it.
+		/// </summary>
+		public void PerformMouseUp( MouseEventArgs e )
+		{
+			OnMouseUp( e );
+		}
+
+		/// <summary>
+		/// Raise the WinForms MouseClick event, which a stationary press and release at one
+		/// point produces and a drag does not. Windows raises it from within the mouse-up,
+		/// before MouseUp itself, so a caller composing a whole gesture out of these calls
+		/// does not reproduce that order exactly.
+		/// </summary>
+		public void PerformMouseClick( MouseEventArgs e )
+		{
+			OnMouseClick( e );
+		}
+
+		/// <summary>
+		/// Zoom <paramref name="pane" /> so each axis end takes the scale value supplied for
+		/// it, recording the change on the zoom stack and raising <see cref="ZoomEvent" /> as
+		/// the end of an interactive zoom-drag does. Keeping each Min below its Max is the
+		/// caller's business.
+		/// </summary>
+		/// <param name="pane">The pane to zoom.</param>
+		/// <param name="xMin">Low end of the X range, or null to leave that end as it is.</param>
+		/// <param name="xMax">High end of the X range, or null to leave that end as it is.</param>
+		/// <param name="yMin">Low end of the Y range, or null to leave that end as it is.</param>
+		/// <param name="yMax">High end of the Y range, or null to leave that end as it is.</param>
+		public void ZoomPaneToScale( GraphPane pane, double? xMin, double? xMax, double? yMin, double? yMax )
+		{
+			if ( pane == null )
+				return;
+
+			// A viewport that cannot move at all records no state and does not repaint.
+			if ( !_isEnableHZoom && !_isEnableHPan && !_isEnableVZoom && !_isEnableVPan )
+				return;
+
+			ZoomState oldState = ZoomStateSave( pane, ZoomState.StateType.Zoom );
+
+			// Each axis end is independent: a value moves that end and takes it out of auto scaling,
+			// a null leaves both alone. A direction moves only where the user could move it, by
+			// zooming or by panning.
+			if ( _isEnableHZoom || _isEnableHPan )
+			{
+				if ( xMin.HasValue )
+				{
+					pane.XAxis.Scale.Min = xMin.Value;
+					pane.XAxis.Scale.MinAuto = false;
+				}
+				if ( xMax.HasValue )
+				{
+					pane.XAxis.Scale.Max = xMax.Value;
+					pane.XAxis.Scale.MaxAuto = false;
+				}
+			}
+			if ( _isEnableVZoom || _isEnableVPan )
+			{
+				if ( yMin.HasValue )
+				{
+					pane.YAxis.Scale.Min = yMin.Value;
+					pane.YAxis.Scale.MinAuto = false;
+				}
+				if ( yMax.HasValue )
+				{
+					pane.YAxis.Scale.Max = yMax.Value;
+					pane.YAxis.Scale.MaxAuto = false;
+				}
+			}
+
+			ApplyToAllPanes( pane );
+
+			using ( Graphics g = this.CreateGraphics() )
+				pane.AxisChange( g );
+
+			ZoomStatePush( pane );
+
+			if ( this.ZoomEvent != null )
+				this.ZoomEvent( this, oldState, new ZoomState( pane, ZoomState.StateType.Zoom ), pane.CenterPoint );
+
+			this.Refresh();
+		}
+
+		#endregion
 
 		/// <summary>
 		/// Make a string label that corresponds to a user scale value.
@@ -676,14 +838,20 @@ namespace ZedGraph
 			{
 				Point mousePt = new Point( e.X, e.Y );
 
+                GraphPane pane = this.MasterPane.FindPane(mousePt);
+				// Provide Callback for MouseMove events
+				if ( !(_isTextDragging || _isZooming || _isPanning || _isSelecting) )
+				{
+                    if (pane != null && e.Button == MouseButtons.None)
+                        HandleDragHandle(mousePt, pane); 
+                    if (this.MouseMoveEvent != null && this.MouseMoveEvent(this, e))
+						return;
+				}
+
+				// Only set default cursor if event wasn't handled
 				SetCursor( mousePt );
 
-				// Provide Callback for MouseMove events
-				if ( this.MouseMoveEvent != null && this.MouseMoveEvent( this, e ) )
-					return;
-
 				//Point tempPt = this.PointToClient( Control.MousePosition );
-
 
 				// If the mouse is being dragged,
 				// undraw and redraw the rectangle as the mouse moves.
@@ -700,6 +868,8 @@ namespace ZedGraph
 				//Revision: JCarpenter 10/06
 				else if ( _isSelecting )
 					HandleZoomDrag( mousePt );
+				else if( _isTextDragging )
+					HandleLabelDrag(mousePt);
 			}
 		}
 
@@ -841,10 +1011,47 @@ namespace ZedGraph
 			return mousePt;
 		}
 
+        private LabeledPoint _dragLabel;
+		private ToolTip _dragToolTip;
+        private void HandleDragHandle(Point mousePt, GraphPane pane)
+        {
+			var invalidate = false;
+            if (_dragLabel != null)
+            {
+                _dragLabel.Label.ShowDragHandle = false;
+                invalidate = true;
+            }
+            if (pane.OverLabel(mousePt, out var isOverBoundary) is LabeledPoint labPoint)
+            { 
+                if (labPoint.Label.IsDraggable)
+                {
+                    _dragLabel = labPoint;
+                    _dragLabel.Label.ShowDragHandle = true;
+                    if (isOverBoundary)
+                    {
+                        if (!labPoint.Equals(_dragToolTip?.GraphObject))
+                        {
+                            _dragToolTip?.Destroy();
+                            var toolTipMsg = _resourceManager.GetString("move_label");
+							// Drag the label frame or drag the label while holding the Alt key.
+							// ???????????????? Alt??????????????????????????
+                            _dragToolTip = new ToolTip(toolTipMsg, this, mousePt, labPoint);
+                            invalidate = true;
+                        }
+                    }
+                    else
+                        _dragToolTip?.Destroy();
+                }
+            }
+            else
+                _dragToolTip?.Destroy();
+            if (invalidate) 
+                Invalidate();
+        }
 
-	#endregion
+		#endregion
 
-	#region Mouse Wheel Zoom Events
+		#region Mouse Wheel Zoom Events
 
 		/// <summary>
 		/// Handle a MouseWheel event in the <see cref="ZedGraphControl" />
@@ -1149,6 +1356,31 @@ namespace ZedGraph
 
 	#region Edit Point Events
 
+		private void HandleLabelDrag(Point mousePt)
+		{
+			_dragPane.ReverseTransform(mousePt, out var mouseX, out var mouseY);
+			_dragPane.ReverseTransform(_dragStartPt, out var startX, out var startY);
+			var xScale = _dragText.Curve.GetXAxis(_dragPane).Scale;
+			var yScale = _dragText.Curve.GetYAxis(_dragPane).Scale;
+
+			_dragText.UpdateLabelLocation(xScale.AddInterval(_dragText.LabelPosition.X, startX, mouseX),
+				yScale.AddInterval(_dragText.LabelPosition.Y, startY, mouseY), _dragPane);
+
+#if DEBUG
+            if (_dragPane.Layout != null)
+				using(var g = Graphics.FromHwnd(IntPtr.Zero))
+                    Trace.WriteLine(string.Format(@"Goal function: {0}", _dragPane.Layout.CalculateTotalCost(g)));
+#endif
+            Invalidate();
+		}
+
+		private void HandleLabelDragFinish(MouseEventArgs e)
+		{
+			_dragText.UpdatePositions();
+			if (LabelDragEvent != null)
+				LabelDragEvent(this, e);
+		}
+
 		private void HandleEditDrag( Point mousePt )
 		{
 			// get the scale values that correspond to the current point
@@ -1199,7 +1431,7 @@ namespace ZedGraph
 			}
 		}
 
-	#endregion
+#endregion
 
 	#region Zoom Events
 

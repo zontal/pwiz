@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -28,7 +28,6 @@ using pwiz.Skyline.Model.Databinding.Collections;
 using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.ElementLocators;
 using pwiz.Skyline.Model.Hibernate;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 using pwiz.Skyline.Util.Extensions;
 
@@ -38,11 +37,15 @@ namespace pwiz.Skyline.Model.Databinding.Entities
     [AnnotationTarget(AnnotationDef.AnnotationTarget.transition)]
     public class Transition : SkylineDocNode<TransitionDocNode>
     {
-        private readonly Lazy<Precursor> _precursor;
+        private Precursor _precursor;
         private readonly CachedValue<IDictionary<ResultKey, TransitionResult>> _results;
-        public Transition(SkylineDataSchema dataSchema, IdentityPath identityPath) : base(dataSchema, identityPath)
+        public Transition(SkylineDataSchema dataSchema, IdentityPath identityPath) : this(new Precursor(dataSchema, identityPath.GetPathTo(2)), identityPath.Child)
         {
-            _precursor = new Lazy<Precursor>(() => new Precursor(DataSchema, IdentityPath.Parent));
+        }
+
+        public Transition(Precursor precursor, Identity transition) : base(precursor.DataSchema, new IdentityPath(precursor.IdentityPath, transition))
+        {
+            _precursor = precursor;
             _results = CachedValue.Create(DataSchema, MakeResults);
         }
 
@@ -51,7 +54,10 @@ namespace pwiz.Skyline.Model.Databinding.Entities
         {
             get
             {
-                return _precursor.Value;
+                lock (this)
+                {
+                    return _precursor ??= new Precursor(DataSchema, IdentityPath.Parent);
+                }
             }
         }
 
@@ -122,7 +128,7 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             {
                 if (IsCustomTransition())
                 {
-                    return DocNode.Transition.CustomIon.Formula;
+                    return DocNode.Transition.CustomIon.HasChemicalFormula ? DocNode.Transition.CustomIon.Formula : String.Empty;
                 }
 
                 var neutralFormula = GetNeutralProductFormula();
@@ -137,7 +143,7 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             {
                 if (IsCustomTransition())
                 {
-                    return DocNode.Transition.CustomIon.NeutralFormula;
+                    return DocNode.Transition.CustomIon.HasChemicalFormula ? DocNode.Transition.CustomIon.Formula : String.Empty;
                 }
 
                 return GetNeutralProductFormula().Molecule.ToString();
@@ -175,13 +181,13 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             }
         }
         [Hidden(InUiMode = UiModes.SMALL_MOLECULES)]
-        public char? CleavageAa
+        public string CleavageAa
         {
             get
             {
                 return IsCustomTransition()
-                    ? default(char?) 
-                    : DocNode.Transition.AA;
+                    ? null 
+                    : DocNode.Transition.AA.ToString();
             }
         }
         [Format(NullValue = TextUtil.EXCEL_NA)]
@@ -353,9 +359,9 @@ namespace pwiz.Skyline.Model.Databinding.Entities
         {
             if (nodeCount == 1)
             {
-                return string.Format(Resources.Transition_GetDeleteConfirmation_Are_you_sure_you_want_to_delete_the_transition___0___, this);
+                return string.Format(EntitiesResources.Transition_GetDeleteConfirmation_Are_you_sure_you_want_to_delete_the_transition___0___, this);
             }
-            return string.Format(Resources.Transition_GetDeleteConfirmation_Are_you_sure_you_want_to_delete_these__0__transitions_, nodeCount);
+            return string.Format(EntitiesResources.Transition_GetDeleteConfirmation_Are_you_sure_you_want_to_delete_these__0__transitions_, nodeCount);
         }
 
         [InvariantDisplayName("TransitionLocator")]

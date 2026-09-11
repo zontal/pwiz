@@ -45,7 +45,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
     {
         private readonly SequenceTree _sequenceTree;
 
-        public ImportFastaControl(IModifyDocumentContainer documentContainer, SequenceTree sequenceTree)
+        public ImportFastaControl(IModifyDocumentContainer documentContainer, SequenceTree sequenceTree, bool showDecoyOptions = true)
         {
             DocumentContainer = documentContainer;
             _sequenceTree = sequenceTree;
@@ -66,6 +66,9 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             cbDecoyMethod.SelectedIndex = 0;
 
             tbxFasta.Resize += TbxFasta_Resize;
+
+            if (!showDecoyOptions)
+                panelDecoys.Visible = false;
         }
 
         private IModifyDocumentContainer DocumentContainer { get; set; }
@@ -183,7 +186,22 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
         public Enzyme Enzyme
         {
             get { return Settings.Default.GetEnzymeByName(comboEnzyme.SelectedItem.ToString()); }
-            set { comboEnzyme.SelectedItem = value; }
+            set
+            {
+                if (value == null)
+                    return;
+                // Try to find in current combo items
+                for (int i = 0; i < comboEnzyme.Items.Count; i++)
+                {
+                    if (comboEnzyme.Items[i].ToString() == value.Name)
+                    {
+                        comboEnzyme.SelectedIndex = i;
+                        return;
+                    }
+                }
+                // If not found, reload the combo from the current enzyme list and try again
+                _driverEnzyme.LoadList(value.GetKey());
+            }
         }
 
         public int MaxMissedCleavages
@@ -237,6 +255,13 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
         public string FastaFile { get; private set; }
         public string FastaText { get; private set; }
 
+        public void ClearFastaContent()
+        {
+            FastaFile = null;
+            _fastaFile = IsDDASearch;
+            tbxFasta.Text = string.Empty;
+        }
+
         public string FastaImportTargetsFile
         {
             get { return tbxFastaTargets.Text; }
@@ -264,7 +289,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             }
             using (OpenFileDialog dlg = new OpenFileDialog())
             {
-                dlg.Title = Resources.ImportFastaControl_browseFastaBtn_Click_Open_FASTA;
+                dlg.Title = PeptideSearchResources.ImportFastaControl_browseFastaBtn_Click_Open_FASTA;
                 dlg.InitialDirectory = initialDir;
                 dlg.CheckPathExists = true;
                 dlg.Filter = @"FASTA files|*.fasta;*.fa;*.faa|All files|*.*";
@@ -293,7 +318,17 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                 FastaFile = tbxFasta.Text;
                 if (!File.Exists(FastaFile))
                     ImportFastaHelper.ShowFastaError(Resources.ToolDescription_RunTool_File_not_found_);
+            }
         }
+
+        public void ScrollFastaTextToEnd()
+        {
+            tbxFasta.Select(tbxFasta.Text.Length, 0);
+        }
+
+        public void ScrollFastaTargetsToEnd()
+        {
+            tbxFastaTargets.Select(tbxFastaTargets.Text.Length, 0);
         }
 
         public void SetFastaContent(string fastaFilePath, bool forceFastaAsFilepath = false)
@@ -316,8 +351,20 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             }
             catch (Exception x)
             {
-                MessageDlg.ShowWithException(WizardForm, TextUtil.LineSeparate(string.Format(Resources.ImportFastaControl_SetFastaContent_Error_adding_FASTA_file__0__, fastaFilePath), x.Message), x);
+                MessageDlg.ShowWithException(WizardForm, TextUtil.LineSeparate(string.Format(PeptideSearchResources.ImportFastaControl_SetFastaContent_Error_adding_FASTA_file__0__, fastaFilePath), x.Message), x);
             }
+        }
+
+        /// <summary>
+        /// Move the FASTA path textbox caret to the end of its text and give it focus,
+        /// so the rightmost portion (the filename) is what's visible. Used for tutorial
+        /// screenshots — without this the textbox shows only the leftmost characters of
+        /// a long absolute path.
+        /// </summary>
+        public void ShowFastaPathFileName()
+        {
+            tbxFasta.Focus();
+            tbxFasta.Select(tbxFasta.Text.Length, 0);
         }
 
         private string GetFastaFileContent(string fastaFileName)
@@ -336,7 +383,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             }
             catch (Exception x)
             {
-                MessageDlg.ShowWithException(WizardForm, TextUtil.LineSeparate(string.Format(Resources.ImportFastaControl_GetFastaFileContent_Failed_reading_the_file__0__, fastaFileName), x.Message), x);
+                MessageDlg.ShowWithException(WizardForm, TextUtil.LineSeparate(string.Format(PeptideSearchResources.ImportFastaControl_GetFastaFileContent_Failed_reading_the_file__0__, fastaFileName), x.Message), x);
             }
 
             return fastaText;
@@ -346,7 +393,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
         {
             if (!HasPrecursorTransitions(doc))
             {
-                MessageDlg.Show(WizardForm, Resources.ImportFastaControl_VerifyAtLeastOnePrecursorTransition_The_document_must_contain_at_least_one_precursor_transition_in_order_to_proceed_);
+                MessageDlg.Show(WizardForm, PeptideSearchResources.ImportFastaControl_VerifyAtLeastOnePrecursorTransition_The_document_must_contain_at_least_one_precursor_transition_in_order_to_proceed_);
                 return false;
             }
 
@@ -406,12 +453,12 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                 if (docCurrent.PeptideCount == 0|| IsDDASearch)
                 {
                     MessageDlg.Show(WizardForm, TextUtil.LineSeparate(Resources.ImportFastaControl_ImportFasta_The_document_does_not_contain_any_peptides_,
-                                                                      Resources.ImportFastaControl_ImportFasta_Please_import_FASTA_to_add_peptides_to_the_document_));
+                                                                      PeptideSearchResources.ImportFastaControl_ImportFasta_Please_import_FASTA_to_add_peptides_to_the_document_));
                     return false;
                 }
 
-                if (MultiButtonMsgDlg.Show(WizardForm, TextUtil.LineSeparate(Resources.ImportFastaControl_ImportFasta_The_document_does_not_contain_any_precursor_transitions_,
-                                                                      Resources.ImportFastaControl_ImportFasta_Would_you_like_to_change_the_document_settings_to_automatically_pick_the_precursor_transitions_specified_in_the_full_scan_settings_),
+                if (MultiButtonMsgDlg.Show(WizardForm, TextUtil.LineSeparate(PeptideSearchResources.ImportFastaControl_ImportFasta_The_document_does_not_contain_any_precursor_transitions_,
+                                                                      PeptideSearchResources.ImportFastaControl_ImportFasta_Would_you_like_to_change_the_document_settings_to_automatically_pick_the_precursor_transitions_specified_in_the_full_scan_settings_),
                     MessageBoxButtons.OKCancel) != DialogResult.OK)
                     return false;
 
@@ -444,7 +491,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                         // Import FASTA as content
                         using (var longWaitDlg = new LongWaitDlg(DocumentContainer))
                         {
-                            longWaitDlg.Text = Resources.ImportFastaControl_ImportFasta_Insert_FASTA;
+                            longWaitDlg.Text = PeptideSearchResources.ImportFastaControl_ImportFasta_Insert_FASTA;
                             var docImportFasta = docNew;
                             longWaitDlg.PerformWork(WizardForm, 1000, longWaitBroker =>
                             {
@@ -468,7 +515,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                         {
                             using (var longWaitDlg = new LongWaitDlg(DocumentContainer))
                             {
-                                longWaitDlg.Text = Resources.ImportFastaControl_ImportFasta_Insert_FASTA;
+                                longWaitDlg.Text = PeptideSearchResources.ImportFastaControl_ImportFasta_Insert_FASTA;
                                 IdentityPath to = selectedPath;
                                 var docImportFasta = docNew;
                                 longWaitDlg.PerformWork(WizardForm, 1000, longWaitBroker =>
@@ -519,7 +566,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                 {
                     if (!hasDecoys)
                     {
-                        MessageDlg.Show(this, Resources.ImportFastaControl_ImportFasta_Cannot_automatically_train_mProphet_model_without_decoys__but_decoy_options_resulted_in_no_decoys_being_generated__Please_increase_number_of_decoys_per_target__or_disable_automatic_training_of_mProphet_model_);
+                        MessageDlg.Show(this, PeptideSearchResources.ImportFastaControl_ImportFasta_Cannot_automatically_train_mProphet_model_without_decoys__but_decoy_options_resulted_in_no_decoys_being_generated__Please_increase_number_of_decoys_per_target__or_disable_automatic_training_of_mProphet_model_);
                         return false;
                     }
                     docNew = docNew.ChangeSettings(docNew.Settings.ChangePeptideIntegration(i =>
@@ -583,7 +630,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             if (!IsImportingResults && !IsDDASearch && cbAutoTrain.Checked)
             {
                 MessageDlg.Show(WizardForm,
-                    Resources.ImportFastaControl_cbAutoTrain_CheckedChanged_Cannot_automatically_train_mProphet_model_since_no_results_files_are_being_imported__Continue_without_automatically_training_an_mProphet_model__or_go_back_and_add_at_least_one_results_file_);
+                    PeptideSearchResources.ImportFastaControl_cbAutoTrain_CheckedChanged_Cannot_automatically_train_mProphet_model_since_no_results_files_are_being_imported__Continue_without_automatically_training_an_mProphet_model__or_go_back_and_add_at_least_one_results_file_);
                 cbAutoTrain.Checked = false;
             }
         }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -18,8 +18,8 @@
  */
 using System.IO;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using pwiz.CommonMsData;
 using pwiz.Skyline.FileUI;
-using pwiz.Skyline.Model.Results;
 using pwiz.SkylineTestUtil;
 
 namespace TestPerf
@@ -53,7 +53,7 @@ namespace TestPerf
             var openDataSourceDialog = ShowDialog<OpenDataSourceDialog>(importResultsDlg.OkDialog);
             RunUI(() =>
             {
-                openDataSourceDialog.CurrentDirectory = new MsDataFilePath(Path.GetDirectoryName(templateFile));
+                openDataSourceDialog.SetCurrentDirectory(new MsDataFilePath(Path.GetDirectoryName(templateFile)));
                 openDataSourceDialog.SelectAllFileType("mzML");
             });
             

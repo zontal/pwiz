@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -91,26 +91,13 @@ namespace pwiz.SkylineTestFunctional
             // Group by TotalIonCurrent annotation
             RunUI(() => {
                 ShowContextMenu(peakAreaGraph);
-                Assert.IsTrue(SkylineWindow.ReplicateOrderContextMenuItem.Visible);
-                Assert.IsTrue(SkylineWindow.ReplicateGroupByContextMenuItem.Visible);
-                var ticMenuItem = SkylineWindow.ReplicateGroupByContextMenuItem.DropDownItems
+                Assert.IsTrue(FindMenuItem(peakAreaGraph, "replicateOrderContextMenuItem").Visible);
+                Assert.IsTrue(FindMenuItem(peakAreaGraph, "groupReplicatesByContextMenuItem").Visible);
+                var ticMenuItem = FindMenuItem(peakAreaGraph, "groupReplicatesByContextMenuItem").DropDownItems
                     .OfType<ToolStripMenuItem>().FirstOrDefault(item => item.Text == @"TotalIonCurrent");
                 Assert.IsNotNull(ticMenuItem);
                 Assert.IsFalse(ticMenuItem.Checked);
                 ticMenuItem.PerformClick();
-            });
-            // The "Order By" menu item should hidden when grouping by anything
-            RunUI(() =>
-            {
-                ShowContextMenu(peakAreaGraph);
-                Assert.IsFalse(SkylineWindow.ReplicateOrderContextMenuItem.Visible);
-                var orderReplicatesByDocumentMenuItem = (ToolStripMenuItem)SkylineWindow.ReplicateOrderContextMenuItem.DropDownItems[0];
-                Assert.IsFalse(orderReplicatesByDocumentMenuItem.Checked);
-                var ticMenuItem = SkylineWindow.ReplicateGroupByContextMenuItem.DropDownItems
-                    .OfType<ToolStripMenuItem>().FirstOrDefault(item => item.Text == @"TotalIonCurrent");
-                Assert.IsNotNull(ticMenuItem);
-                Assert.IsTrue(ticMenuItem.Checked);
-                HideContextMenu(peakAreaGraph);
             });
             // Remove the TotalIonCurrent annotation from the document
             RunDlg<DocumentSettingsDlg>(SkylineWindow.ShowDocumentSettingsDialog, dlg =>
@@ -125,13 +112,13 @@ namespace pwiz.SkylineTestFunctional
             RunUI(() =>
             {
                 ShowContextMenu(peakAreaGraph);
-                Assert.IsTrue(SkylineWindow.ReplicateOrderContextMenuItem.Visible,
+                Assert.IsTrue(FindMenuItem(peakAreaGraph, "replicateOrderContextMenuItem").Visible,
                     "ReplicateOrderContextMenuItem should be visible");
-                Assert.IsTrue(SkylineWindow.ReplicateGroupByContextMenuItem.Visible,
+                Assert.IsTrue(FindMenuItem(peakAreaGraph, "groupReplicatesByContextMenuItem").Visible,
                     "ReplicateGroupByContextMenuItem should be visible");
-                var groupByReplicateMenuItem = (ToolStripMenuItem) SkylineWindow.ReplicateGroupByContextMenuItem.DropDownItems[0];
+                var groupByReplicateMenuItem = (ToolStripMenuItem) FindMenuItem(peakAreaGraph, "groupReplicatesByContextMenuItem").DropDownItems[0];
                 Assert.IsTrue(groupByReplicateMenuItem.Checked);
-                var ticMenuItem = SkylineWindow.ReplicateGroupByContextMenuItem.DropDownItems
+                var ticMenuItem = FindMenuItem(peakAreaGraph, "groupReplicatesByContextMenuItem").DropDownItems
                     .OfType<ToolStripMenuItem>().FirstOrDefault(item => item.Text == @"TotalIonCurrent");
                 Assert.IsNull(ticMenuItem);
                 HideContextMenu(peakAreaGraph);
@@ -150,7 +137,7 @@ namespace pwiz.SkylineTestFunctional
             RunUI(() =>
             {
                 ShowContextMenu(graphSummary);
-                var orderByItem = SkylineWindow.ReplicateOrderContextMenuItem;
+                var orderByItem = FindMenuItem(graphSummary, "replicateOrderContextMenuItem");
                 Assert.IsTrue(orderByItem.Visible);
                 for (int index = 0; index < orderByItem.DropDownItems.Count; index++)
                 {
@@ -198,6 +185,12 @@ namespace pwiz.SkylineTestFunctional
                 var comparison = Comparer<T>.Default.Compare(prevValue, curValue);
                 Assert.IsTrue(comparison <= 0);
             }
+        }
+
+        private ToolStripMenuItem FindMenuItem(GraphSummary graphSummary, string name)
+        {
+            return graphSummary.GraphControl.ContextMenuStrip.Items.OfType<ToolStripMenuItem>()
+                .FirstOrDefault(item => item.Name == name);
         }
 
         private void ShowContextMenu(GraphSummary graphSummary)

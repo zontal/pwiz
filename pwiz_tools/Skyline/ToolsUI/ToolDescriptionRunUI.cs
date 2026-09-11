@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Daniel Broudy <daniel.broudy .at. gmail.com>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -82,6 +82,8 @@ namespace pwiz.Skyline.ToolsUI
             {
                 if (toolDesc.Arguments.Contains(@"$(SkylineConnection)"))
                 {
+                    // An external tool connects over the LEGACY ToolService. A tool is run from the main window,
+                    // so the window is there and StartToolService starts that service along with the JSON one.
                     Program.StartToolService();
                 }
 
@@ -308,7 +310,7 @@ namespace pwiz.Skyline.ToolsUI
                         {
                             throw new ToolExecutionException(
                                 TextUtil.LineSeparate(
-                                    Resources.ToolDescription_RunTool_Please_reconfigure_that_tool__it_failed_to_execute__,
+                                    ToolsUIResources.ToolDescription_RunTool_Please_reconfigure_that_tool__it_failed_to_execute__,
                                     ex.Message),
                                 ex);
                         }
@@ -358,7 +360,7 @@ namespace pwiz.Skyline.ToolsUI
             if (parameterInfos.Length != 3)
             {
                 throw new ToolExecutionException(
-                    string.Format(Resources.ToolDescription_CallArgsCollector_Error_running_the_installed_tool__0___The_method___1___has_the_wrong_signature_,
+                    string.Format(ToolsUIResources.ToolDescription_CallArgsCollector_Error_running_the_installed_tool__0___The_method___1___has_the_wrong_signature_,
                     toolDesc.Title, methodInfo.Name));
             }
             object reportArgument;
@@ -397,7 +399,7 @@ namespace pwiz.Skyline.ToolsUI
                 if (string.IsNullOrEmpty(message))
                 {
                     throw new ToolExecutionException(
-                        string.Format(Resources.ToolDescription_RunExecutableBackground_The_tool__0__had_an_error_, toolDesc.Title),
+                        string.Format(ToolsUIResources.ToolDescription_RunExecutableBackground_The_tool__0__had_an_error_, toolDesc.Title),
                         x);
                 }
                 else
@@ -466,7 +468,7 @@ namespace pwiz.Skyline.ToolsUI
                 TextUtil.LineSeparate(
                     string.Format(Resources.ToolDescription_RunExecutableBackground_The_tool__0__had_an_error__it_returned_the_message_,
                         toolDesc.Title),
-                    Resources
+                    ToolsUIResources
                         .ToolDescription_FindArgsCollectorMethod_Unable_to_find_any_CollectArgs_method_to_call_on_class___0___), innerException);
         }
 

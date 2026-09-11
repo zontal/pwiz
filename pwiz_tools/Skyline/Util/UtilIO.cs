@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -21,7 +21,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
-using System.Linq;
+using System.Management;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
@@ -29,13 +29,14 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using NHibernate;
+using pwiz.Common.Collections;
 using pwiz.Common.Database.NHibernate;
+using pwiz.Common.DataBinding;
 using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Model;
 using pwiz.Skyline.Model.AuditLog;
 using pwiz.Skyline.Model.Results;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util.Extensions;
 
 namespace pwiz.Skyline.Util
@@ -171,16 +172,6 @@ namespace pwiz.Skyline.Util
         /// <param name="pathCache">Path of potential cache</param>
         /// <returns>True if path is cached</returns>
         bool IsCached(string path, string pathCache);
-
-        /// <summary>
-        /// True when the pool contains open streams. Useful for debugging
-        /// </summary>
-        bool HasPooledStreams { get; }
-
-        /// <summary>
-        /// Returns a string enumeration of the open streams and their GlobalIndex values. Useful for debugging
-        /// </summary>
-        string ReportPooledStreams();
     }
 
     /// <summary>
@@ -191,9 +182,39 @@ namespace pwiz.Skyline.Util
     /// </summary>
     public sealed class ConnectionPool
     {
-        private readonly Dictionary<int, IDisposable> _connections =
-            new Dictionary<int, IDisposable>();
-        
+        /// <summary>
+        /// When true, connect/disconnect events are recorded for diagnostic
+        /// reporting. Default false - negligible overhead when disabled.
+        /// Managed by <see cref="StartTrackingHistory"/> and <see cref="EndTrackingHistory"/>.
+        /// </summary>
+        private bool _trackHistory;
+
+        /// <summary>
+        /// Begin recording connect/disconnect events with stack traces.
+        /// Clears any stale history from a previous tracking session.
+        /// </summary>
+        public void StartTrackingHistory()
+        {
+            ClearHistory();
+            _trackHistory = true;
+        }
+
+        /// <summary>
+        /// Stop recording events and release all history memory.
+        /// </summary>
+        public void EndTrackingHistory()
+        {
+            _trackHistory = false;
+            ClearHistory();
+        }
+
+        private readonly Dictionary<ReferenceValue<Identity>, IDisposable> _connections =
+            new Dictionary<ReferenceValue<Identity>, IDisposable>();
+
+        // Tracking data keyed by GlobalIndex: persists across connect/disconnect cycles
+        private readonly Dictionary<int, List<PoolEvent>> _history =
+            new Dictionary<int, List<PoolEvent>>();
+
         /// <summary>
         /// True if the connection for this <see cref="Identity"/> is currently
         /// pooled.
@@ -204,7 +225,7 @@ namespace pwiz.Skyline.Util
         {
             lock (this)
             {
-                return _connections.ContainsKey(id.GlobalIndex);
+                return _connections.ContainsKey(id);
             }
         }
 
@@ -222,14 +243,16 @@ namespace pwiz.Skyline.Util
             lock (this)
             {
                 IDisposable connection;
-                if (_connections.TryGetValue(id.GlobalIndex, out connection))
+                if (_connections.TryGetValue(id, out connection))
                     return connection;
                 // Connection must be made inside lock to keep the get and add
                 // within a single synchronized block.
                 connection = connect();
-                _connections.Add(id.GlobalIndex, connection);
+                _connections.Add(id, connection);
+                if (_trackHistory)
+                    RecordEvent(id.GlobalIndex, PoolEventType.Connect);
                 return connection;
-            }            
+            }
         }
 
         /// <summary>
@@ -242,9 +265,11 @@ namespace pwiz.Skyline.Util
             lock (this)
             {
                 IDisposable connection;
-                if (!_connections.TryGetValue(id.GlobalIndex, out connection))
+                if (!_connections.TryGetValue(id, out connection))
                     return;
-                _connections.Remove(id.GlobalIndex);
+                _connections.Remove(id);
+                if (_trackHistory)
+                    RecordEvent(id.GlobalIndex, PoolEventType.Disconnect);
                 // Disconnect inside lock, since a new attempt to connect
                 // may fail if the old connection is not fully disconnected.
                 connection.Dispose();
@@ -255,8 +280,13 @@ namespace pwiz.Skyline.Util
         {
             lock (this)
             {
-                stream.CloseStream();
-                act();
+                using (stream.ReaderWriterLock.CancelAndGetWriteLock())
+                {
+                    if (_trackHistory)
+                        RecordEvent(stream.GlobalIndex, PoolEventType.DisconnectWhile);
+                    stream.CloseStream();
+                    act();
+                }
             }
         }
 
@@ -271,14 +301,35 @@ namespace pwiz.Skyline.Util
             }
         }
 
+        public static string FormatConnectionLine(Identity id)
+        {
+            return string.Format(@"{0}. {1}", id.GlobalIndex, id); // Not L10N - debug only
+        }
+
+        internal static string FormatEventLine(PoolEvent poolEvent)
+        {
+            return poolEvent.StackTrace == null
+                ? $@"    {poolEvent}" // Not L10N - debug only
+                : $@"    {poolEvent.ToDetailString()}"; // Not L10N - debug only
+        }
+
         public string ReportPooledConnections()
         {
             lock (this)
             {
+                if (_connections.Count == 0)
+                    return null;
+
                 var sb = new StringBuilder();
                 foreach (var connection in _connections)
                 {
-                    sb.AppendLine(string.Format(@"{0}. {1}", connection.Key, connection.Value));
+                    var id = connection.Key.Value;
+                    sb.AppendLine(FormatConnectionLine(id));
+                    if (_trackHistory && _history.TryGetValue(id.GlobalIndex, out var events))
+                    {
+                        foreach (var poolEvent in events)
+                            sb.AppendLine(FormatEventLine(poolEvent));
+                    }
                 }
                 return sb.ToString();
             }
@@ -291,7 +342,64 @@ namespace pwiz.Skyline.Util
                 foreach (var connection in _connections.Values)
                     connection.Dispose();
                 _connections.Clear();
+                _history.Clear();
             }
+        }
+
+        /// <summary>
+        /// Clear all tracking history. Does not affect open connections.
+        /// </summary>
+        public void ClearHistory()
+        {
+            lock (this)
+            {
+                _history.Clear();
+            }
+        }
+
+        // Must be called inside lock(this)
+        private void RecordEvent(int globalIndex, PoolEventType eventType)
+        {
+            if (!_history.TryGetValue(globalIndex, out var events))
+            {
+                events = new List<PoolEvent>();
+                _history[globalIndex] = events;
+            }
+            events.Add(new PoolEvent(eventType, DateTime.Now, new StackTrace(true)));
+        }
+    }
+
+    internal enum PoolEventType
+    {
+        Connect,        // Not L10N
+        Disconnect,     // Not L10N
+        DisconnectWhile // Not L10N
+    }
+
+    internal struct PoolEvent
+    {
+        public PoolEventType EventType { get; }
+        public DateTime Timestamp { get; }
+        public StackTrace StackTrace { get; }
+
+        public PoolEvent(PoolEventType eventType, DateTime timestamp, StackTrace stackTrace)
+        {
+            EventType = eventType;
+            Timestamp = timestamp;
+            StackTrace = stackTrace;
+        }
+
+        public override string ToString()
+        {
+            return $@"[{Timestamp:HH:mm:ss.fff}] {EventType}"; // Not L10N - debug only
+        }
+
+        /// <summary>
+        /// Full diagnostic output including stack trace.
+        /// </summary>
+        public string ToDetailString()
+        {
+            return $@"[{Timestamp:HH:mm:ss.fff}] {EventType}{Environment.NewLine}{StackTrace}"; // Not L10N - debug only
         }
     }
 
@@ -304,6 +412,7 @@ namespace pwiz.Skyline.Util
         where TDisp : IDisposable
     {
         private readonly ConnectionPool _connectionPool;
+        private QueryLock _readerWriterLock = new QueryLock(CancellationToken.None);
 
         /// <summary>
         /// Creates the immutable identifier for a long-lived connection.
@@ -329,6 +438,7 @@ namespace pwiz.Skyline.Util
         /// <summary>
         /// The actual connection as stored in the pool, or newly created.
         /// </summary>
+        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         public TDisp Connection
         {
             get { return (TDisp) _connectionPool.GetConnection(this, Connect); }
@@ -339,7 +449,18 @@ namespace pwiz.Skyline.Util
         /// </summary>
         public void Disconnect()
         {
-            _connectionPool.Disconnect(this);
+            using (ReaderWriterLock.CancelAndGetWriteLock())
+            {
+                _connectionPool.Disconnect(this);
+            }
+        }
+
+        public QueryLock ReaderWriterLock 
+        {
+            get
+            {
+                return _readerWriterLock;
+            }
         }
     }
 
@@ -354,6 +475,11 @@ namespace pwiz.Skyline.Util
         /// Globally unique index by which to identify the stream.
         /// </summary>
         int GlobalIndex { get; }
+
+        /// <summary>
+        /// Path of the file associated with this pooled stream.
+        /// </summary>
+        string FilePath { get; }
 
         /// <summary>
         /// The pooled stream.  Use of this property may actually create
@@ -384,6 +510,8 @@ namespace pwiz.Skyline.Util
         /// document.
         /// </summary>
         void CloseStream();
+
+        QueryLock ReaderWriterLock { get; }
     }
 
     /// <summary>
@@ -400,12 +528,14 @@ namespace pwiz.Skyline.Util
             FilePath = filePath;
             Buffered = buffered;
             FileTime = File.GetLastWriteTime(FilePath);
+            FileSizeAtOpen = FileSize(FilePath);
         }
 
         public IStreamManager StreamManager { get; private set; }
         public string FilePath { get; private set; }
         public bool Buffered { get; private set; }
         public DateTime FileTime { get; private set; }
+        public long? FileSizeAtOpen { get; private set; }
 
         /// <summary>
         /// Handles actually opening the stream.
@@ -416,7 +546,15 @@ namespace pwiz.Skyline.Util
             // Check to see if the file was modified, during the time
             // it was closed.
             if (IsModified)
-                throw new FileModifiedException(string.Format(Resources.PooledFileStream_Connect_The_file__0__has_been_modified_since_it_was_first_opened, FilePath));
+            {
+                // Say BY HOW MUCH, and whether the size moved with it. "Has been modified" alone
+                // cannot distinguish a genuine rewrite from a last-write-time that Windows had not
+                // yet flushed to the directory entry when it was first read - the file is unchanged
+                // in the second case, and the two want opposite fixes.
+                throw new FileModifiedException(TextUtil.LineSeparate(
+                    string.Format(UtilResources.PooledFileStream_Connect_The_file__0__has_been_modified_since_it_was_first_opened, FilePath),
+                    ModifiedExplanation, SizeExplanation));
+            }
             // Create the stream
             return StreamManager.CreateStream(FilePath, FileMode.Open, Buffered);
         }
@@ -456,7 +594,48 @@ namespace pwiz.Skyline.Util
             {
                 if (!IsModified)
                     return @"Unmodified";
-                return FileEx.GetElapsedTimeExplanation(FileTime, File.GetLastWriteTime(FilePath));
+                try
+                {
+                    // A missing file is the case this check cannot state for itself. GetLastWriteTime
+                    // does not throw for one, it returns the 1601 epoch, so the subtraction below
+                    // yields a nonsense span and the failure reads as "modified" - which sent an
+                    // investigation after a rewrite that never happened.
+                    if (!File.Exists(FilePath))
+                        return @"File no longer exists";
+                    return FileEx.GetElapsedTimeExplanation(FileTime, File.GetLastWriteTime(FilePath));
+                }
+                catch (Exception exception)
+                {
+                    return string.Format(@"Unable to read file time: {0}", exception.Message);
+                }
+            }
+        }
+
+        /// <summary>
+        /// The file's size now against its size when first opened. A timestamp that moved while the
+        /// size did not is the signature of a last-write-time that had simply not been flushed to
+        /// the directory entry yet, rather than of anything having rewritten the file.
+        /// </summary>
+        public string SizeExplanation
+        {
+            get
+            {
+                try
+                {
+                    var sizeNow = new FileInfo(FilePath).Length;
+                    if (!FileSizeAtOpen.HasValue)
+                    {
+                        // The size could not be read when the stream was first opened
+                        return string.Format(@"Size is {0} bytes, and was unknown when first opened", sizeNow);
+                    }
+                    return Equals(sizeNow, FileSizeAtOpen.Value)
+                        ? string.Format(@"Size unchanged at {0} bytes", sizeNow)
+                        : string.Format(@"Size was {0} bytes, now {1}", FileSizeAtOpen.Value, sizeNow);
+                }
+                catch (Exception exception)
+                {
+                    return string.Format(@"Unable to read file size: {0}", exception.Message);
+                }
             }
         }
 
@@ -466,9 +645,26 @@ namespace pwiz.Skyline.Util
         }
 
         /// <summary>
+        /// The size of a file, or null where it could not be read. Only ever reported alongside a
+        /// failure, never acted on.
+        /// </summary>
+        private static long? FileSize(string filePath)
+        {
+            try
+            {
+                return new FileInfo(filePath).Length;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// The pooled stream.  Use of this property may actually create
         /// the connection.
         /// </summary>
+        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
         public Stream Stream
         {
             get { return Connection; }
@@ -481,6 +677,11 @@ namespace pwiz.Skyline.Util
         public void CloseStream()
         {
             Disconnect();
+        }
+
+        public override string ToString()
+        {
+            return $@"PooledFileStream({FilePath})"; // Not L10N - debug only
         }
     }
 
@@ -495,7 +696,7 @@ namespace pwiz.Skyline.Util
         }
 
         private Type TypeDb { get; set; }
-        private string FilePath { get; set; }
+        public string FilePath { get; private set; }
         private DateTime FileTime { get; set; }
 
         protected override IDisposable Connect()
@@ -536,6 +737,11 @@ namespace pwiz.Skyline.Util
         {
             Disconnect();
         }
+
+        public override string ToString()
+        {
+            return $@"PooledSessionFactory({FilePath})"; // Not L10N - debug only
+        }
     }
 
     public class FileStreamManager : IStreamManager
@@ -563,6 +769,18 @@ namespace pwiz.Skyline.Util
             return _connectionPool.ReportPooledConnections();
         }
 
+        public void StartTrackingHistory()
+        {
+            _connectionPool.StartTrackingHistory();
+            FileSaver.StartTrackingHistory();
+        }
+
+        public void EndTrackingHistory()
+        {
+            _connectionPool.EndTrackingHistory();
+            FileSaver.EndTrackingHistory();
+        }
+
         public void CloseAllStreams()
         {
             _connectionPool.DisposeAll();
@@ -582,7 +800,7 @@ namespace pwiz.Skyline.Util
             {
                 // Make sure exceptions thrown from this method are only IOExceptions
                 if (!(x is IOException))
-                    throw new IOException(string.Format(Resources.FileStreamManager_CreateStream_Unexpected_error_opening__0__, path), x);
+                    throw new IOException(string.Format(UtilResources.FileStreamManager_CreateStream_Unexpected_error_opening__0__, path), x);
                 throw;
             }
 
@@ -622,7 +840,7 @@ namespace pwiz.Skyline.Util
             {
                 // Make sure exceptions thrown from this method are only IOExceptions
                 if ((x is IOException))
-                    throw new IOException(string.Format(Resources.FileStreamManager_CreateStream_Unexpected_error_opening__0__, path), x);
+                    throw new IOException(string.Format(UtilResources.FileStreamManager_CreateStream_Unexpected_error_opening__0__, path), x);
                 throw;
             }
         }
@@ -688,7 +906,7 @@ namespace pwiz.Skyline.Util
                 catch (DirectoryNotFoundException)
                 {
                 }
-                Helpers.TryTwice(() => Directory.Move(pathTemp, pathDestination));
+                TryHelper.TryTwice(() => Directory.Move(pathTemp, pathDestination));
             }
             else
             {
@@ -710,7 +928,7 @@ namespace pwiz.Skyline.Util
                 }
 
                 // Or just move, if it does not.
-                Helpers.TryTwice(() => File.Move(pathTemp, pathDestination));
+                TryHelper.TryTwice(() => File.Move(pathTemp, pathDestination));
             }
         }
 
@@ -779,12 +997,12 @@ namespace pwiz.Skyline.Util
                 var lastWin32Error = Marshal.GetLastWin32Error();
                 if (lastWin32Error == 5)
                 {
-                    throw new IOException(string.Format(Resources.FileStreamManager_GetTempFileName_Access_Denied__unable_to_create_a_file_in_the_folder___0____Adjust_the_folder_write_permissions_or_retry_the_operation_after_moving_or_copying_files_to_a_different_folder_, basePath));
+                    throw new IOException(string.Format(UtilResources.FileStreamManager_GetTempFileName_Access_Denied__unable_to_create_a_file_in_the_folder___0____Adjust_the_folder_write_permissions_or_retry_the_operation_after_moving_or_copying_files_to_a_different_folder_, basePath));
                 }
                 else
                 {
-                    throw new IOException(TextUtil.LineSeparate(string.Format(Resources.FileStreamManager_GetTempFileName_Failed_attempting_to_create_a_temporary_file_in_the_folder__0__with_the_following_error_, basePath),
-                        string.Format(Resources.FileStreamManager_GetTempFileName_Win32_Error__0__, lastWin32Error)));
+                    throw new IOException(TextUtil.LineSeparate(string.Format(UtilResources.FileStreamManager_GetTempFileName_Failed_attempting_to_create_a_temporary_file_in_the_folder__0__with_the_following_error_, basePath),
+                        string.Format(UtilResources.FileStreamManager_GetTempFileName_Win32_Error__0__, lastWin32Error)));
                 }
             }
 
@@ -814,108 +1032,8 @@ namespace pwiz.Skyline.Util
         }
     }
 
-    public static class FileEx
+    public static class FileTimeEx
     {
-        public static bool IsDirectory(string path)
-        {
-            return (File.GetAttributes(path) & FileAttributes.Directory) == FileAttributes.Directory;
-        }
-
-        public static bool IsFile(string path)
-        {
-            return !IsDirectory(path);
-        }
-
-        public static bool AreIdenticalFiles(string pathA, string pathB)
-        {
-            var infoA = new FileInfo(pathA);
-            var infoB = new FileInfo(pathB);
-            if (infoA.Length != infoB.Length)
-                return false;
-            // Credit from here to https://stackoverflow.com/questions/968935/compare-binary-files-in-c-sharp
-            using (var s1 = new FileStream(pathA, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var s2 = new FileStream(pathB, FileMode.Open, FileAccess.Read, FileShare.Read))
-            using (var b1 = new BinaryReader(s1))
-            using (var b2 = new BinaryReader(s2))
-            {
-                while (true)
-                {
-                    var data1 = b1.ReadBytes(64 * 1024);
-                    var data2 = b2.ReadBytes(64 * 1024);
-                    if (data1.Length != data2.Length)
-                        return false;
-                    if (data1.Length == 0)
-                        return true;
-                    if (!data1.SequenceEqual(data2))
-                        return false;
-                }
-            }
-        }
-
-        public static void SafeDelete(string path, bool ignoreExceptions = false)
-        {
-            var hint = $@"File.Delete({path})";
-            if (ignoreExceptions)
-            {
-                try
-                {
-                    if (path != null && File.Exists(path))
-                        Helpers.TryTwice(() => File.Delete(path), hint);
-                }
-// ReSharper disable EmptyGeneralCatchClause
-                catch (Exception)
-// ReSharper restore EmptyGeneralCatchClause
-                {
-                }
-
-                return;
-            }
-
-            try
-            {
-                Helpers.TryTwice(() => File.Delete(path), hint);
-            }
-            catch (ArgumentException e)
-            {
-                if (path == null || string.IsNullOrEmpty(path.Trim()))
-                    throw new DeleteException(Resources.FileEx_SafeDelete_Path_is_empty, e);
-                throw new DeleteException(string.Format(Resources.FileEx_SafeDelete_Path_contains_invalid_characters___0_, path), e);
-            }
-            catch (DirectoryNotFoundException e)
-            {
-                throw new DeleteException(string.Format(Resources.FileEx_SafeDelete_Directory_could_not_be_found___0_, path), e);
-            }
-            catch (NotSupportedException e)
-            {
-                throw new DeleteException(string.Format(Resources.FileEx_SafeDelete_File_path_is_invalid___0_, path), e);
-            }
-            catch (PathTooLongException e)
-            {
-                throw new DeleteException(string.Format(Resources.FileEx_SafeDelete_File_path_is_too_long___0_, path), e);
-            }
-            catch (IOException e)
-            {
-                throw new DeleteException(string.Format(Resources.FileEx_SafeDelete_Unable_to_delete_file_which_is_in_use___0_, path), e);
-            }
-            catch (UnauthorizedAccessException e)
-            {
-                var fileInfo = new FileInfo(path);
-                if (fileInfo.IsReadOnly)
-                    throw new DeleteException(string.Format(Resources.FileEx_SafeDelete_Unable_to_delete_read_only_file___0_, path), e);
-                if (Directory.Exists(path))
-                    throw new DeleteException(string.Format(Resources.FileEx_SafeDelete_Unable_to_delete_directory___0_, path), e);
-                throw new DeleteException(string.Format(Resources.FileEx_SafeDelete_Insufficient_permission_to_delete_file___0_, path), e);
-            }
-        }
-
-        public class DeleteException : IOException
-        {
-            public DeleteException(string message, Exception innerException)
-                : base(message, innerException)
-            {
-            }
-        }
-
         /// <summary>
         /// Appends a time stamp value to the given Skyline file name.
         /// </summary>
@@ -933,52 +1051,33 @@ namespace pwiz.Skyline.Util
             while (File.Exists(path));
             return path;
         }
-
-        public static string GetElapsedTimeExplanation(DateTime startTime, DateTime endTime)
-        {
-            long deltaTicks = endTime.Ticks - startTime.Ticks;
-            var elapsedSpan = new TimeSpan(deltaTicks);
-            if (elapsedSpan.TotalMinutes > 0)
-                return string.Format(@"{0} minutes, {1} seconds", elapsedSpan.TotalMinutes, elapsedSpan.Seconds);
-            if (elapsedSpan.TotalSeconds > 0)
-                return elapsedSpan.TotalSeconds + @" seconds";
-            if (elapsedSpan.TotalMilliseconds > 0)
-                return elapsedSpan.TotalMilliseconds + @" milliseconds";
-            return deltaTicks + @" ticks";
-        }
-
-        [DllImport("Kernel32.dll", CharSet = CharSet.Unicode)]
-        static extern bool CreateHardLink(string lpFileName, string lpExistingFileName, IntPtr lpSecurityAttributes);
-
-        /// <summary>
-        /// Tries to create a hard-link from sourceFilepath to destinationFilepath and returns true if the link was successfully created.
-        /// </summary>
-        public static bool CreateHardLink(string sourceFilepath, string destinationFilepath)
-        {
-            return CreateHardLink(destinationFilepath, sourceFilepath, IntPtr.Zero);
-        }
-
-        /// <summary>
-        /// Tries to create a hard-link from sourceFilepath to destinationFilepath and if that fails, it copies the file instead.
-        /// </summary>
-        public static void HardLinkOrCopyFile(string sourceFilepath, string destinationFilepath, bool overwrite = false)
-        {
-            Directory.CreateDirectory(PathEx.GetDirectoryName(destinationFilepath));
-            if (!CreateHardLink(sourceFilepath, destinationFilepath))
-                File.Copy(sourceFilepath, destinationFilepath, overwrite);
-        }
     }
 
     public static class DirectoryEx
     {
+        /// <summary>
+        /// Creates the parent directory for a file path, throwing if the
+        /// path has no directory component (e.g. a root or invalid path).
+        /// </summary>
+        public static void CreateForFilePath(string filePath)
+        {
+            string dir = Path.GetDirectoryName(filePath);
+            if (dir == null)
+                throw new ArgumentException(@"Invalid file path: " + filePath);
+            Directory.CreateDirectory(dir);
+        }
+
         public static void SafeDelete(string path)
         {
             try
             {
-                if (path != null && Directory.Exists(path)) // Don't waste time trying to delete something that's already deleted
-                {
-                    Helpers.TryTwice(() => Directory.Delete(path, true), $@"Directory.Delete({path})");
-                }
+                TryHelper.TryTwice(() =>
+                    {
+                        if (path != null && Directory.Exists(path)) // Don't waste time trying to delete something that's already deleted
+                        {
+                            Directory.Delete(path, true);
+                        }
+                    }, $@"Directory.Delete({path})");
             }
 // ReSharper disable EmptyGeneralCatchClause
             catch (Exception) { }
@@ -1000,7 +1099,7 @@ namespace pwiz.Skyline.Util
             if (!dir.Exists)
             {
                 throw new DirectoryNotFoundException(
-                    Resources.DirectoryEx_DirectoryCopy_Source_directory_does_not_exist_or_could_not_be_found__
+                    UtilResources.DirectoryEx_DirectoryCopy_Source_directory_does_not_exist_or_could_not_be_found__
                     + sourceDirName);
             }
             DirectoryInfo[] dirs = dir.GetDirectories();
@@ -1058,6 +1157,79 @@ namespace pwiz.Skyline.Util
                 zipFileName = zipFileName.Substring(6);
             }
             return true;
+        }
+
+        /// <summary>
+        /// Returns true if a new file can be created in directoryPath.
+        /// </summary>
+        public static bool IsWritable(string directoryPath)
+        {
+            if (!Directory.Exists(directoryPath))
+                throw new DirectoryNotFoundException(directoryPath);
+
+            try
+            {
+                // generate random filenames until the path doesn't exist (technically has a race condition, but extremely unlikely)
+                string randomFilepath;
+                do
+                {
+                    randomFilepath = Path.Combine(directoryPath, Path.GetRandomFileName());
+                } while (File.Exists(randomFilepath));
+
+                // create the file with write permission
+                using (new FileStream(randomFilepath, FileMode.Create, FileAccess.ReadWrite))
+                {
+                }
+
+                // cleanup the file
+                File.Delete(randomFilepath);
+                return true;
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
+        public static void CreateLongPath(string path)
+        {
+            try
+            {
+                string longPath = path.ToLongPath();
+                TryHelper.TryTwice(() =>
+                {
+                    if (path != null && !Directory.Exists(longPath)) // Don't waste time trying to create a directory that already exists
+                    {
+                        Directory.CreateDirectory(longPath);
+                    }
+                });
+            }
+            // ReSharper disable EmptyGeneralCatchClause
+            catch (Exception) { }
+            // ReSharper restore EmptyGeneralCatchClause
+        }
+
+        public static void SafeDeleteLongPath(string path)
+        {
+            try
+            {
+                string longPath = path.ToLongPath();
+                TryHelper.TryTwice(() =>
+                    {
+                        if (path != null && Directory.Exists(longPath)) // Don't waste time trying to delete something that's already deleted
+                        {
+                            Directory.Delete(longPath, true);
+                        }
+                    }, $@"Directory.Delete({longPath})");
+            }
+            // ReSharper disable EmptyGeneralCatchClause
+            catch (Exception) { }
+            // ReSharper restore EmptyGeneralCatchClause
+        }
+
+        public static bool ExistsLongPath(string path)
+        {
+            return Directory.Exists(path.ToLongPath());
         }
     }
 
@@ -1165,6 +1337,60 @@ namespace pwiz.Skyline.Util
     {
         public const string TEMP_PREFIX = "~SK";
 
+        /// <summary>
+        /// When true, undisposed <see cref="FileSaver"/> instances are recorded with the
+        /// stack that created them. Default false - even capturing frames is more than a
+        /// temporary file should pay for outside a test. Driven by
+        /// <see cref="FileStreamManager.StartTrackingHistory"/> along with the pooled streams,
+        /// so a test turns on one switch and gets both.
+        /// </summary>
+        private static bool _trackHistory;
+
+        private static readonly Dictionary<string, StackTrace> UNDISPOSED_HISTORY =
+            new Dictionary<string, StackTrace>();
+
+        public static void StartTrackingHistory()
+        {
+            lock (UNDISPOSED_HISTORY)
+            {
+                UNDISPOSED_HISTORY.Clear();
+                _trackHistory = true;
+            }
+        }
+
+        public static void EndTrackingHistory()
+        {
+            lock (UNDISPOSED_HISTORY)
+            {
+                _trackHistory = false;
+                UNDISPOSED_HISTORY.Clear();
+            }
+        }
+
+        /// <summary>
+        /// Reports every temporary file still held by an undisposed <see cref="FileSaver"/>,
+        /// with the stack that created it, or null when there are none. These do not reach
+        /// <see cref="ConnectionPool.ReportPooledConnections"/>, because a FileSaver stream is
+        /// a plain <see cref="FileStream"/> that never enters the pool - which is what made a
+        /// leaked one show up only as a locked file with no explanation.
+        /// </summary>
+        public static string ReportUndisposed()
+        {
+            lock (UNDISPOSED_HISTORY)
+            {
+                if (UNDISPOSED_HISTORY.Count == 0)
+                    return null;
+
+                var sb = new StringBuilder();
+                foreach (var entry in UNDISPOSED_HISTORY)
+                {
+                    sb.AppendLine(string.Format(@"Undisposed FileSaver: {0}", entry.Key));
+                    sb.AppendLine(entry.Value.ToString()); // Resolves the frames to text, here and only here
+                }
+                return sb.ToString();
+            }
+        }
+
         private readonly IStreamManager _streamManager;
         private Stream _stream;
 
@@ -1199,6 +1425,13 @@ namespace pwiz.Skyline.Util
             // If the directory name is returned, then starting path was bogus.
             if (!Equals(dirName, tempName))
                 SafeName = tempName;
+            if (_trackHistory && SafeName != null)
+            {
+                // A StackTrace only captures the frames. Resolving them to text is what costs,
+                // and that is deferred to ReportUndisposed(), which runs once per failure
+                // rather than on every temporary file created.
+                lock (UNDISPOSED_HISTORY) { UNDISPOSED_HISTORY[SafeName] = new StackTrace(true); }
+            }
             if (createStream)
                 CreateStream();
         }
@@ -1241,7 +1474,7 @@ namespace pwiz.Skyline.Util
             if (SafeName == null)
             {
                 throw new DirectoryNotFoundException(
-                    string.Format(Resources.FileSaver_CanSave_Cannot_save_to__0__Check_the_path_to_make_sure_the_directory_exists, RealName));
+                    string.Format(UtilResources.FileSaver_CanSave_Cannot_save_to__0__Check_the_path_to_make_sure_the_directory_exists, RealName));
             }
 
             if (_streamManager.Exists(RealName))
@@ -1251,7 +1484,7 @@ namespace pwiz.Skyline.Util
                     if ((_streamManager.GetAttributes(RealName) & FileAttributes.ReadOnly) == FileAttributes.ReadOnly)
                     {
                         throw new UnauthorizedAccessException(
-                            string.Format(Resources.FileSaver_CanSave_Cannot_save_to__0__The_file_is_read_only, RealName));
+                            string.Format(UtilResources.FileSaver_CanSave_Cannot_save_to__0__The_file_is_read_only, RealName));
                     }
                 }
                 catch (FileNotFoundException)
@@ -1305,6 +1538,10 @@ namespace pwiz.Skyline.Util
 
         public void Dispose()
         {
+            if (_trackHistory && SafeName != null)
+            {
+                lock (UNDISPOSED_HISTORY) { UNDISPOSED_HISTORY.Remove(SafeName); }
+            }
             if (_stream != null)
             {
                 try
@@ -1313,7 +1550,7 @@ namespace pwiz.Skyline.Util
                 }
                 catch (Exception e)
                 {
-                    Trace.TraceWarning(@"Exception in FileSaver.Dispose: {0}", e);
+                    Messages.WriteAsyncDebugMessage(@"Exception in FileSaver.Dispose: {0}", e);
                 }
                 _stream = null;
             }
@@ -1329,7 +1566,7 @@ namespace pwiz.Skyline.Util
                 }
                 catch (Exception e)
                 {
-                    Trace.TraceWarning(@"Exception in FileSaver.Dispose: {0}", e);
+                    Messages.WriteAsyncDebugMessage(@"Exception in FileSaver.Dispose: {0}", e);
                 }
                 // Make sure any further calls to Dispose() do nothing.
                 SafeName = null;
@@ -1347,7 +1584,7 @@ namespace pwiz.Skyline.Util
                 DirPath = Path.Combine(Path.GetTempPath(), tempPrefix + PathEx.GetRandomFileName()); // N.B. FileEx.GetRandomFileName adds unusual characters in test mode
             else
                 DirPath = dirPath;
-            Helpers.TryTwice(() => Directory.CreateDirectory(DirPath));
+            TryHelper.TryTwice(() => Directory.CreateDirectory(DirPath));
         }
 
         public string DirPath { get; private set; }
@@ -1395,7 +1632,7 @@ namespace pwiz.Skyline.Util
         public static unsafe void ReadBytes(SafeHandle file, byte* bytes, int byteCount)
         {
             uint bytesRead;
-            bool ret = Kernel32.ReadFile(file, bytes, (uint)byteCount, &bytesRead, null);
+            bool ret = Kernel32Unsafe.ReadFile(file, bytes, (uint)byteCount, &bytesRead, null);
             if (!ret || bytesRead != byteCount)
             {
                 // If nothing was read, it may be possible to recover by
@@ -1430,7 +1667,7 @@ namespace pwiz.Skyline.Util
         /// <param name="position"></param>
         public static unsafe void SetFilePointer(SafeHandle file, long position)
         {
-            Kernel32.SetFilePointerEx(file, position, null, 0);
+            Kernel32Unsafe.SetFilePointerEx(file, position, null, 0);
         }
     }
 
@@ -1447,7 +1684,7 @@ namespace pwiz.Skyline.Util
         public static unsafe void WriteBytes(SafeHandle file, byte* bytes, int byteCount)
         {
             uint bytesWritten;
-            bool ret = Kernel32.WriteFile(file, bytes, (uint)byteCount, &bytesWritten, null);
+            bool ret = Kernel32Unsafe.WriteFile(file, bytes, (uint)byteCount, &bytesWritten, null);
             if (!ret || bytesWritten != byteCount)
                 throw new IOException();
         }
@@ -1504,6 +1741,55 @@ namespace pwiz.Skyline.Util
         }
     }
 
+    /// <summary>
+    /// A TextWriter that writes to two underlying writers simultaneously.
+    /// Useful for capturing command output to a buffer while still echoing it
+    /// to a live destination (log, immediate window, console).
+    /// </summary>
+    public class TeeTextWriter : TextWriter
+    {
+        private readonly TextWriter _writer1;
+        private readonly TextWriter _writer2;
+
+        public TeeTextWriter(TextWriter writer1, TextWriter writer2)
+        {
+            _writer1 = writer1 ?? Null;
+            _writer2 = writer2 ?? Null;
+        }
+
+        public override Encoding Encoding => _writer1.Encoding;
+
+        public override void Write(char value)
+        {
+            _writer1.Write(value);
+            _writer2.Write(value);
+        }
+
+        public override void Write(string value)
+        {
+            _writer1.Write(value);
+            _writer2.Write(value);
+        }
+
+        public override void WriteLine(string value)
+        {
+            _writer1.WriteLine(value);
+            _writer2.WriteLine(value);
+        }
+
+        public override void WriteLine()
+        {
+            _writer1.WriteLine();
+            _writer2.WriteLine();
+        }
+
+        public override void Flush()
+        {
+            _writer1.Flush();
+            _writer2.Flush();
+        }
+    }
+
     public class NamedPipeServerConnector
     {
         private static readonly object SERVER_CONNECTION_LOCK = new object();
@@ -1554,29 +1840,61 @@ namespace pwiz.Skyline.Util
     public static class SkylineProcessRunner
     {
         /// <summary>
+        /// Kill a process, and all of its children, grandchildren, etc.
+        /// </summary>
+        /// <param name="pid">The Process ID of the process to be killed</param>
+        private static void KillProcessAndDescendants(int pid)
+        {
+            // Cannot close 'system idle process'.
+            if (pid == 0)
+            {
+                return;
+            }
+            var searcher = new ManagementObjectSearcher(@"Select * From Win32_Process Where ParentProcessID=" + pid);
+            var moc = searcher.Get();
+            foreach (var mo in moc)
+            {
+                KillProcessAndDescendants(Convert.ToInt32(mo[@"ProcessID"]));
+            }
+            try
+            {
+                var proc = Process.GetProcessById(pid);
+                if (!proc.HasExited)
+                    proc.Kill();
+            }
+            catch (ArgumentException)
+            {
+                // Process already exited.
+            }
+        }
+
+        /// <summary>
         /// Runs the SkylineProcessRunner executable file with the given arguments. These arguments
         /// are passed to CMD.exe within the NamedPipeProcessRunner
         /// </summary>
         /// <param name="arguments">The arguments to run at the command line</param>
         /// <param name="runAsAdministrator">If true, this process will be run as administrator, which
-        /// allows for the CMD.exe process to be ran with elevated privileges</param>
+        ///     allows for the CMD.exe process to be ran with elevated privileges</param>
         /// <param name="writer">The textwriter to which the command lines output will be written to</param>
+        /// <param name="createNoWindow">Whether or not execution runs in its own window</param>
+        /// <param name="cancellationToken">Allows to Cancel</param>
         /// <returns>The exitcode of the CMD process ran with the specified arguments</returns>
-        public static int RunProcess(string arguments, bool runAsAdministrator, TextWriter writer)
+        public static int RunProcess(string arguments, bool runAsAdministrator, TextWriter writer, bool createNoWindow = false, CancellationToken cancellationToken = default )
         {
             // create GUID
             string guidSuffix = string.Format(@"-{0}", Guid.NewGuid());
             var startInfo = new ProcessStartInfo
-                {
-                    FileName = GetSkylineProcessRunnerExePath(),
-                    Arguments = guidSuffix + @" " + arguments,
-                };
+            {
+                CreateNoWindow = createNoWindow,
+                UseShellExecute = !createNoWindow,
+                FileName = GetSkylineProcessRunnerExePath(),
+                Arguments = guidSuffix + @" " + arguments,
+            };
                 
             if (runAsAdministrator)
                 startInfo.Verb = @"runas";
 
             var process = new Process {StartInfo = startInfo, EnableRaisingEvents = true};
-
             string pipeName = @"SkylineProcessRunnerPipe" + guidSuffix;
 
             using (var pipeStream = new NamedPipeServerStream(pipeName))
@@ -1594,7 +1912,7 @@ namespace pwiz.Skyline.Util
                     // not as administrator
                     if (runAsAdministrator && win32Exception.NativeErrorCode == ERROR_CANCELLED)
                     {
-                        return RunProcess(arguments, false, writer);
+                        return RunProcess(arguments, false, writer, createNoWindow, cancellationToken);
                     }
                     throw;
                 }
@@ -1602,13 +1920,16 @@ namespace pwiz.Skyline.Util
                 var namedPipeServerConnector = new NamedPipeServerConnector();
                 if (namedPipeServerConnector.WaitForConnection(pipeStream, pipeName))
                 {
-                    using (var reader = new StreamReader(pipeStream))
+                    var reader = new StreamReader(pipeStream, new UTF8Encoding(false, true), true, 1024 * 1024);
+
+                    using var registration = cancellationToken.Register(o =>
                     {
-                        string line;
-                        while ((line = reader.ReadLine()) != null)
-                        {
-                            writer.WriteLine(line);
-                        }
+                        KillProcessAndDescendants(process.Id);
+                    }, null);
+
+                    while (reader.ReadLine() is { } line)
+                    {
+                        writer.WriteLine(line);
                     }
 
                     while (!processFinished)
@@ -1632,7 +1953,7 @@ namespace pwiz.Skyline.Util
         }
     }
     
-    internal static class Kernel32
+    internal static class Kernel32Unsafe
     {
         [DllImport("kernel32", SetLastError = true)]
         internal static extern unsafe bool ReadFile(

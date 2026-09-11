@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -24,6 +24,8 @@ using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Windows.Forms;
+using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.Skyline.Model;
 using pwiz.Skyline.Model.AuditLog;
 using pwiz.Skyline.Model.DocSettings;
@@ -37,7 +39,7 @@ namespace pwiz.Skyline.Controls.Graphs
     /// <summary>
     /// A window that progressively displays chromatogram data during file import.
     /// </summary>
-    public partial class AllChromatogramsGraph : FormEx
+    public partial class AllChromatogramsGraph : FormEx, FileProgressControl.IStateProvider
     {
         private readonly Stopwatch _stopwatch;
         private int _selected = -1;
@@ -159,6 +161,9 @@ namespace pwiz.Skyline.Controls.Graphs
 
         private void ElapsedTimer_Tick(object sender, EventArgs e)
         {
+            if (IsProgressFrozen())
+                return;
+
             // Update timer and overall progress bar.
             // ReSharper disable LocalizableElement
             lblDuration.Text = _stopwatch.Elapsed.ToString(@"hh\:mm\:ss");
@@ -349,9 +354,13 @@ namespace pwiz.Skyline.Controls.Graphs
                 elapsedTimer.Stop();
             }
 
+            // Don't hide progress UI when frozen for screenshot consistency
+            if (_freezeProgressPercent.HasValue)
+                return;
+
             progressBarTotal.Visible = false;
             btnCancel.Visible = false;
-            btnHide.Text = Resources.AllChromatogramsGraph_Finish_Close;
+            btnHide.Text = GraphsResources.AllChromatogramsGraph_Finish_Close;
         }
 
         public bool HasErrors
@@ -376,11 +385,42 @@ namespace pwiz.Skyline.Controls.Graphs
         /// <summary>
         /// Display chromatogram data. 
         /// </summary>
-        /// <param name="status"></param>
+        /// <param name="status">The <see cref="MultiProgressStatus"/> to update the UI to.</param>
         public void UpdateStatus(MultiProgressStatus status)
         {
+            lock (_missedProgressStatusList)
+            {
+                // If a freeze percent is set, freeze once file at index 0 reaches threshold
+                var frozen = IsProgressFrozen(status);
+                if (frozen)
+                {
+                    // Play this back later when progress is unfrozen
+                    _missedProgressStatusList.Add(status);
+                    lblDuration.Text = _elapsedTimeAtFreeze;
+                    return;
+                }
+                if (_missedProgressStatusList.Count > 0)
+                {
+                    // Play the missed progress before the current status
+                    foreach (var multiProgressStatus in _missedProgressStatusList)
+                    {
+                        UpdateStatusInternal(multiProgressStatus);
+                    }
+                    _missedProgressStatusList.Clear();
+                }
+            }
+
+            UpdateStatusInternal(status);
+        }
+
+        private void UpdateStatusInternal(MultiProgressStatus status)
+        {
             // Update overall progress bar.
-            if (_partialProgressList.Count == 0)
+            if (_frozenTotalProgress.HasValue)
+            {
+                progressBarTotal.Value = _frozenTotalProgress.Value;
+            }
+            else if (_partialProgressList.Count == 0)
             {
                 if (status.PercentComplete >= 0) // -1 value means "unknown" (possible if we are mid-completion). Just leave things alone in that case.
                 {
@@ -447,7 +487,8 @@ namespace pwiz.Skyline.Controls.Graphs
             graphChromatograms.ScaleIsLocked = !Settings.Default.ImportResultsAutoScaleGraph;
 
             // If a file is successfully completed, automatically select another loading file.
-            if (!_selectionIsSticky && (SelectedControl == null || SelectedControl.Progress == 100))
+            // Don't advance when frozen for screenshot - keep showing the first file.
+            if (!_selectionIsSticky && !_isProgressFrozen && (SelectedControl == null || SelectedControl.Progress == 100))
             {
                 for (int i = Selected + 1; i < flowFileStatus.Controls.Count; i++)
                 {
@@ -463,7 +504,7 @@ namespace pwiz.Skyline.Controls.Graphs
             if (!Finished)
             {
                 btnCancel.Visible = true;
-                btnHide.Text = Resources.AllChromatogramsGraph_UpdateStatus_Hide;
+                btnHide.Text = GraphsResources.AllChromatogramsGraph_UpdateStatus_Hide;
                 progressBarTotal.Visible = true;
                 _stopwatch.Start();
                 elapsedTimer.Start();
@@ -499,7 +540,7 @@ namespace pwiz.Skyline.Controls.Graphs
             bool first = true;
             var width = flowFileStatus.Width - 2 - // Avoid clipping the cancel/retry button when we need a vertical scrollbar
                         (flowFileStatus.VerticalScroll.Visible || 
-                         status.ProgressList.Count > (panelFileList.Height / (new FileProgressControl()).Height)  // If scrollbar isn't visible already, it's about to be
+                         status.ProgressList.Count > (panelFileList.Height / new FileProgressControl(this).Height)  // If scrollbar isn't visible already, it's about to be
                             ? SystemInformation.VerticalScrollBarWidth
                             : 0);
             List<FileProgressControl> controlsToAdd = new List<FileProgressControl>();
@@ -511,7 +552,7 @@ namespace pwiz.Skyline.Controls.Graphs
                     continue;
 
                 // Create a progress control for new file.
-                progressControl = new FileProgressControl
+                progressControl = new FileProgressControl(this)
                 {
                     Number = flowFileStatus.Controls.Count + controlsToAdd.Count + 1,
                     Width = width,
@@ -578,7 +619,7 @@ namespace pwiz.Skyline.Controls.Graphs
             }
 
             // Add this file back into the chromatogram set for each of its replicates.
-            ModifyDocument(Resources.AllChromatogramsGraph_Retry_Retry_import_results, monitor =>
+            ModifyDocument(GraphsResources.AllChromatogramsGraph_Retry_Retry_import_results, monitor =>
             {
                 Program.MainWindow.ModifyDocumentNoUndo(doc =>
                     {
@@ -592,25 +633,28 @@ namespace pwiz.Skyline.Controls.Graphs
 
         private void ModifyDocument(string message, Action<SrmSettingsChangeMonitor> modifyAction)
         {
-            using (var longWaitDlg = new LongWaitDlg(Program.MainWindow))
+            try
             {
+                using var longWaitDlg = new LongWaitDlg(Program.MainWindow);
                 longWaitDlg.Text = Text; // Same as dialog box
                 longWaitDlg.Message = message;
                 longWaitDlg.ProgressValue = 0;
-                try
+                longWaitDlg.PerformWork(this, 800, progressMonitor =>
                 {
-                    longWaitDlg.PerformWork(this, 800, progressMonitor =>
+                    using (var settingsChangeMonitor =
+                           new SrmSettingsChangeMonitor(progressMonitor, message, Program.MainWindow))
                     {
-                        using (var settingsChangeMonitor = new SrmSettingsChangeMonitor(progressMonitor, message, Program.MainWindow))
-                        {
-                            modifyAction(settingsChangeMonitor);
-                        }
-                    });
-                }
-                catch (OperationCanceledException)
-                {
-                    // SrmSettingsChangeMonitor can throw OperationCancelledException without LongWaitDlg knowing about it.
-                }
+                        modifyAction(settingsChangeMonitor);
+                    }
+                });
+            }
+            catch (OperationCanceledException)
+            {
+                // SrmSettingsChangeMonitor can throw OperationCancelledException without LongWaitDlg knowing about it.
+            }
+            catch (Exception exception)
+            {
+                ExceptionUtil.DisplayOrReportException(Program.MainWindow, exception);
             }
         }
 
@@ -618,7 +662,7 @@ namespace pwiz.Skyline.Controls.Graphs
         {
             // Remove this file from document.
             var canceledPath = status.FilePath;
-            ModifyDocument(Resources.AllChromatogramsGraph_Cancel_Cancel_file_import,
+            ModifyDocument(GraphsResources.AllChromatogramsGraph_Cancel_Cancel_file_import,
                 monitor => Program.MainWindow.ModifyDocumentNoUndo(
                     doc => FilterFiles(doc, info => !info.FilePath.Equals(canceledPath))));
         }
@@ -627,7 +671,7 @@ namespace pwiz.Skyline.Controls.Graphs
         {
             // Remove this file from document.
             var canceledPath = status.FilePath;
-            ModifyDocument(Resources.AllChromatogramsGraph_RemoveFailedFile_Remove_failed_file,
+            ModifyDocument(GraphsResources.AllChromatogramsGraph_RemoveFailedFile_Remove_failed_file,
                 monitor => Program.MainWindow.ModifyDocumentNoUndo(
                     doc => FilterFiles(doc, info => !info.FilePath.Equals(canceledPath))));
         }
@@ -679,7 +723,7 @@ namespace pwiz.Skyline.Controls.Graphs
         public void ClickCancel()
         {
             graphChromatograms.IsCanceled = IsUserCanceled = true;
-            Program.MainWindow.ModifyDocument(Resources.AllChromatogramsGraph_btnCancel_Click_Cancel_import,
+            Program.MainWindow.ModifyDocument(GraphsResources.AllChromatogramsGraph_btnCancel_Click_Cancel_import,
                 doc => FilterFiles(doc, info => IsCachedFile(doc, info)),
                 docPair => AuditLogEntry.CreateSimpleEntry(MessageType.canceled_import, docPair.OldDocumentType));
         }
@@ -749,6 +793,185 @@ namespace pwiz.Skyline.Controls.Graphs
 
         #region Testing Support
 
+        private int? _freezeProgressPercent;
+        private bool _isProgressFrozen; // Once frozen, stays frozen until ReleaseFrozenProgress
+        private bool _isProgressiveMode; // True for progressive data (DIA), false for SRM
+        private string _elapsedTimeAtFreeze;
+        private DateTime? _timeAtFreeze;
+        private Tuple<string, string> _replacementText;
+        private List<MultiProgressStatus> _missedProgressStatusList = new List<MultiProgressStatus>();
+        private Dictionary<string, int> _frozenFileProgress;
+        private int? _frozenTotalProgress;
+
+        /// <summary>
+        /// Freeze progress display for consistent screenshots.
+        /// </summary>
+        /// <param name="totalProgress">Total progress bar percentage to display</param>
+        /// <param name="elapsedTime">Elapsed time text to display</param>
+        /// <param name="graphTime">Exact retention time (in minutes) where the progress line should appear.
+        /// Use null for SRM data that doesn't show a progress line.</param>
+        /// <param name="graphIntensityMax">Y-axis maximum to lock the scale. If null, scale is not locked.</param>
+        /// <param name="fileProgress">Dictionary mapping filename to progress percentage.
+        /// Files not in the dictionary will display 0% when frozen.</param>
+        public void SetFrozenProgress(int totalProgress, string elapsedTime,
+            float? graphTime = null, float? graphIntensityMax = null, Dictionary<string, int> fileProgress = null)
+        {
+            // Block background thread from completing document update while frozen
+            ChromatogramManager?.FreezeProgressForScreenshot();
+
+            // Freeze graph animation and set progress line position and/or intensity scale
+            graphChromatograms.FreezeForScreenshot(graphTime, graphIntensityMax);
+
+            lock (_missedProgressStatusList)
+            {
+                // Freeze when first file reaches 100% to ensure graph is fully rendered
+                _freezeProgressPercent = 100;
+                _elapsedTimeAtFreeze = elapsedTime;
+                _frozenFileProgress = fileProgress;
+                _frozenTotalProgress = totalProgress;
+                // Progressive mode (DIA) has a progress line; SRM does not
+                _isProgressiveMode = graphTime.HasValue;
+            }
+        }
+
+        /// <summary>
+        /// Release frozen progress state and resume normal updates.
+        /// </summary>
+        public void ReleaseFrozenProgress()
+        {
+            bool importFinished;
+            lock (_missedProgressStatusList)
+            {
+                _freezeProgressPercent = null;
+                _isProgressFrozen = false;
+                _isProgressiveMode = false;
+                _elapsedTimeAtFreeze = null;
+                _frozenFileProgress = null;
+                _frozenTotalProgress = null;
+                importFinished = Finished;
+            }
+
+            // Resume graph animation
+            graphChromatograms.ThawForScreenshot();
+
+            // Allow background thread to complete document update
+            ChromatogramManager?.ReleaseProgressFreeze();
+
+            // If import completed while frozen, complete the UI updates now
+            if (importFinished)
+            {
+                progressBarTotal.Visible = false;
+                btnCancel.Visible = false;
+                btnHide.Text = GraphsResources.AllChromatogramsGraph_Finish_Close;
+            }
+        }
+
+        public void SetFreezeTimeForError(DateTime time)
+        {
+            _timeAtFreeze = time;
+        }
+
+        DateTime FileProgressControl.IStateProvider.Time => _timeAtFreeze ?? DateTime.Now;
+
+        public void SetReplacementForError(string oldValue, string newValue)
+        {
+            _replacementText = new Tuple<string, string>(oldValue, newValue);
+        }
+
+        string FileProgressControl.IStateProvider.PrepareErrorText(string errorText)
+        {
+            return _replacementText == null ? errorText
+                : errorText.Replace(_replacementText.Item1, _replacementText.Item2);
+        }
+
+        int? FileProgressControl.IStateProvider.GetFrozenProgress(MsDataFileUri filePath)
+        {
+            if (_frozenFileProgress == null)
+                return null;
+            var fileName = filePath.GetFileName();
+            // First try exact match
+            if (_frozenFileProgress.TryGetValue(fileName, out var progress))
+                return progress;
+            // Then try partial match (key is contained in filename) for flexibility with extensions
+            foreach (var kvp in _frozenFileProgress)
+            {
+                if (fileName.Contains(kvp.Key))
+                    return kvp.Value;
+            }
+            // File not in frozen list - return null (FileProgressControl checks IsProgressFrozen separately)
+            return null;
+        }
+
+        bool FileProgressControl.IStateProvider.IsProgressFrozen => _frozenFileProgress != null;
+
+        public bool IsProgressFrozen(MultiProgressStatus status = null)
+        {
+            lock (_missedProgressStatusList)
+            {
+                if (!_freezeProgressPercent.HasValue)
+                    return false;
+
+                // Once frozen, stay frozen until ReleaseFrozenProgress is called
+                if (_isProgressFrozen)
+                    return true;
+
+                if (status == null || status.ProgressList.Count == 0)
+                    return false; // Not yet frozen, waiting for threshold
+
+                // For progressive data (DIA), capture X-axis max early (when any file reaches threshold/2)
+                // to avoid non-determinism from the race to completion between parallel file imports.
+                // SRM data doesn't have this issue since there's no progress line.
+                if (_isProgressiveMode)
+                {
+                    int xAxisCaptureThreshold = _freezeProgressPercent.Value / 2;
+                    foreach (var progressStatus in status.ProgressList)
+                    {
+                        if (progressStatus.PercentComplete >= xAxisCaptureThreshold)
+                        {
+                            graphChromatograms.CaptureXAxisMax();
+                            break;
+                        }
+                    }
+                }
+
+                // Check if file at index 0 reaches threshold (100%) to trigger freeze
+                // We use file at index 0 because that's the one shown in the graph
+                if (status.ProgressList[0].PercentComplete >= _freezeProgressPercent)
+                {
+                    _isProgressFrozen = true;
+                    return true;
+                }
+
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Check if the graph is ready for screenshot capture.
+        /// This verifies that:
+        /// 1. Progress has reached the freeze threshold (file at index 0 at 100%)
+        /// 2. The graph control is visible and has data loaded
+        /// </summary>
+        public bool IsReadyForScreenshot()
+        {
+            lock (_missedProgressStatusList)
+            {
+                // Must be frozen (first file reached 100%)
+                if (!_isProgressFrozen)
+                    return false;
+
+                // Graph control must be visible
+                if (!graphChromatograms.Visible)
+                    return false;
+
+                // Graph must have data loaded
+                if (!graphChromatograms.HasGraphData)
+                    return false;
+
+                return true;
+            }
+        }
+
         public int ProgressTotalPercent
         {
             get
@@ -756,6 +979,33 @@ namespace pwiz.Skyline.Controls.Graphs
                 return (100*(progressBarTotal.Value - -progressBarTotal.Minimum))/(progressBarTotal.Maximum - progressBarTotal.Minimum);
             }
         }
+
+        /// <summary>
+        /// Gets the total progress bar control for screenshot processing.
+        /// Use with ScreenshotProcessingExtensions.FillProgressBar to paint over
+        /// the animated progress bar with a static representation.
+        /// </summary>
+        public ProgressBar ProgressBarTotal => progressBarTotal;
+
+        /// <summary>
+        /// Gets all visible file progress bars for screenshot processing.
+        /// Use with ScreenshotProcessingExtensions.FillProgressBar to paint over
+        /// animated progress bars with static representations.
+        /// </summary>
+        public IEnumerable<ProgressBar> GetVisibleFileProgressBars()
+        {
+            foreach (FileProgressControl control in flowFileStatus.Controls)
+            {
+                if (control.ProgressBar.Visible)
+                    yield return control.ProgressBar;
+            }
+        }
+
+        /// <summary>
+        /// Gets the current Y-axis intensity maximum of the displayed graph.
+        /// Useful for determining what value to use for graphIntensityMax parameter.
+        /// </summary>
+        public float? CurrentIntensityMax => graphChromatograms.CurrentIntensityMax;
 
         // Click the button for this named file - first click is cancel, which toggles to retry
         public void FileButtonClick(string name)

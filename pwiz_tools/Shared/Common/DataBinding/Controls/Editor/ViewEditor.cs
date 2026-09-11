@@ -304,7 +304,7 @@ namespace pwiz.Common.DataBinding.Controls.Editor
             }
             if (errorMessage != null)
             {
-                ViewContext.ShowMessageBox(this, errorMessage, MessageBoxButtons.OK);
+                ViewContext.ShowMessageBox(this, errorMessage, MessageBoxButtons.OK, null);
                 formClosingEventArgs.Cancel = true;
             }
             if (formClosingEventArgs.Cancel)
@@ -315,7 +315,7 @@ namespace pwiz.Common.DataBinding.Controls.Editor
 
         public static bool IsCanonical(DisplayColumn displayColumn)
         {
-            if (displayColumn.ColumnSpec.Hidden && null != displayColumn.ColumnSpec.SortDirection)
+            if (displayColumn.ColumnSpec.Hidden)
             {
                 return false;
             }

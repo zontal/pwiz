@@ -7,7 +7,7 @@ set TARGETPLATFORM=32
 set ARGS=
 set TARGETS=
 set REGISTER=
-set OPTIMIZATION=optimization=space
+set OPTIMIZATION=optimization=speed
 set NOLOG=
 
 set ALL_ARGS= %*
@@ -102,6 +102,7 @@ findstr /c:"Could not resolve reference" %QUICKBUILDLOG%
 findstr /b /c:"Unable to load" %QUICKBUILDLOG%
 findstr /b /c:"error:" %QUICKBUILDLOG%
 findstr /c:"test(s) Passed" %QUICKBUILDLOG%
+findstr /c:"Elapsed time:" %QUICKBUILDLOG%
 
 :BUILD_DONE
 echo.

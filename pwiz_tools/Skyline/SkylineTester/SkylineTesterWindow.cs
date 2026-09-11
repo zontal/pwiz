@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -26,7 +26,6 @@ using System.IO;
 using System.Linq;
 using System.Management;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -37,6 +36,7 @@ using Microsoft.Win32;
 using Microsoft.Win32.TaskScheduler;
 using SkylineTester.Properties;
 using TestRunnerLib;
+using TestRunnerLib.PInvoke;
 using ZedGraph;
 using Label = System.Windows.Forms.Label;
 using Timer = System.Windows.Forms.Timer;
@@ -51,7 +51,7 @@ namespace SkylineTester
         public const string SkylineTesterFiles = "SkylineTester Files";
 
         public const string DocumentationLink =
-            "https://skyline.gs.washington.edu/labkey/wiki/home/development/page.view?name=SkylineTesterDoc";
+            "https://skyline.ms/wiki/home/development/page.view?name=SkylineTesterDoc";
 
         public string Git { get; private set; }
         public string Devenv { get; private set; }
@@ -87,9 +87,9 @@ namespace SkylineTester
 
         private readonly Dictionary<string, string> _languageNames = new Dictionary<string, string>
         {
-            {"en", "English"},
-            {"fr", "French"},
-            {"tr", "Turkish"},
+            {"en-US", "English"},
+            {"fr-FR", "French"},
+            {"tr-TR", "Turkish"},
             {"ja", "Japanese"},
             {"zh-CHS", "Chinese"}
         };
@@ -105,6 +105,7 @@ namespace SkylineTester
 
         private readonly string _resultsDir;
         private readonly string _openFile;
+        private readonly bool _autoRun;
 
         private Button[] _runButtons;
         private TabBase _runningTab;
@@ -123,6 +124,7 @@ namespace SkylineTester
 
         private int _findPosition;
         private string _findText;
+        private Dictionary<string, string> _treeViewStateFromSettings = new Dictionary<string, string>();
 
         private ZedGraphControl graphMemory;
 
@@ -160,6 +162,10 @@ namespace SkylineTester
         public SkylineTesterWindow(string[] args)
             : this()
         {
+            // Check for --autorun flag
+            _autoRun = args.Contains("--autorun");
+            args = args.Where(a => a != "--autorun").ToArray();
+
             // Grab some critical config values to avoid some timing issues in the initialization process
             string settings = args.Length > 0 ? File.ReadAllText(args[0]) : Settings.Default.SavedSettings;
             if (!string.IsNullOrEmpty(settings))
@@ -176,20 +182,33 @@ namespace SkylineTester
 
             Exe = Assembly.GetExecutingAssembly().Location;
             ExeDir = Path.GetDirectoryName(Exe);
+            // Prefer a directory named exactly "Skyline", falling back to the first "Skyline*" only
+            // if there is none above us. The standalone SkylineTester deployment is rooted on a
+            // SkylineTester directory and needs that fallback, but in a source tree the same match
+            // hits the SkylineTester project folder: on net472 the exe is under Skyline\bin\..., so
+            // the walk reached Skyline, while an SDK-style build puts it under
+            // Skyline\SkylineTester\bin\..., which stopped a level early and put the run log and
+            // test list in the project folder instead of beside the solution.
             RootDir = ExeDir;
+            string skylineStarterDir = null;
             while (RootDir != null)
             {
-                if (Path.GetFileName(RootDir).StartsWith("Skyline"))
+                var dirName = Path.GetFileName(RootDir);
+                if (Equals(dirName, "Skyline"))
                     break;
+                if (skylineStarterDir == null && dirName.StartsWith("Skyline"))
+                    skylineStarterDir = RootDir;
                 RootDir = Path.GetDirectoryName(RootDir);
             }
+            RootDir = RootDir ?? skylineStarterDir;
             if (RootDir == null)
                 throw new ApplicationException("Can't find Skyline or SkylineTester directory");
 
             _resultsDir = Path.Combine(RootDir, "SkylineTester Results");
             DefaultLogFile = Path.Combine(RootDir, "SkylineTester.log");
-            if (File.Exists(DefaultLogFile))
-                Try.Multi<Exception>(() => File.Delete(DefaultLogFile));
+            // Deliberately not deleted here. Starting a run rolls it aside, so leaving it means the
+            // last run's log survives a restart of this window instead of being thrown away by the
+            // act of reopening it to go look at that log.
 
             testSet.SelectedIndex = 0;
 
@@ -222,7 +241,7 @@ namespace SkylineTester
 
             // Refresh shell if association changed.
             if (checkRegistry == null)
-                SHChangeNotify(0x08000000, 0x0000, IntPtr.Zero, IntPtr.Zero);
+                Shell32Test.SHChangeNotify(0x08000000, 0x0000, IntPtr.Zero, IntPtr.Zero);
 
             _runButtons = new[]
             {
@@ -271,6 +290,18 @@ namespace SkylineTester
                         statusLabel.Text = line.Substring(3);
                     });
                     return false;
+                }
+
+                // Detect TestRunner completion
+                if (line.StartsWith("Tests finished in "))
+                {
+                    RunUI(() =>
+                    {
+                        // Clear the running test name and reset status
+                        RunningTestName = null;
+                        statusLabel.Text = "Tests completed";
+                    });
+                    return true; // Still show this line in output
                 }
 
                 if (line.StartsWith("...skipped ") ||
@@ -343,11 +374,15 @@ namespace SkylineTester
         {
             var loader = new BackgroundWorker();
             loader.DoWork += BackgroundLoad;
+            loader.RunWorkerCompleted += BackgroundLoadCompleted;
             loader.RunWorkerAsync(testSet.SelectedItem?.ToString() ?? "All tests");
         }
 
-        [DllImport("shell32.dll", CharSet = CharSet.Auto, SetLastError = true)]
-        public static extern void SHChangeNotify(uint wEventId, uint uFlags, IntPtr dwItem1, IntPtr dwItem2);
+        private void BackgroundLoadCompleted(object sender, RunWorkerCompletedEventArgs e)
+        {
+            if (_autoRun)
+                BeginInvoke(new System.Action(Run));
+        }
 
         private void BackgroundLoad(object sender, DoWorkEventArgs e)
         {
@@ -390,9 +425,15 @@ namespace SkylineTester
 
                 RunUI(() =>
                 {
+                    if (!Equals(testSet.SelectedItem, testSetValue))
+                        return;
+
                     testsTree.Nodes.Clear();
                     testsTree.Nodes.Add(skylineNode);
                     skylineNode.Expand();
+
+                    // Restore checked tests from file after tree is populated
+                    RestoreCheckedTestsFromFile();
 
                     tutorialsLoaded = tutorialsTree.Nodes.Count > 0;
 
@@ -426,8 +467,17 @@ namespace SkylineTester
                     tutorialsTree.Nodes.Clear();
                     tutorialsTree.Nodes.Add(new TreeNode("Tutorial tests", tutorialNodes));
                     tutorialsTree.ExpandAll();
-                    tutorialsTree.Nodes[0].Checked = true;
-                    TabTests.CheckAllChildNodes(tutorialsTree.Nodes[0], true);
+                    // More common to choose just one tutorial to run on the tutorials tab
+                    // tutorialsTree.Nodes[0].Checked = true;
+                    // TabTests.CheckAllChildNodes(tutorialsTree.Nodes[0], true);
+
+                    // Restore checked tutorials from settings after tree is populated
+                    if (_treeViewStateFromSettings.TryGetValue(tutorialsTree.Name, out var tutorialNames) &&
+                        !string.IsNullOrEmpty(tutorialNames))
+                    {
+                        CheckNodes(tutorialsTree, tutorialNames.Split(','));
+                        UpdateAllParentNodeCheckStates(tutorialsTree);
+                    }
 
                     // Add forms to forms tree view.
                     _tabForms.CreateFormsGrid();
@@ -441,6 +491,42 @@ namespace SkylineTester
             if (_openFile != null && Path.GetExtension(_openFile) == ".skytr")
             {
                 RunUI(Run);
+            }
+        }
+
+        /// <summary>
+        /// Restore checked tests from "SkylineTester test list.txt" file on startup.
+        /// This enables bidirectional sync between SkylineTester UI and LLM test execution.
+        /// </summary>
+        private void RestoreCheckedTestsFromFile()
+        {
+            var testListPath = Path.Combine(RootDir, "SkylineTester test list.txt");
+
+            if (!File.Exists(testListPath))
+                return; // No file to restore from
+
+            try
+            {
+                // Read test names from file (skip comments and blank lines)
+                var testNames = File.ReadAllLines(testListPath)
+                    .Select(line => line.Trim())
+                    .Where(line => !string.IsNullOrEmpty(line))
+                    .Where(line => !line.StartsWith("#"))
+                    .ToHashSet();
+
+                if (testNames.Count == 0)
+                    return; // Empty file, nothing to restore
+
+                // Check tests in the tree that match the file
+                CheckNodes(testsTree, testNames);
+
+                // Update parent nodes to show tri-state (gray = partial selection)
+                UpdateAllParentNodeCheckStates(testsTree);
+            }
+            catch (Exception)
+            {
+                // If we can't read or parse the file, just skip auto-restore
+                // Don't crash the application on startup for this feature
             }
         }
 
@@ -477,9 +563,7 @@ namespace SkylineTester
                 var myId = Process.GetCurrentProcess().Id;
                 var query = string.Format("SELECT ParentProcessId FROM Win32_Process WHERE ProcessId = {0}", myId);
                 var search = new ManagementObjectSearcher("root\\CIMV2", query);
-                var results = search.Get().GetEnumerator();
-                results.MoveNext();
-                var queryObj = results.Current;
+                var queryObj = search.Get().Cast<ManagementBaseObject>().First();
                 var parentId = (uint) queryObj["ParentProcessId"];
                 var parent = Process.GetProcessById((int) parentId);
                 // Only go interactive if our parent process is not named "SkylineNightly"
@@ -562,9 +646,12 @@ namespace SkylineTester
         }
 
         private int _previousTab;
+        private int _lastActiveActionTabIndex; // Tab to restore on startup (not Output tab)
 
         private void TabChanged(object sender, EventArgs e)
         {
+            StoreLastActiveTab();
+
             if (_tabs == null)
                 return;
 
@@ -574,6 +661,13 @@ namespace SkylineTester
             _findPosition = 0;
 
             RunUI(() => _tabs[_previousTab].Enter(), 500);
+        }
+
+        private void StoreLastActiveTab()
+        {
+            // Track workflow tab (not Output tab) for smart tab restoration
+            if (tabs.SelectedTab != tabOutput)
+                _lastActiveActionTabIndex = tabs.SelectedIndex;
         }
 
         public void ShowOutput()
@@ -1061,10 +1155,10 @@ namespace SkylineTester
                 modeTutorialsCoverShots,
                 pauseTutorialsDelay,
                 pauseTutorialsSeconds,
+                pauseStartingScreenshot,
                 tutorialsDemoMode,
                 tutorialsLanguage,
                 showFormNamesTutorial,
-                showMatchingPagesTutorial,
                 tutorialsTree,
 
                 // Tests
@@ -1080,7 +1174,8 @@ namespace SkylineTester
                 testsFrench,
                 testsJapanese,
                 testsTurkish,
-                testsTree,
+                // testsTree,  // Don't save testsTree to settings - prefer "SkylineTester test list.txt" file
+                                // to avoid confusion between two sources of truth for checked tests
                 runCheckedTests,
                 skipCheckedTests,
                 testSet,
@@ -1088,6 +1183,7 @@ namespace SkylineTester
                 runParallel,
                 runSerial,
                 parallelWorkerCount,
+                coverageCheckbox,
 
                 // Build
                 buildTrunk,
@@ -1211,6 +1307,7 @@ namespace SkylineTester
                 if (tab != null)
                 {
                     tab.SelectTab(element.Value);
+                    StoreLastActiveTab();
                     continue;
                 }
 
@@ -1246,7 +1343,8 @@ namespace SkylineTester
                 var treeView = control as TreeView;
                 if (treeView != null)
                 {
-                    CheckNodes(treeView, element.Value.Split(','));
+                    // Trees may not be populated yet during LoadSettings, save names for later
+                    _treeViewStateFromSettings[treeView.Name] = element.Value;
                     continue;
                 }
 
@@ -1290,7 +1388,10 @@ namespace SkylineTester
                 var tab = child as TabControl;
                 if (tab != null)
                 {
-                    element.Add(new XElement(tab.Name, tab.SelectedTab.Name));
+                    // Save workflow tab (not Output tab) for smart tab restoration
+                    var tabIndexToSave = _lastActiveActionTabIndex;
+                    var tabNameToSave = tab.TabPages[tabIndexToSave].Name;
+                    element.Add(new XElement(tab.Name, tabNameToSave));
                     continue;
                 }
 
@@ -1381,8 +1482,118 @@ namespace SkylineTester
             if (e.Action != TreeViewAction.Unknown)
             {
                 if (e.Node.Nodes.Count > 0)
+                {
                     TabTests.CheckAllChildNodes(e.Node, e.Node.Checked);
+                    // Reset colors for this node and all descendants since they all have the same state now
+                    ResetNodeColorsRecursive(e.Node);
+                }
+
+                // Update parent nodes to reflect mixed state
+                UpdateParentNodeCheckState(e.Node.Parent);
             }
+        }
+
+        /// <summary>
+        /// Resets ForeColor to default for a node and all its descendants.
+        /// Used after checking/unchecking all children to clear any mixed-state indicators.
+        /// </summary>
+        private void ResetNodeColorsRecursive(TreeNode node)
+        {
+            var defaultColor = node.TreeView?.ForeColor ?? SystemColors.WindowText;
+            node.ForeColor = defaultColor;
+            foreach (TreeNode child in node.Nodes)
+            {
+                ResetNodeColorsRecursive(child);
+            }
+        }
+
+        /// <summary>
+        /// Updates a parent node's checked state based on its children.
+        /// Uses tri-state logic: unchecked (no children checked), checked (all checked),
+        /// or indeterminate (some checked) shown via ForeColor.
+        /// </summary>
+        private void UpdateParentNodeCheckState(TreeNode parentNode)
+        {
+            if (parentNode == null)
+                return;
+
+            ApplyTriStateToNode(parentNode);
+
+            // Recursively update grandparent
+            UpdateParentNodeCheckState(parentNode.Parent);
+        }
+
+        /// <summary>
+        /// Applies tri-state checkbox logic to a single node based on its children's states.
+        /// Sets checked state and ForeColor (gray for partial selection).
+        /// </summary>
+        private void ApplyTriStateToNode(TreeNode node)
+        {
+            if (node.Nodes.Count == 0)
+                return;
+
+            int checkedCount = 0;
+            int totalCount = node.Nodes.Count;
+
+            foreach (TreeNode child in node.Nodes)
+            {
+                if (child.Checked)
+                    checkedCount++;
+            }
+
+            // Temporarily disable AfterCheck event to prevent recursion
+            var treeView = node.TreeView;
+            if (treeView != null)
+            {
+                treeView.AfterCheck -= node_AfterCheck;
+                try
+                {
+                    if (checkedCount == 0)
+                    {
+                        node.Checked = false;
+                        node.ForeColor = treeView.ForeColor; // Normal color
+                    }
+                    else if (checkedCount == totalCount)
+                    {
+                        node.Checked = true;
+                        node.ForeColor = treeView.ForeColor; // Normal color
+                    }
+                    else
+                    {
+                        // Partial selection - show as checked with different color to indicate mixed state
+                        node.Checked = true;
+                        node.ForeColor = Color.Gray; // Mixed state indicator
+                    }
+                }
+                finally
+                {
+                    treeView.AfterCheck += node_AfterCheck;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Updates all parent nodes in a tree to reflect their children's check states.
+        /// Call this after programmatically checking/unchecking child nodes.
+        /// </summary>
+        public void UpdateAllParentNodeCheckStates(TreeView treeView)
+        {
+            foreach (TreeNode rootNode in treeView.Nodes)
+            {
+                UpdateParentNodesRecursive(rootNode);
+            }
+        }
+
+        private void UpdateParentNodesRecursive(TreeNode node)
+        {
+            // First, recurse to update children
+            foreach (TreeNode child in node.Nodes)
+            {
+                UpdateParentNodesRecursive(child);
+            }
+
+            // Then update this node if it has children
+            ApplyTriStateToNode(node);
         }
 
         private static void CheckNodes(TreeView treeView, ICollection<string> checkedNames)
@@ -1498,7 +1709,7 @@ namespace SkylineTester
         public CheckBox         Pass0                       { get { return pass0; } }
         public CheckBox         Pass1                       { get { return pass1; } }
         public RadioButton      ModeTutorialsCoverShots     { get { return modeTutorialsCoverShots; } }
-        public TextBox          PauseStartingPage           { get { return pauseStartingPage; } }
+        public TextBox          PauseStartingScreenshot           { get { return pauseStartingScreenshot; } }
         public RadioButton      PauseTutorialsScreenShots   { get { return pauseTutorialsScreenShots; } }
         public NumericUpDown    PauseTutorialsSeconds       { get { return pauseTutorialsSeconds; } }
         public RadioButton      QualityChooseTests          { get { return qualityChooseTests; } }
@@ -1517,12 +1728,12 @@ namespace SkylineTester
         public NumericUpDown    RunLoopsCount               { get { return runLoopsCount; } }
         public Button           RunNightly                  { get { return runNightly; } }
         public RadioButton      RunParallel                 { get { return runParallel; } }
+        public CheckBox         RunCoverage                 { get { return coverageCheckbox; } }
         public NumericUpDown    RunParallelWorkerCount      { get { return parallelWorkerCount; } }
         public Button           RunQuality                  { get { return runQuality; } }
         public Button           RunTests                    { get { return runTests; } }
         public Button           RunTutorials                { get { return runTutorials; } }
         public CheckBox         ShowFormNames               { get { return showFormNames; } }
-        public CheckBox         ShowMatchingPagesTutorial   { get { return showMatchingPagesTutorial; } }
         public CheckBox         ShowFormNamesTutorial       { get { return showFormNamesTutorial; } }
         public ComboBox         TestSet                     { get { return testSet; } }
         public RadioButton      SkipCheckedTests            { get { return skipCheckedTests; } }
@@ -1743,14 +1954,6 @@ namespace SkylineTester
             labelSelectedFormsCount.Text = formsGrid.SelectedRows.Count + " selected";
         }
 
-        private void pauseTutorialsScreenShots_CheckedChanged(object sender, EventArgs e)
-        {
-            bool pauseChecked = pauseTutorialsScreenShots.Checked;
-            showMatchingPagesTutorial.Enabled = pauseChecked;
-            if (!pauseChecked)
-                showMatchingPagesTutorial.Checked = false;
-        }
-
         private void comboBoxRunStats_SelectedIndexChanged(object sender, EventArgs e)
         {
             _tabRunStats.Process(GetSelectedLog(comboBoxRunStats), GetSelectedLog(comboBoxRunStatsCompare));
@@ -1949,8 +2152,76 @@ namespace SkylineTester
             labelParallelOffscreenHint.Location = Offscreen.Location;
             Offscreen.Visible = runSerial.Checked; // Everything happens offscreen in parallel tests, so don't offer the option if we're not serial mode
             labelParallelOffscreenHint.Visible = !Offscreen.Visible;
+
+            if (runSerial.Checked)
+            {
+                coverageCheckbox.Checked = false;
+                coverageCheckbox.Enabled = false;
+            }
+            else
+            {
+                coverageCheckbox.Enabled = true;
+                runMode.SelectedItem = "Test";  // Only Test mode supported in parallel testing
+            }
+        }
+
+        private void coverageCheckbox_CheckedChanged(object sender, EventArgs e)
+        {
+            if (coverageCheckbox.Checked)
+            {
+                runSerial.Enabled = false;
+                runParallel.Checked = true;
+            }
+            else
+            {
+                runSerial.Enabled = true;
+            }
+        }
+
+        private void runMode_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            // Adjust settings to match the mode
+            var runModeTest = RunTestMode.SelectedItem.ToString();
+            bool offScreenEnabled = true;
+            bool translationLanguagesOnly = false;
+            if (!Equals(runModeTest, "Test"))
+            {
+                runSerial.Checked = true;
+                bool isRunQuality = Equals(runModeTest, "Quality");
+                if (!isRunQuality)
+                    testSet.SelectedItem = "Tutorial tests";
+                if (isRunQuality || Equals(runModeTest, "Demo"))
+                    runIndefinitely.Checked = true;
+                else // Screenshots, Auto-Screenshots, Covershot
+                {
+                    runLoops.Checked = true;
+                    runLoopsCount.Text = 1.ToString();
+                    Offscreen.Checked = false;  // Can't do screenshots offscreen
+                    offScreenEnabled = false;
+                    translationLanguagesOnly = true;
+                }
+            }
+
+            TestsFrench.Enabled = TestsTurkish.Enabled = !translationLanguagesOnly;
+            if (translationLanguagesOnly)
+                TestsFrench.Checked = TestsTurkish.Checked = false;
+            Offscreen.Enabled = offScreenEnabled;
         }
 
         #endregion Control events
+
+        private void SkylineTesterWindow_KeyDown(object sender, KeyEventArgs e)
+        {
+            switch (e.KeyCode)
+            {
+                case Keys.F5:
+                    if (e.Shift)
+                        Stop();
+                    else
+                        Run();
+                    e.Handled = true;
+                    break;
+            }
+        }
     }
 }

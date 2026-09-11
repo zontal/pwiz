@@ -24,7 +24,6 @@
 #include "pwiz/utility/misc/String.hpp"
 #include "pwiz/utility/misc/Filesystem.hpp"
 #include "pwiz/utility/misc/Std.hpp"
-#include "boost/filesystem/convenience.hpp"
 #include "pwiz/data/msdata/Reader.hpp"
 
 using namespace pwiz::vendor_api::Bruker;
@@ -37,6 +36,25 @@ namespace Bruker {
 
 using namespace pwiz::util;
 
+namespace {
+
+// True if the path names a file, which every vendor path probed below is. A plain exists()
+// test would also accept a directory of that name, and on Windows, where paths are compared
+// case insensitively, that is easy to hit by accident: a directory named "FID" would
+// otherwise make everything containing it look like a Bruker acquisition. Deliberately not
+// is_regular_file(), which would also reject a file reached through a reparse point, as a
+// cloud storage placeholder is.
+bool exists_as_file(const bfs::path& filePath)
+{
+    // One status() answers both questions, where exists() followed by is_directory() would
+    // ask the filesystem twice. Every probe below goes through here, and format() is called
+    // for every directory a file open dialog lists.
+    bfs::file_status status = bfs::status(filePath);
+    return bfs::exists(status) && !bfs::is_directory(status);
+}
+
+} // namespace
+
 Reader_Bruker_Format format(const string& path)
 {
     bfs::path sourcePath(path);
@@ -47,9 +65,9 @@ Reader_Bruker_Format format(const string& path)
     {
         // Special cases for identifying direct paths to fid/Analysis.yep/Analysis.baf/.U2
         // Note that direct paths to baf or u2 will fail to find a baf/u2 hybrid source
-        std::string leaf = BFS_STRING(sourcePath.leaf());
+        std::string leaf = BFS_STRING(sourcePath.filename());
         bal::to_lower(leaf);
-        if (leaf == "fid" && !bfs::exists(sourcePath.branch_path() / "analysis.baf"))
+        if (leaf == "fid" && !exists_as_file(sourcePath.parent_path() / "analysis.baf"))
             return Reader_Bruker_Format_FID;
         else if(extension(sourcePath) == ".u2")
             return Reader_Bruker_Format_U2;
@@ -69,9 +87,9 @@ Reader_Bruker_Format format(const string& path)
 
     // Check for tdf-based data;
     // The directory should have a file named "Analysis.tdf"
-    if (bfs::exists(sourcePath / "Analysis.tdf") || bfs::exists(sourcePath / "analysis.tdf"))
+    if (exists_as_file(sourcePath / "Analysis.tdf") || exists_as_file(sourcePath / "analysis.tdf"))
         return Reader_Bruker_Format_TDF;
-    if (bfs::exists(sourcePath / "Analysis.tsf") || bfs::exists(sourcePath / "analysis.tsf"))
+    if (exists_as_file(sourcePath / "Analysis.tsf") || exists_as_file(sourcePath / "analysis.tsf"))
         return Reader_Bruker_Format_TSF;
 
     // TODO: 1SRef is not the only possible substring below, get more examples!
@@ -87,18 +105,18 @@ Reader_Bruker_Format format(const string& path)
     for (; itr != endItr; ++itr)
         if (bfs::is_directory(itr->status()))
         {
-            if (BFS_STRING(itr->path().leaf())[0] == '.') // HACK: skip ".svn"
+            if (BFS_STRING(itr->path().filename())[0] == '.') // HACK: skip ".svn"
                 continue;
-            else if (bfs::exists(itr->path() / "1/1SRef/fid") ||
-                     bfs::exists(itr->path() / "1SRef/fid") ||
-                     bfs::exists(itr->path() / "1/1SLin/fid") ||
-                     bfs::exists(itr->path() / "1SLin/fid") ||
-                     bfs::exists(itr->path() / "1/1Ref/fid") ||
-                     bfs::exists(itr->path() / "1Ref/fid") ||
-                     bfs::exists(itr->path() / "1/1Lin/fid") ||
-                     bfs::exists(itr->path() / "1Lin/fid") ||
-                     (bfs::exists(itr->path() / "fid") && !bfs::exists(itr->path() / "Analysis.baf") && !bfs::exists(itr->path() / "analysis.baf")) ||
-                     (bfs::exists(sourcePath / "fid") && !bfs::exists(sourcePath / "Analysis.baf") && !bfs::exists(sourcePath / "analysis.baf")))
+            else if (exists_as_file(itr->path() / "1/1SRef/fid") ||
+                     exists_as_file(itr->path() / "1SRef/fid") ||
+                     exists_as_file(itr->path() / "1/1SLin/fid") ||
+                     exists_as_file(itr->path() / "1SLin/fid") ||
+                     exists_as_file(itr->path() / "1/1Ref/fid") ||
+                     exists_as_file(itr->path() / "1Ref/fid") ||
+                     exists_as_file(itr->path() / "1/1Lin/fid") ||
+                     exists_as_file(itr->path() / "1Lin/fid") ||
+                     (exists_as_file(itr->path() / "fid") && !exists_as_file(itr->path() / "Analysis.baf") && !exists_as_file(itr->path() / "analysis.baf")) ||
+                     (exists_as_file(sourcePath / "fid") && !exists_as_file(sourcePath / "Analysis.baf") && !exists_as_file(sourcePath / "analysis.baf")))
                     return Reader_Bruker_Format_FID;
             else
                 break;
@@ -106,17 +124,17 @@ Reader_Bruker_Format format(const string& path)
 
     // Check for yep-based data;
     // The directory should have a file named "Analysis.yep"
-    if (bfs::exists(sourcePath / "Analysis.yep") || bfs::exists(sourcePath / "analysis.yep"))
+    if (exists_as_file(sourcePath / "Analysis.yep") || exists_as_file(sourcePath / "analysis.yep"))
         return Reader_Bruker_Format_YEP;
 
     bfs::path sourceDirectory = *(--sourcePath.end());
 
     // Check for baf-based data;
     // The directory should have a file named "Analysis.baf"
-    if (bfs::exists(sourcePath / "Analysis.baf") || bfs::exists(sourcePath / "analysis.baf"))
+    if (exists_as_file(sourcePath / "Analysis.baf") || exists_as_file(sourcePath / "analysis.baf"))
     {
         // Check for baf/u2 hybrid data
-        if (bfs::exists(sourcePath / sourceDirectory.replace_extension(".u2")))
+        if (exists_as_file(sourcePath / sourceDirectory.replace_extension(".u2")))
             return Reader_Bruker_Format_BAF_and_U2;
         else
             return Reader_Bruker_Format_BAF;
@@ -124,7 +142,7 @@ Reader_Bruker_Format format(const string& path)
 
     // Check for u2-based data;
     // The directory should have a file named "<directory-name - ".d">.u2"
-    if (bfs::exists(sourcePath / sourceDirectory.replace_extension(".u2")))
+    if (exists_as_file(sourcePath / sourceDirectory.replace_extension(".u2")))
         return Reader_Bruker_Format_U2;
 
     return Reader_Bruker_Format_Unknown;
@@ -283,6 +301,7 @@ std::vector<InstrumentConfiguration> createInstrumentConfigurations(CompassDataP
     return configurations;
 }
 
+
 PWIZ_API_DECL cv::CVID translateAsInstrumentSeries(CompassDataPtr rawfile)
 {
     switch (rawfile->getInstrumentFamily())
@@ -343,6 +362,147 @@ PWIZ_API_DECL cv::CVID translateAsAcquisitionSoftware(CompassDataPtr rawfile)
     if (bal::icontains(name, "Flex")) return MS_FlexControl;
 
     return MS_Compass; // default to Compass
+}
+
+
+// Implementations for trace type/unit -> CVID and scaling helpers
+PWIZ_API_DECL pwiz::cv::CVID traceTypeToCVID(TraceType type, TraceUnit unit, const std::string& description)
+{
+    switch (type)
+    {
+        case TraceType::NoneTrace:
+            return CVID_Unknown;
+        case TraceType::ChromMS:
+            if (description.find("BPC") == 0)
+                return MS_basepeak_chromatogram;
+            return MS_TIC_chromatogram;
+        case TraceType::ChromUV:
+            return MS_absorption_chromatogram;
+        case TraceType::ChromPressure:
+            return MS_pressure_chromatogram;
+        case TraceType::ChromSolventMix:
+            return MS_chromatogram; // Does not appear to be a suitably differentiated CVID for this
+        case TraceType::ChromFlow:
+            return MS_flow_rate_chromatogram;
+        case TraceType::ChromTemperature:
+            return MS_temperature_chromatogram;
+        case TraceType::ChromUserDefined:
+            if (unit == TraceUnit::Temperature_C ||
+                unit == TraceUnit::Temperature_F)
+            {
+                return MS_temperature_chromatogram;
+            }
+            return MS_chromatogram;
+    }
+    return CVID_Unknown;
+}
+
+PWIZ_API_DECL pwiz::cv::CVID traceUnitToCVID(TraceUnit unit, double& value)
+{
+    switch (unit)
+    {
+        case TraceUnit::NoneUnit:
+            return CVID_Unknown;
+        case TraceUnit::Length_nm:
+            return UO_nanometer;
+        case TraceUnit::Flow_mul_min:
+            return UO_microliters_per_minute;
+        case TraceUnit::Pressure_bar:
+            return UO_bar;
+        case TraceUnit::Percent:
+            return UO_percent;
+        case TraceUnit::Temperature_C:
+            return UO_degree_Celsius;
+        case TraceUnit::Intensity:
+            return MS_number_of_detector_counts;
+        case TraceUnit::UnknownUnit:
+            return CVID_Unknown;
+        case TraceUnit::Absorbance_AU:
+            return UO_absorbance_unit;
+        case TraceUnit::Absorbance_mAU:
+            value /= 1000.0; // convert mAU to AU
+            return UO_absorbance_unit;
+        case TraceUnit::Counts:
+            return MS_number_of_detector_counts;
+        case TraceUnit::Current_A:
+            return UO_ampere;
+        case TraceUnit::Current_mA:
+            return UO_milliampere;
+        case TraceUnit::Current_muA:
+            return UO_microampere;
+        case TraceUnit::Flow_ml_min:
+            value *= 1000.0; // convert mL/min to µL/min
+            return UO_microliters_per_minute;
+        case TraceUnit::Flow_nl_min:
+            value /= 1000.0; // convert nL/min to µL/min
+            return UO_microliters_per_minute;
+        case TraceUnit::Length_cm:
+            return UO_centimeter;
+        case TraceUnit::Length_mm:
+            return UO_millimeter;
+        case TraceUnit::Length_mum:
+            return UO_micrometer;
+        case TraceUnit::Luminescence:
+            return CVID_Unknown;
+        case TraceUnit::Molarity_mM:
+            return UO_millimolar;
+        case TraceUnit::Power_W:
+            return UO_watt;
+        case TraceUnit::Power_mW:
+            value /= 1000.0; // convert mW to W
+            return UO_watt;
+        case TraceUnit::Pressure_mbar:
+            value /= 1000.0; // convert mbar to bar (1 bar = 1000 mbar)
+            return UO_bar;
+        case TraceUnit::Pressure_kPa:
+            value *= 1000.0; // convert kPa to Pa
+            return UO_pascal;
+        case TraceUnit::Pressure_MPa:
+            value *= 1000000.0; // convert MPa to Pa
+            return UO_pascal;
+        case TraceUnit::Pressure_psi:
+            return UO_pounds_per_square_inch;
+        case TraceUnit::RefractiveIndex:
+            return CVID_Unknown;
+        case TraceUnit::Temperature_F:
+            return UO_degree_Fahrenheit;
+        case TraceUnit::Time_h:
+            return UO_hour;
+        case TraceUnit::Time_min:
+            return UO_minute;
+        case TraceUnit::Time_s:
+            return UO_second;
+        case TraceUnit::Time_ms:
+            return UO_millisecond;
+        case TraceUnit::Time_mus:
+            return UO_microsecond;
+        case TraceUnit::Viscosity_cP:
+            value /= 100.0; // convert cP to P (1 P = 100 cP)
+            return UO_poise;
+        case TraceUnit::Voltage_kV:
+            return UO_kilovolt;
+        case TraceUnit::Voltage_V:
+            return UO_volt;
+        case TraceUnit::Voltage_mV:
+            return UO_millivolt;
+        case TraceUnit::Volume_l:
+            return UO_liter;
+        case TraceUnit::Volume_ml:
+            return UO_milliliter;
+        case TraceUnit::Volume_mul:
+            return UO_microliter;
+        case TraceUnit::Energy_J:
+            return UO_joule;
+        case TraceUnit::Energy_mJ:
+            value /= 1000.0; // convert mJ to J
+            return UO_joule;
+        case TraceUnit::Energy_muJ:
+            value /= 1000000.0; // convert µJ to J
+            return UO_joule;
+        case TraceUnit::Length_Angstrom:
+            return UO_angstrom;
+    }
+    return CVID_Unknown;
 }
 
 #else

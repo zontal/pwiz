@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -28,6 +28,7 @@ using pwiz.Common.DataAnalysis.Clustering;
 using pwiz.Common.DataBinding.Clustering;
 using pwiz.Common.DataBinding.Controls;
 using pwiz.Common.DataBinding.Layout;
+using pwiz.Common.SystemUtil;
 
 namespace pwiz.Common.DataBinding.Internal
 {
@@ -365,7 +366,7 @@ namespace pwiz.Common.DataBinding.Internal
                 CancelNew(newRowPos);
             }
             RowItemList.Clear();
-            RowItemList.AddRange(QueryResults.ResultRows);
+            RowItemList.AddRange(QueryResults.ResultRows.Take(ViewInfo?.DataSchema.MaxGridRowCount ?? int.MaxValue));
             if (newRow != null && !NewRowHandler.IsNewRowEmpty(newRow))
             {
                 _newRow = newRow;
@@ -391,6 +392,7 @@ namespace pwiz.Common.DataBinding.Internal
                 OnAllRowsChanged();
             }
         }
+
         public string Filter
         {
             get
@@ -533,7 +535,7 @@ namespace pwiz.Common.DataBinding.Internal
 
         public void OnUnhandledException(Exception exception)
         {
-            Trace.TraceError(@"BindingListView unhandled exception {0}", exception);
+            Messages.WriteAsyncDebugMessage(@"BindingListView unhandled exception {0}", exception);
             var unhandledExceptionEvent = UnhandledExceptionEvent;
             if (null != unhandledExceptionEvent)
             {

@@ -178,10 +178,6 @@ namespace pwiz.Skyline.Controls.Graphs
                     // The annotation we were grouping by has been removed
                     if (!annotations.Contains(GroupByAnnotation))
                         GroupByAnnotation = null;
-
-                    var paneInfo = GraphSummary.GraphPanes.FirstOrDefault() as IAreaCVHistogramInfo;
-                    if(paneInfo != null)
-                        paneInfo.Cache.Cancel();
                 }
             }
         }
@@ -201,7 +197,8 @@ namespace pwiz.Skyline.Controls.Graphs
 
         public void OnNormalizeOptionChanged()
         {
-            if (GraphSummary.GraphPanes.OfType<AreaReplicateGraphPane>().Any() /* || !Settings.Default.AreaAverageReplicates */)
+            if (GraphSummary.GraphPanes.OfType<AreaReplicateGraphPane>().Any() ||
+                GraphSummary.GraphPanes.OfType<AreaAbundanceComparisonGraphPane>().Any())
                 GraphSummary.UpdateUI();
         }
 
@@ -220,6 +217,14 @@ namespace pwiz.Skyline.Controls.Graphs
                 case GraphTypeSummary.replicate:
                 case GraphTypeSummary.peptide:
                     GraphSummary.DoUpdateGraph(this, GraphSummary.Type);
+                    break;
+                case GraphTypeSummary.abundance:
+                    if (!(pane is AreaRelativeAbundanceGraphPane))
+                        GraphSummary.GraphPanes = new[] { new AreaRelativeAbundanceGraphPane(GraphSummary) };
+                    break;
+                case GraphTypeSummary.abundance_comparison:
+                    if (!(pane is AreaAbundanceComparisonGraphPane))
+                        GraphSummary.GraphPanes = new[] { new AreaAbundanceComparisonGraphPane(GraphSummary) };
                     break;
                 case GraphTypeSummary.histogram:
                     if (!(pane is AreaCVHistogramGraphPane))
@@ -285,8 +290,9 @@ namespace pwiz.Skyline.Controls.Graphs
 
         public string Text
         {
-            get { return Resources.SkylineWindow_CreateGraphPeakArea_Peak_Areas; }
+            get { return GraphsResources.SkylineWindow_CreateGraphPeakArea_Peak_Areas; }
         }
+
     }
 }
 

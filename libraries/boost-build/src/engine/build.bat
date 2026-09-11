@@ -29,7 +29,7 @@ ECHO ###     .\build.bat msvc
 ECHO ###
 ECHO ### Toolsets supported by this script are: borland, como, gcc,
 ECHO ###     gcc-nocygwin, intel-win32, mingw,
-ECHO ###     vc12, vc14, vc141, vc142, vc143
+ECHO ###     vc12, vc14, vc141, vc142, vc143, vc145
 ECHO ###
 ECHO ### If you have Visual Studio 2017 installed you will need to either update
 ECHO ### the Visual Studio 2017 installer or run from VS 2017 Command Prompt
@@ -99,7 +99,7 @@ if errorlevel 1 (
     set "VS_ProgramFiles=%ProgramFiles%"
 )
 
-call guess_toolset.bat
+call .\guess_toolset.bat
 if errorlevel 1 (
     call :Error_Print "Could not find a suitable toolset.")
 goto :eof
@@ -156,7 +156,7 @@ if errorlevel 1 (
     goto Setup_Args
 )
 :Config_Toolset
-call config_toolset.bat
+call .\config_toolset.bat
 if "_%_known_%_" == "__" (
     call :Error_Print "Unknown toolset: %B2_TOOLSET%"
 )

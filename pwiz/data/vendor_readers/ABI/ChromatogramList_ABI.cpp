@@ -63,7 +63,7 @@ PWIZ_API_DECL size_t ChromatogramList_ABI::size() const
 PWIZ_API_DECL const ChromatogramIdentity& ChromatogramList_ABI::chromatogramIdentity(size_t index) const
 {
     boost::call_once(indexInitialized_.flag, boost::bind(&ChromatogramList_ABI::createIndex, this));
-    if (index>size_)
+    if (index>=size_)
         throw runtime_error(("[ChromatogramList_ABI::chromatogramIdentity()] Bad index: " 
                             + lexical_cast<string>(index)).c_str());
     return index_[index];
@@ -90,7 +90,7 @@ PWIZ_API_DECL ChromatogramPtr ChromatogramList_ABI::chromatogram(size_t index, b
 PWIZ_API_DECL ChromatogramPtr ChromatogramList_ABI::chromatogram(size_t index, DetailLevel detailLevel) const
 {
     boost::call_once(indexInitialized_.flag, boost::bind(&ChromatogramList_ABI::createIndex, this));
-    if (index>size_)
+    if (index>=size_)
         throw runtime_error(("[ChromatogramList_ABI::chromatogram()] Bad index: " 
                             + lexical_cast<string>(index)).c_str());
 
@@ -251,7 +251,8 @@ PWIZ_API_DECL ChromatogramPtr ChromatogramList_ABI::chromatogram(size_t index, D
             result->setTimeIntensityArrays(std::vector<double>(), std::vector<double>(), UO_minute, MS_number_of_detector_counts);
 
             pwiz::util::BinaryData<double> times, intensities;
-            experiment->getSIC(ie.transition, times, intensities);
+            bool ignoreScheduledLimitsForChromatograms = true;
+            experiment->getSIC(ie.transition, times, intensities, ignoreScheduledLimitsForChromatograms);
             result->defaultArrayLength = times.size();
 
             if (getBinaryData)
@@ -290,7 +291,8 @@ PWIZ_API_DECL ChromatogramPtr ChromatogramList_ABI::chromatogram(size_t index, D
             result->setTimeIntensityArrays(std::vector<double>(), std::vector<double>(), UO_minute, MS_number_of_detector_counts);
 
             pwiz::util::BinaryData<double> times, intensities;
-            experiment->getSIC(ie.transition, times, intensities);
+            bool ignoreScheduledLimitsForChromatograms = true;
+            experiment->getSIC(ie.transition, times, intensities, ignoreScheduledLimitsForChromatograms);
             result->defaultArrayLength = times.size();
 
             if (getBinaryData)

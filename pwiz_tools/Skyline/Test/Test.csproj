@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -106,6 +106,9 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\Google.Protobuf.dll</HintPath>
     </Reference>
+    <Reference Include="HtmlAgilityPack">
+      <HintPath>..\..\Shared\Lib\HtmlAgilityPack.dll</HintPath>
+    </Reference>
     <Reference Include="log4net">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\log4net.dll</HintPath>
@@ -114,8 +117,9 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\MathNet.Numerics.dll</HintPath>
     </Reference>
+    <Reference Include="Microsoft.CSharp" />
     <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Newtonsoft.Json, Version=11.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+    <Reference Include="Newtonsoft.Json, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\Newtonsoft.Json.dll</HintPath>
     </Reference>
@@ -128,6 +132,12 @@
       <RequiredTargetFramework>3.5</RequiredTargetFramework>
     </Reference>
     <Reference Include="System.Data" />
+    <Reference Include="System.Data.DataSetExtensions" />
+    <Reference Include="System.Data.SQLite, Version=1.0.98.0, Culture=neutral, PublicKeyToken=db937bc2d44ff139, processorArchitecture=AMD64">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\..\libraries\SQLite\x64\System.Data.SQLite.dll</HintPath>
+    </Reference>
+    <Reference Include="System.Design" />
     <Reference Include="System.Drawing" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
@@ -136,24 +146,69 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="..\Executables\DevTools\AssortResources\CsProjFile.cs">
+      <Link>CsProjFile.cs</Link>
+    </Compile>
+    <Compile Include="..\Executables\DevTools\AssortResources\ResourceAssorter.cs">
+      <Link>ResourceAssorter.cs</Link>
+    </Compile>
+    <Compile Include="..\Executables\DevTools\AssortResources\ResourceFile.cs">
+      <Link>ResourceFile.cs</Link>
+    </Compile>
+    <Compile Include="..\Executables\DevTools\AssortResources\ResourceIdentifiers.cs">
+      <Link>ResourceIdentifiers.cs</Link>
+    </Compile>
+    <Compile Include="..\Executables\DevTools\AssortResources\ResourceReference.cs">
+      <Link>ResourceReference.cs</Link>
+    </Compile>
+    <Compile Include="AbstractLibraryBuilderModificationSupportTest.cs" />
     <Compile Include="AddTransitionsTest.cs" />
     <Compile Include="AdductTest.cs" />
+    <Compile Include="AiFolderTest.cs" />
+    <Compile Include="AlphapeptdeepLibraryBuilderTest.cs" />
     <Compile Include="AnalyticsTest.cs" />
+    <Compile Include="AnnotatedDoubleTest.cs" />
     <Compile Include="AnnotationUnitTest.cs" />
     <Compile Include="AntivirusExclusionTest.cs" />
     <Compile Include="AuditLogListTest.cs" />
+    <Compile Include="BigListTest.cs" />
     <Compile Include="BilinearCurveFitTest.cs" />
+    <Compile Include="BilinearFitTest.cs" />
     <Compile Include="BookmarkEnumeratorTest.cs" />
+    <Compile Include="CalibrationCurveOptionsTest.cs" />
     <Compile Include="ChromatogramExporterTest.cs" />
     <Compile Include="ChromatogramGroupIdsTest.cs" />
+    <Compile Include="CmdLineAssociateProteinsTest.cs" />
+    <Compile Include="ConnectionPoolTest.cs" />
+    <Compile Include="DataSourceUtilTest.cs" />
+    <Compile Include="CommandLineThermoMethodTest.cs" />
     <Compile Include="ElibQuantifiableTransitionTest.cs" />
+    <Compile Include="EncryptedTokenTest.cs" />
+    <Compile Include="ErrorIfPersistentFilesDirModifiedTest.cs" />
     <Compile Include="FastaSequenceTest.cs" />
+    <Compile Include="CopyFileWithProgressTest.cs" />
+    <Compile Include="FilterClauseSerializerTest.cs" />
+    <Compile Include="FilteredMessageWriterTest.cs" />
+    <Compile Include="ImmutableListTest.cs" />
+    <Compile Include="FormattableListTest.cs" />
+    <Compile Include="LocalizedHtmlTutorialsTest.cs" />
+    <Compile Include="SpectrumClassFilterParserTest.cs" />
+    <Compile Include="TutorialCatalogTest.cs" />
+    <Compile Include="LibraryRankedSpectrumInfoTest.cs" />
+    <Compile Include="LongPathDirectoryTest.cs" />
+    <Compile Include="MassListIonsTest.cs" />
+    <Compile Include="MatchExpressionTest.cs" />
     <Compile Include="OnDemandFeatureCalculatorTest.cs" />
     <Compile Include="FeatureTooltipTest.cs" />
     <Compile Include="CommandLinePeakBoundaryTest.cs" />
     <Compile Include="PeptideTest.cs" />
+    <Compile Include="PiecewiseLinearMapTest.cs" />
+    <Compile Include="ProgressStatusChangeSegmentsEndPercentageTest.cs" />
+    <Compile Include="ProteinAssociationTest.cs" />
     <Compile Include="ProtocolBuffers\GeneratedCode\LegacySkylineDocumentProto.cs" />
     <Compile Include="ProtocolBuffers\LegacyProtocolBufferFormatsTest.cs" />
+    <Compile Include="ReferenceValueTest.cs" />
+    <Compile Include="ArdiaMarshalingTest.cs" />
     <Compile Include="ScoreQValueMapTest.cs" />
     <Compile Include="MeasuredIonTest.cs" />
     <Compile Include="SchemaDocumentsTest.cs" />
@@ -186,6 +241,7 @@
     <Compile Include="FindNodeTest.cs" />
     <Compile Include="FragmentedMoleculeTest.cs" />
     <Compile Include="FullScanPrecursorTest.cs" />
+    <Compile Include="HangDetectionThreadDumpTest.cs" />
     <Compile Include="IdentityTest.cs" />
     <Compile Include="InternetAccessTest.cs" />
     <Compile Include="IonMobilityUnitTest.cs" />
@@ -238,8 +294,10 @@
     <Compile Include="SrmSettingsChangeTest.cs" />
     <Compile Include="SrmSettingsTest.cs" />
     <Compile Include="SSRCalc3Test.cs" />
+    <Compile Include="StartPageArgTest.cs" />
     <Compile Include="StatisticsTest.cs" />
     <Compile Include="StringHelpersTest.cs" />
+    <Compile Include="DiskSpaceTest.cs" />
     <Compile Include="TestSerializeIsolationScheme.cs" />
     <Compile Include="TextUtilTest.cs" />
     <Compile Include="TimeIntervalsTest.cs" />
@@ -250,14 +308,26 @@
     <Compile Include="TypeSafeEnumTest.cs" />
     <Compile Include="UndoManagerTest.cs" />
     <Compile Include="UniModTest.cs" />
+    <Compile Include="InstallNvidiaTest.cs" />
     <Compile Include="UniquePrefixTest.cs" />
     <Compile Include="MassListInputsTest.cs" />
     <Compile Include="EncyclopeDiaHelpersTest.cs" />
+    <Compile Include="SrmSettingsNewTest.cs" />
+    <Compile Include="DllFinderUnitTest.cs" />
     <Compile Include="UtilTest.cs" />
     <Compile Include="VariableModTest.cs" />
     <Compile Include="WebEnabledFastaImporterTest.cs" />
+    <Compile Include="ZedGraphTest.cs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\Shared\CommonFileDialogs\CommonFileDialogs.csproj">
+      <Project>{B8E3F4A1-7C2D-4E5F-9A1B-3C6D8E0F2A4B}</Project>
+      <Name>CommonFileDialogs</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Shared\CommonMsData\CommonMsData.csproj">
+      <Project>{86F8E7F5-A3ED-4519-9AD9-BF9ABD6DD69F}</Project>
+      <Name>CommonMsData</Name>
+    </ProjectReference>
     <ProjectReference Include="..\..\Shared\Common\Common.csproj">
       <Project>{A5527BE9-4A62-458F-AE47-F0F9204A5CF9}</Project>
       <Name>Common</Name>
@@ -266,6 +336,10 @@
       <Project>{13BF2FFB-50A1-4AB1-83A4-5733E36905CE}</Project>
       <Name>CommonUtil</Name>
     </ProjectReference>
+    <ProjectReference Include="..\..\Shared\PortableUtil\PortableUtil.csproj">
+      <Project>{97ECF0B4-0AAA-4593-ADE0-9E8740973AC2}</Project>
+      <Name>PortableUtil</Name>
+    </ProjectReference>
     <ProjectReference Include="..\..\Shared\PanoramaClient\PanoramaClient.csproj">
       <Project>{bf849cf8-25d7-4619-b001-9ed8e3771c44}</Project>
       <Name>PanoramaClient</Name>
@@ -273,6 +347,10 @@
     <ProjectReference Include="..\..\Shared\ProteomeDb\ProteomeDb.csproj">
       <Project>{09FC3CB3-FCCD-4906-A370-160B28725936}</Project>
       <Name>ProteomeDb</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Shared\zedgraph\ZedGraph.csproj">
+      <Project>{B99650EE-AF46-47B4-A4A9-212ADE7809B7}</Project>
+      <Name>ZedGraph</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\Shared\ProteowizardWrapper\ProteowizardWrapper.csproj">
       <Project>{DACEE7D5-5A6A-4001-9602-FAB1A9A2DE59}</Project>
@@ -286,6 +364,14 @@
       <Project>{DDA2EA4C-B632-4FDF-94BA-F71E4C152056}</Project>
       <Name>Skyline</Name>
     </ProjectReference>
+    <ProjectReference Include="..\SkylineTool\SkylineTool.csproj">
+      <Project>{3FD4E167-8F9C-4116-8122-67C7AD143490}</Project>
+      <Name>SkylineTool</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\TestRunnerLib\TestRunnerLib.csproj">
+      <Project>{E3F0E34F-F9E6-4360-996F-E2054E4FA1AE}</Project>
+      <Name>TestRunnerLib</Name>
+    </ProjectReference>
     <ProjectReference Include="..\TestUtil\TestUtil.csproj">
       <Project>{1A76F2B4-353A-4BCF-9D15-70D4B387E480}</Project>
       <Name>TestUtil</Name>
@@ -298,7 +384,9 @@
     <None Include="CommandLineAssayImportTest.zip" />
     <None Include="CommandLineImportAnnotationsTest.zip" />
     <None Include="CommandLineMProphetTest.zip" />
+    <EmbeddedResource Include="CommandLineThermoMethodTest.json" />
     <None Include="DecoysTest.zip" />
+    <EmbeddedResource Include="DllFinderUnitTest.json" />
     <None Include="DocLoadLibraryTest.zip" />
     <EmbeddedResource Include="explicit-losses.sky" />
     <EmbeddedResource Include="DocumentSerializerTest.sky" />
@@ -334,6 +422,9 @@
     <None Include="OnDemandFeatureCalculatorTest.zip" />
     <None Include="PeakBoundaryTest.zip" />
     <None Include="PeakGroupIntegratorTest.zip" />
+    <EmbeddedResource Include="predict.speclib.tsv" />
+    <EmbeddedResource Include="predict_transformed.speclib.tsv" />
+    <EmbeddedResource Include="predict_transformed.speclib.blib" />
     <None Include="Proteome\ProteomeDbTest.zip" />
     <EmbeddedResource Include="Reporting\HeavyLabeledLeucine.sky" />
     <EmbeddedResource Include="Reporting\PivotIsotopeLabel.skyr" />
@@ -348,6 +439,8 @@
     <EmbeddedResource Include="SmallMoleculesMzOnly_3-7.sky" />
     <None Include="ProtocolBuffers\generatecode.bat" />
     <None Include="ProtocolBuffers\LegacySkylineDocumentProto.proto" />
+    <EmbeddedResource Include="Test-imported_24-11-short_onlyUnimodMods.sky" />
+    <EmbeddedResource Include="Test-imported_24-11-short_nonUnimodMods.sky" />
   </ItemGroup>
   <ItemGroup>
     <BootstrapperPackage Include=".NETFramework,Version=v4.0">

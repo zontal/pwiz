@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -6,14 +6,13 @@ using System.Threading;
 using System.Windows.Forms;
 using JetBrains.Annotations;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
-using pwiz.Common.Controls;
 using pwiz.Common.SystemUtil;
 
 namespace SharedBatchTest
 {
-    public abstract class AbstractBaseFunctionalTest
+    public abstract class AbstractBaseFunctionalTest : AbstractUnitTest
     {
-        private const int SLEEP_INTERVAL = 100;
+        protected const int SLEEP_INTERVAL = 100;
         public const int WAIT_TIME = 60 * 1000;    // 60 seconds
 
         private bool _testCompleted;
@@ -124,7 +123,7 @@ namespace SharedBatchTest
             ResetSettings();
         }
 
-        private static int GetWaitCycles(int millis = WAIT_TIME)
+        protected static int GetWaitCycles(int millis = WAIT_TIME)
         {
             int waitCycles = millis / SLEEP_INTERVAL;
 
@@ -508,8 +507,9 @@ namespace SharedBatchTest
         // -------------------------------------------------------------------------------------------
 
         /// <summary>
-        /// Tracks which zip files were downloaded this run, and which might possibly be stale
+        /// Tracks which zip files were downloaded this run, and which might be stale (for debugging purposes).
         /// </summary>
+        // ReSharper disable once CollectionNeverQueried.Global
         public Dictionary<string, bool> DictZipFileIsKnownCurrent { get; private set; }
         public string TestFilesZip
         {
@@ -526,12 +526,6 @@ namespace SharedBatchTest
         private string[] _testFilesZips;
         public TestFilesDir[] TestFilesDirs { get; set; }
         public string TestDirectoryName { get; set; }
-
-        // ReSharper disable UnusedAutoPropertyAccessor.Global
-        // ReSharper disable MemberCanBeProtected.Global
-        public TestContext TestContext { get; set; }
-        // ReSharper restore MemberCanBeProtected.Global
-        // ReSharper restore UnusedAutoPropertyAccessor.Global
 
         public bool IsExtractHere(int zipPathIndex)
         {

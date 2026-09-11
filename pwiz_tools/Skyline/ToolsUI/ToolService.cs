@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -24,13 +24,12 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Reflection;
 using System.Text;
 using System.Threading;
+using Newtonsoft.Json.Linq;
 using pwiz.Common.DataBinding;
 using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Controls;
-using pwiz.Skyline.Controls.Databinding;
 using pwiz.Skyline.Controls.Databinding.RowActions;
 using pwiz.Skyline.Model;
 using pwiz.Skyline.Model.AuditLog;
@@ -102,16 +101,12 @@ namespace pwiz.Skyline.ToolsUI
             var container = new MemoryDocumentContainer();
             container.SetDocument(document, container.Document);
             var dataSchema = new SkylineDataSchema(container, DataSchemaLocalizer.INVARIANT);
-            var viewContext = new DocumentGridViewContext(dataSchema);
+            using var stream = new MemoryStream();
+            var rowFactories = RowFactories.GetRowFactories(CancellationToken.None, dataSchema);
             IProgressStatus status = new ProgressStatus(string.Format(Resources.ReportSpec_ReportToCsvString_Exporting__0__report,
                 viewSpec.Name));
-            var writer = new StringWriter();
-            if (viewContext.Export(CancellationToken.None, progressMonitor, ref status, viewContext.GetViewInfo(null, viewSpec.ViewSpec), viewSpec.DefaultViewLayout, writer,
-                    TextUtil.SEPARATOR_CSV))
-            {
-                return writer.ToString();
-            }
-            return null;
+            rowFactories.ExportReport(stream, viewSpec.ViewSpec, viewSpec.DefaultViewLayout, ReportExporters.ForSeparator(DataSchemaLocalizer.INVARIANT, TextUtil.SEPARATOR_CSV), progressMonitor, ref status);
+            return Encoding.UTF8.GetString(stream.ToArray());
         }
 
         [Obsolete]
@@ -300,7 +295,7 @@ namespace pwiz.Skyline.ToolsUI
             Program.MainWindow.Invoke(new Action(() =>
             {
                 _skylineWindow.ImportFasta(new StringReader(textFasta), Helpers.CountLinesInString(textFasta),
-                    false, Resources.ToolService_ImportFasta_Insert_proteins, new SkylineWindow.ImportFastaInfo(false, textFasta));
+                    false, ToolsUIResources.ToolService_ImportFasta_Insert_proteins, new SkylineWindow.ImportFastaInfo(false, textFasta));
             }));
         }
 
@@ -319,13 +314,13 @@ namespace pwiz.Skyline.ToolsUI
             if (librarySpec == null)
             {
                 // ReSharper disable once LocalizableElement
-                throw new ArgumentException(Resources.LibrarySpec_CreateFromPath_Unrecognized_library_type_at__0_, libraryPath);
+                throw new ArgumentException(ToolsUIResources.LibrarySpec_CreateFromPath_Unrecognized_library_type_at__0_, libraryPath);
             }
 
             // CONSIDER: Add this Library Spec to Settings.Default.SpectralLibraryList?
             Program.MainWindow.Invoke(new Action(() =>
             {
-                _skylineWindow.ModifyDocument(Resources.LibrarySpec_Add_spectral_library, doc =>
+                _skylineWindow.ModifyDocument(ToolsUIResources.LibrarySpec_Add_spectral_library, doc =>
                     doc.ChangeSettings(doc.Settings.ChangePeptideLibraries(lib => lib.ChangeLibrarySpecs(
                         lib.LibrarySpecs.Union(new[] { librarySpec }).ToArray()))), AuditLogEntry.SettingsLogFunction);
                 Settings.Default.SpectralLibraryList.Add(librarySpec);
@@ -498,7 +493,7 @@ namespace pwiz.Skyline.ToolsUI
                     }
                     else
                     {
-                        throw new ArgumentException(string.Format(Resources.ToolService_DeleteElementsNow_Unsupported_element__0_, elementLocator));
+                        throw new ArgumentException(string.Format(ToolsUIResources.ToolService_DeleteElementsNow_Unsupported_element__0_, elementLocator));
                     }
                 }
 
@@ -519,7 +514,7 @@ namespace pwiz.Skyline.ToolsUI
             {
                 _skylineWindow.ImportAnnotations(new StringReader(csvText),
                     new MessageInfo(MessageType.imported_annotations, _skylineWindow.Document.DocumentType,
-                        Resources.ToolService_ImportProperties_Import_Properties_from_external_tool));
+                        ToolsUIResources.ToolService_ImportProperties_Import_Properties_from_external_tool));
             }));
         }
 
@@ -548,7 +543,7 @@ namespace pwiz.Skyline.ToolsUI
                         }
                     }
                     _skylineWindow.ModifyDocument(
-                        Resources.ToolService_ImportPeakBoundaries_Import_peak_boundaries_from_external_tool,
+                        ToolsUIResources.ToolService_ImportPeakBoundaries_Import_peak_boundaries_from_external_tool,
                         doc =>
                         {
                             if (!ReferenceEquals(doc, originalDocument))
@@ -561,7 +556,7 @@ namespace pwiz.Skyline.ToolsUI
                         }, docPair =>
                             AuditLogEntry.CreateSingleMessageEntry(new MessageInfo(MessageType.imported_peak_boundaries,
                                 _skylineWindow.DocumentUI.DocumentType,
-                                Resources.ToolService_ImportPeakBoundaries_Import_peak_boundaries_from_external_tool)));
+                                ToolsUIResources.ToolService_ImportPeakBoundaries_Import_peak_boundaries_from_external_tool)));
                 }
             }));
         }
@@ -583,7 +578,7 @@ namespace pwiz.Skyline.ToolsUI
             }));
             if (exception != null)
             {
-                throw new TargetInvocationException(exception);
+                ExceptionUtil.WrapAndThrowException(exception);
             }
             return result?.ToString();
         }
@@ -622,7 +617,7 @@ namespace pwiz.Skyline.ToolsUI
             }
             else
             {
-                throw new ArgumentException(string.Format(Resources.ToolService_GetSelectedElementRefNow_Unsupported_element_type___0__, elementType));
+                throw new ArgumentException(string.Format(ToolsUIResources.ToolService_GetSelectedElementRefNow_Unsupported_element_type___0__, elementType));
             }
 
             var selectedPath = _skylineWindow.SelectedPath;
@@ -632,6 +627,34 @@ namespace pwiz.Skyline.ToolsUI
             }
             var elementRefs = new ElementRefs(document);
             return elementRefs.GetNodeRef(selectedPath.GetPathTo((int)nodeLevel));
+        }
+
+        public string StartMcpConnection(string alwaysAtStartup)
+        {
+            string status;
+            var jsonToolServer = Program.MainJsonToolServer;
+            if (jsonToolServer != null)
+            {
+                jsonToolServer.WriteConnectionInfo();
+                status = @"started";
+            }
+            else
+            {
+                status = @"failed";
+            }
+
+            if (bool.TryParse(alwaysAtStartup, out bool enable))
+            {
+                Settings.Default.EnableMcpAutoConnect = enable;
+                Settings.Default.Save();
+            }
+
+            return new JObject
+            {
+                [nameof(JsonToolConstants.JSON.status)] = status,
+                [nameof(JsonToolConstants.JSON.auto_connect)] = Settings.Default.EnableMcpAutoConnect,
+                [nameof(JsonToolConstants.JSON.version)] = Install.ProgramNameAndVersion
+            }.ToString(Newtonsoft.Json.Formatting.None);
         }
     }
 }

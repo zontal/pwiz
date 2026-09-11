@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -27,13 +27,13 @@ namespace pwiz.Skyline.Model.Serialization
     {        
         // ReSharper disable LocalizableElement
         public static readonly CompactFormatOption ALWAYS = new CompactFormatOption("always", 
-            ()=>Resources.CompactFormatOption_ALWAYS_Always, 
+            ()=>SerializationResources.CompactFormatOption_ALWAYS_Always, 
             doc=>true);
         public static readonly CompactFormatOption NEVER = new CompactFormatOption("never", 
-            ()=>Resources.CompactFormatOption_NEVER_Never, 
+            ()=>SerializationResources.CompactFormatOption_NEVER_Never, 
             doc=>false);
         public static readonly CompactFormatOption ONLY_FOR_LARGE_FILES = new CompactFormatOption("largefilesonly", 
-            ()=>Resources.CompactFormatOption_ONLY_FOR_LARGE_FILES_Only_for_large_files, 
+            ()=>SerializationResources.CompactFormatOption_ONLY_FOR_LARGE_FILES_Only_for_large_files, 
             doc=>doc.MoleculeTransitionCount > 1000);
         // ReSharper restore LocalizableElement
 
@@ -81,6 +81,44 @@ namespace pwiz.Skyline.Model.Serialization
         public static CompactFormatOption FromSettings()
         {
             return Parse(Settings.Default.CompactFormatOption);
+        }
+
+        private static CompactFormatOption _override;
+
+        /// <summary>
+        /// The compact format to use for writing right now: the transient override set by
+        /// <see cref="SetOverride"/> if one is in scope, otherwise the persisted setting
+        /// (<see cref="FromSettings"/>). DocumentWriter reads this, so every save path honors it.
+        /// </summary>
+        public static CompactFormatOption Effective
+        {
+            get { return _override ?? FromSettings(); }
+        }
+
+        /// <summary>
+        /// Overrides the compact format used for writing until the returned scope is disposed, so
+        /// SkylineCmd --save-compact-format (and the in-process MCP RunCommand, which runs the same
+        /// CommandLine) produces deterministic output regardless of the persisted setting. Pass null
+        /// for "no override". Not [ThreadStatic]: the GUI/MCP save marshals serialization to the UI
+        /// thread, so the override must be visible across threads.
+        /// </summary>
+        public static IDisposable SetOverride(CompactFormatOption compactFormatOption)
+        {
+            return new OverrideScope(compactFormatOption);
+        }
+
+        private class OverrideScope : IDisposable
+        {
+            private readonly CompactFormatOption _previous;
+            public OverrideScope(CompactFormatOption compactFormatOption)
+            {
+                _previous = _override;
+                _override = compactFormatOption;
+            }
+            public void Dispose()
+            {
+                _override = _previous;
+            }
         }
     }
 }

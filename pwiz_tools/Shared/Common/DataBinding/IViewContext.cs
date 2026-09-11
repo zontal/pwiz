@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -52,6 +52,7 @@ namespace pwiz.Common.DataBinding
         /// <summary>Exports all of the rows of data to a file.</summary>
         void ExportToFile(Control owner, BindingListSource bindingListSource, String filename, char separator);
         void CopyAll(Control owner, BindingListSource bindingListSource);
+        string GetCopyAllText(Control owner, BindingListSource bindingListSource);
         ViewSpec NewView(Control owner, ViewGroup viewGroup);
         ViewSpec CustomizeView(Control owner, ViewSpec viewSpec, ViewGroup viewGroup);
         ViewLayoutList GetViewLayoutList(ViewName viewName);
@@ -62,7 +63,7 @@ namespace pwiz.Common.DataBinding
         void ImportViews(Control owner, ViewGroup group);
         void ImportViewsFromFile(Control owner, ViewGroup group, string fileName);
         void CopyViewsToGroup(Control owner, ViewGroup group, ViewSpecList viewSpecList);
-        DialogResult ShowMessageBox(Control owner, string messsage, MessageBoxButtons messageBoxButtons);
+        DialogResult ShowMessageBox(Control owner, string messsage, MessageBoxButtons messageBoxButtons, Exception exception);
         Icon ApplicationIcon { get; }
         DataGridViewColumn CreateGridViewColumn(PropertyDescriptor propertyDescriptor);
         void OnDataError(object sender, DataGridViewDataErrorEventArgs dataGridViewDataErrorEventArgs);

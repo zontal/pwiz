@@ -34,9 +34,9 @@ using namespace System::Collections::Generic;
 #include "WiffFile.hpp"
 #endif
 #include "pwiz/utility/misc/Filesystem.hpp"
-
 using namespace SCIEX::Apis::Data::v1;
 using namespace SCIEX::Apis::Data::v1::Contracts;
+using namespace SCIEX::Apis::Data::v1::Types;
 
 namespace pwiz {
 namespace vendor_api {
@@ -50,7 +50,10 @@ class WiffFile2Impl : public WiffFile
     {
         auto dataReader = DataReader();
         if (dataReader != nullptr)
+        {
+            System::GC::Collect();
             dataReader->CloseFile(((IList<ISample^>^) allSamples)[0]->Sources[0]);
+        }
         System::GC::Collect();
     }
 
@@ -93,7 +96,7 @@ class WiffFile2Impl : public WiffFile
     virtual ExperimentPtr getExperiment(int sample, int period, int experiment) const;
     virtual SpectrumPtr getSpectrum(int sample, int period, int experiment, int cycle) const;
     virtual SpectrumPtr getSpectrum(ExperimentPtr experiment, int cycle) const;
-
+    
     virtual int getADCTraceCount(int sampleIndex) const { return 0; }
     virtual std::string getADCTraceName(int sampleIndex, int traceIndex) const { throw std::out_of_range("WIFF2 does not support ADC traces"); }
     virtual void getADCTrace(int sampleIndex, int traceIndex, ADCTrace& trace) const { throw std::out_of_range("WIFF2 does not support ADC traces"); }
@@ -107,7 +110,28 @@ class WiffFile2Impl : public WiffFile
 
     mutable int currentSampleIndex, currentPeriod, currentExperiment, currentCycle;
 
+    /// The ZT Scan sweep bin for a 1-based experiment of the current sample, or NULL when the
+    /// acquisition is not a ZT Scan (in which case the SDK's collision energy is used
+    /// unchanged). See ZtScanBin.
+    const ZtScanBin* getZtScanBin(int experiment) const;
+
     private:
+    /// Detects a ZT Scan acquisition and maps each TOFMSMS experiment to its bin within the
+    /// quadrupole sweep; leaves the cache empty for anything else. Called once per sample, from
+    /// setSample, after currentSampleExperiments has been populated.
+    ///
+    /// Unlike the legacy container, wiff2 stores the CE ramp endpoints verbatim
+    /// (CERampStart / CERampStop) alongside a "ZTScan" group name, so no reconstruction from the
+    /// lossy CE / CES pair is needed here. Both are programmatic method keys rather than rendered
+    /// labels, so this detection is not sensitive to the acquisition software's language.
+    void initializeZtScanBins() const;
+
+    /// Reads a named MS-method parameter as a double; false when absent or unparsable.
+    static bool tryReadMethodParameter(SCIEX::Apis::Data::v1::Contracts::MethodParameters::IExperiment^ methodExperiment,
+                                       System::String^ key, double& value);
+
+    mutable vector<ZtScanBin> currentSampleZtScanBins;
+
     std::string wiffpath_;
     // on first access, sample names are made unique (giving duplicates a count suffix) and cached
     mutable vector<string> sampleNames;
@@ -130,9 +154,9 @@ struct Experiment2Impl : public Experiment
     virtual size_t getSRMSize() const;
     virtual void getSRM(size_t index, Target& target) const;
 
-    virtual void getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities) const;
+    virtual double getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities, bool ignoreScheduledLimits) const;
     virtual void getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities,
-                        double& basePeakX, double& basePeakY) const;
+                        double& basePeakX, double& basePeakY, bool ignoreScheduledLimits) const;
 
     virtual void getAcquisitionMassRange(double& startMz, double& stopMz) const;
     virtual ScanType getScanType() const;
@@ -151,6 +175,9 @@ struct Experiment2Impl : public Experiment
     int sample, period, experiment;
 
     ExperimentType experimentType;
+
+    /// Valid only when this experiment is one encoded bin of a ZT Scan quadrupole sweep.
+    ZtScanBin ztScanBin;
 
     const vector<double>& cycleTimes() const {initializeTIC(); return cycleTimes_;}
     const vector<double>& cycleIntensities() const {initializeTIC(); return cycleIntensities_;}
@@ -183,7 +210,7 @@ struct Spectrum2Impl : public Spectrum
     virtual int getMSLevel() const;
 
     virtual bool getHasIsolationInfo() const;
-    virtual void getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy) const;
+    virtual void getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy, double& electronKineticEnergy, FragmentationMode& fragmentationMode) const;
 
     virtual bool getHasPrecursorInfo() const;
     virtual void getPrecursorInfo(double& selectedMz, double& intensity, int& charge) const;
@@ -205,9 +232,41 @@ struct Spectrum2Impl : public Spectrum
     // cache each possible combination of addZeros/doCentroid (probably will only use one, but it avoids need for logic of checking previous setting)
     mutable gcroot<ISpectrum^> msSpectrumCache[2][2];
     mutable gcroot<ISpectrum^> lastSpectrum;
+    static bool framingZerosThrowsError;
+    static bool doCentroidThrowsError;
 
     ISpectrum^ getSpectrumWithOptions(bool addZeros, bool doCentroid) const
     {
+        try
+        {
+            return getSpectrumWithOptionsInner(addZeros, doCentroid);
+        }
+        catch (Exception^ ex)
+        {
+            if (addZeros && !framingZerosThrowsError)
+            {
+                framingZerosThrowsError = true;
+                System::Console::Error->WriteLine("[WiffFile2::getSpectrumWithOptions] sample={0} experiment={1} cycle={2} scanTime={3} error adding framing zeros ({4}); retrying without framing zeros and disabling framing zeros for further spectra",
+                                                  experiment->wiffFile_->msSample->Id, experiment->msExperiment->Id, cycle, scanTime, ex->Message);
+                return getSpectrumWithOptions(false, doCentroid);
+            }
+
+            if (doCentroid && !doCentroidThrowsError)
+            {
+                doCentroidThrowsError = true;
+                System::Console::Error->WriteLine("[WiffFile2::getSpectrumWithOptions] sample={0} experiment={1} cycle={2} scanTime={3} error centroiding spectrum ({4}); retrying without centroiding and disabling centroiding for further spectra",
+                                                  experiment->wiffFile_->msSample->Id, experiment->msExperiment->Id, cycle, scanTime, ex->Message);
+                return getSpectrumWithOptions(addZeros, false);
+            }
+
+            throw;
+        }
+    }
+
+    ISpectrum^ getSpectrumWithOptionsInner(bool addZeros, bool doCentroid) const
+    {
+        addZeros = addZeros && !framingZerosThrowsError;
+        doCentroid = doCentroid && !doCentroidThrowsError;
         auto& msSpectrum = msSpectrumCache[addZeros ? 1 : 0][doCentroid ? 1 : 0];
         if ((ISpectrum^) msSpectrum == nullptr)
         {
@@ -217,14 +276,14 @@ struct Spectrum2Impl : public Spectrum
             spectrumRequest->Range->Start = scanTime;
             spectrumRequest->Range->End = scanTime;
             spectrumRequest->ConvertToCentroid = doCentroid;
+            spectrumRequest->CentroidOption = CentroidOptions::IntensitySumAbove50Percent;
             spectrumRequest->AddFramingZeros = addZeros;
 
             auto spectraReader = experiment->wiffFile_->DataReader()->GetSpectra(spectrumRequest);
             if (spectraReader->MoveNext())
                 msSpectrum = spectraReader->GetCurrent();
             else
-                throw gcnew Exception(String::Format("[WiffFile2::getSpectrumWithOptions] sample={0} experiment={1} cycle={2} scanTime={3} returned null spectrum",
-                                                     spectrumRequest->SampleId, spectrumRequest->ExperimentId, cycle, scanTime));
+                throw gcnew Exception("null spectrum");
         }
 
         lastSpectrum = msSpectrum;
@@ -257,6 +316,9 @@ struct Spectrum2Impl : public Spectrum
     }
 };
 
+bool Spectrum2Impl::framingZerosThrowsError = false;
+bool Spectrum2Impl::doCentroidThrowsError = false;
+
 typedef boost::shared_ptr<Spectrum2Impl> Spectrum2ImplPtr;
 
 
@@ -266,7 +328,7 @@ WiffFile2Impl::WiffFile2Impl(const string& wiffpath)
     try
     {
         auto sampleRequest = DataReader()->RequestFactory->CreateSamplesReadRequest();
-        sampleRequest->AbsolutePathToWiffFile = ToSystemString(bfs::canonical(wiffpath, bfs::current_path()).string());
+        sampleRequest->AbsolutePathToWiffFile = ToSystemString(pwiz::util::canonical(wiffpath).string());
 
         allSamples = gcnew List<ISample^>();
 
@@ -412,6 +474,7 @@ InstrumentModel WiffFile2Impl::getInstrumentModel() const
         if (modelName->Contains("365"))             return API365; // predicted
         if (modelName->Contains("X500QTOF"))        return X500QTOF;
         if (modelName->Contains("ZENOTOF7600"))     return ZenoTOF7600;
+        if (modelName->Contains("ZENOTOF8600"))     return ZenoTOF8600;
         throw gcnew Exception("unknown instrument type: " + instrumentDetails->DeviceModelName);
     }
     CATCH_AND_FORWARD
@@ -485,6 +548,9 @@ Experiment2Impl::Experiment2Impl(const WiffFile2Impl* wiffFile, int sample, int 
 
         experimentType = getExperimentType();
 
+        const ZtScanBin* bin = wiffFile_->getZtScanBin(experiment);
+        if (bin != NULL)
+            ztScanBin = *bin;
     }
     CATCH_AND_FORWARD
 }
@@ -568,14 +634,15 @@ void Experiment2Impl::getSRM(size_t index, Target& target) const
     CATCH_AND_FORWARD
 }
 
-void Experiment2Impl::getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities) const
+double Experiment2Impl::getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities, bool ignoreScheduledLimits) const
 {
     double x, y;
-    getSIC(index, times, intensities, x, y);
+    getSIC(index, times, intensities, x, y, ignoreScheduledLimits);
+    return y;
 }
 
 void Experiment2Impl::getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities,
-                            double& basePeakX, double& basePeakY) const
+                            double& basePeakX, double& basePeakY, bool ignoreScheduledLimits) const
 {
     try
     {
@@ -692,7 +759,7 @@ int Spectrum2Impl::getMSLevel() const
 
 bool Spectrum2Impl::getHasIsolationInfo() const { return experiment->experimentType == Product; }
 
-void Spectrum2Impl::getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy) const
+void Spectrum2Impl::getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy, double& electronKineticEnergy, FragmentationMode& fragmentationMode) const
 {
     try
     {
@@ -706,15 +773,32 @@ void Spectrum2Impl::getIsolationInfo(double& centerMz, double& lowerLimit, doubl
         lowerLimit = isolationWindow->LowerOffset;
         upperLimit = isolationWindow->UpperOffset;
 
-        auto collisionEnergyRamp = precursor->CollisionEnergy;
-        if (collisionEnergyRamp == nullptr)
-            return;
-        if (collisionEnergyRamp->CollisionEnergyRampStart == 0)
-            collisionEnergy = collisionEnergyRamp->CollisionEnergyRampEnd;
-        else if (collisionEnergyRamp->CollisionEnergyRampEnd == 0)
-            collisionEnergy = collisionEnergyRamp->CollisionEnergyRampStart;
+        // A ZT Scan bin's CE is a point on a hardware ramp the SDK does not record per bin:
+        // ISpectrum's Precursor->CollisionEnergy reports the ramp MIDPOINT on every bin of the
+        // sweep. Reconstruct it from the method's endpoints instead. See ZtScanBin.
+        if (experiment->ztScanBin.isValid())
+            collisionEnergy = experiment->ztScanBin.collisionEnergy();
         else
-            collisionEnergy = (collisionEnergyRamp->CollisionEnergyRampEnd + collisionEnergyRamp->CollisionEnergyRampStart) / 2;
+        {
+            auto collisionEnergyRamp = precursor->CollisionEnergy;
+            if (collisionEnergyRamp == nullptr)
+                return;
+            if (collisionEnergyRamp->CollisionEnergyRampStart == 0)
+                collisionEnergy = collisionEnergyRamp->CollisionEnergyRampEnd;
+            else if (collisionEnergyRamp->CollisionEnergyRampEnd == 0)
+                collisionEnergy = collisionEnergyRamp->CollisionEnergyRampStart;
+            else
+                collisionEnergy = (collisionEnergyRamp->CollisionEnergyRampEnd + collisionEnergyRamp->CollisionEnergyRampStart) / 2;
+        }
+            
+        fragmentationMode = FragmentationMode_CID;
+        IExperiment^ msExperiment = experiment->msExperiment;
+        if(msExperiment->FragmentationMode.HasValue && (msExperiment->FragmentationMode.Value == SCIEX::Apis::Data::v1::Types::FragmentationMode::EAD || msExperiment->FragmentationMode.Value == Types::FragmentationMode::EAD_Conventional_Trapping))
+        {
+            fragmentationMode = FragmentationMode_EAD;
+            if(msExperiment->ElectronKe.HasValue)
+                electronKineticEnergy = msExperiment->ElectronKe.Value;            
+        }
     }
     CATCH_AND_FORWARD
 }
@@ -796,8 +880,7 @@ void WiffFile2Impl::setSample(int sample) const
             IList<ISample^>^ unwrappedAllSamples = allSamples;
             this->msSample = (ISample^)unwrappedAllSamples[sample - 1];
 
-            auto experimentRequest = DataReader()->RequestFactory->CreateExperimentsReadRequest();
-            experimentRequest->SampleId = msSample->Id;
+            auto experimentRequest = DataReader()->RequestFactory->CreateExperimentsReadRequest(msSample->Id, true);
 
             currentSampleExperiments = gcnew List<IExperiment^>();
 
@@ -807,9 +890,99 @@ void WiffFile2Impl::setSample(int sample) const
 
             currentSampleIndex = sample;
             currentPeriod = currentExperiment = currentCycle = -1;
+
+            initializeZtScanBins();
         }
     }
     CATCH_AND_FORWARD
+}
+
+bool WiffFile2Impl::tryReadMethodParameter(SCIEX::Apis::Data::v1::Contracts::MethodParameters::IExperiment^ methodExperiment,
+                                           System::String^ key, double& value)
+{
+    value = 0;
+    if (methodExperiment->Parameters == nullptr)
+        return false;
+    for each (SCIEX::Apis::Data::v1::Contracts::MethodParameters::IParameter^ parameter in methodExperiment->Parameters)
+    {
+        if (!System::String::Equals(parameter->Key, key, System::StringComparison::OrdinalIgnoreCase))
+            continue;
+        if (parameter->Values == nullptr)
+            continue;
+        for each (System::Object^ raw in parameter->Values)
+        {
+            if (raw == nullptr)
+                continue;
+            try
+            {
+                value = System::Convert::ToDouble(raw, System::Globalization::CultureInfo::InvariantCulture);
+                return true;
+            }
+            catch (System::Exception^) {}
+        }
+    }
+    return false;
+}
+
+void WiffFile2Impl::initializeZtScanBins() const
+{
+    currentSampleZtScanBins.clear();
+
+    try
+    {
+        auto method = DataReader()->GetMsMethodParameters(DataReader()->RequestFactory->CreateMethodParametersReadRequest(msSample->Id));
+        if (method == nullptr || method->Experiments == nullptr)
+            return;
+
+        double rampStart = 0, rampEnd = 0;
+        bool isZtScan = false, haveRamp = false;
+        for each (SCIEX::Apis::Data::v1::Contracts::MethodParameters::IExperiment^ methodExperiment in method->Experiments)
+        {
+            if (!System::String::Equals(methodExperiment->GroupName, "ZTScan", System::StringComparison::OrdinalIgnoreCase))
+                continue;
+            isZtScan = true;
+            if (tryReadMethodParameter(methodExperiment, "CERampStart", rampStart) &&
+                tryReadMethodParameter(methodExperiment, "CERampStop", rampEnd))
+            {
+                haveRamp = true;
+                break;
+            }
+        }
+        if (!isZtScan || !haveRamp || rampStart == rampEnd)
+            return;
+
+        IList<IExperiment^>^ experiments = currentSampleExperiments;
+        vector<int> productExperiments;
+        for (int i = 0; i < experiments->Count; ++i)
+            if (experiments[i]->ScanType == "TOFMSMS")
+                productExperiments.push_back(i);
+
+        // One bin is not a sweep; leave such a file on the SDK's value.
+        if (productExperiments.size() < 2)
+            return;
+
+        currentSampleZtScanBins.resize(experiments->Count);
+        for (size_t bin = 0; bin < productExperiments.size(); ++bin)
+        {
+            ZtScanBin& ztBin = currentSampleZtScanBins[productExperiments[bin]];
+            ztBin.ceRampStart = rampStart;
+            ztBin.ceRampEnd = rampEnd;
+            ztBin.binIndex = (int) bin;
+            ztBin.binCount = (int) productExperiments.size();
+        }
+    }
+    catch (...)
+    {
+        currentSampleZtScanBins.clear(); // fall back to the SDK's collision energy
+    }
+}
+
+const ZtScanBin* WiffFile2Impl::getZtScanBin(int experiment) const
+{
+    int index = experiment - 1; // experiment is 1-based
+    if (index < 0 || index >= (int) currentSampleZtScanBins.size())
+        return NULL;
+    return currentSampleZtScanBins[index].isValid() ? &currentSampleZtScanBins[index] : NULL;
 }
 
 void WiffFile2Impl::setPeriod(int sample, int period) const

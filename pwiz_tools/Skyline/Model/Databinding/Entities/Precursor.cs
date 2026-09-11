@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -17,13 +17,9 @@
  * limitations under the License.
  */
 
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using pwiz.Common.Chemistry;
 using pwiz.Common.Collections;
 using pwiz.Common.DataBinding.Attributes;
-using pwiz.Skyline.Controls.SeqNode;
 using pwiz.Skyline.Model.Crosslinking;
 using pwiz.Skyline.Model.Databinding.Collections;
 using pwiz.Skyline.Model.DocSettings;
@@ -32,24 +28,35 @@ using pwiz.Skyline.Model.Hibernate;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 using pwiz.Skyline.Util.Extensions;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using pwiz.Skyline.Model.Results.Spectra;
 
 namespace pwiz.Skyline.Model.Databinding.Entities
 {
     [AnnotationTarget(AnnotationDef.AnnotationTarget.precursor)]
     public class Precursor : SkylineDocNode<TransitionGroupDocNode>
     {
-        private readonly Lazy<Peptide> _peptide;
+        private readonly Peptide _peptide;
         private readonly CachedValues _cachedValues = new CachedValues();
-        public Precursor(SkylineDataSchema dataSchema, IdentityPath identityPath) : base(dataSchema, identityPath)
+        public Precursor(SkylineDataSchema dataSchema, IdentityPath identityPath) : this(new Peptide(dataSchema, identityPath.GetPathTo(1)), identityPath.Child)
         {
-            _peptide = new Lazy<Peptide>(() => new Peptide(DataSchema, IdentityPath.Parent));
+        }
+
+        public Precursor(Peptide peptide, Identity transitionGroup) : base(peptide.DataSchema, new IdentityPath(peptide.IdentityPath, transitionGroup))
+        {
+            _peptide = peptide;
         }
 
         [HideWhen(AncestorOfType = typeof(Peptide))]
         [InvariantDisplayName("Molecule", ExceptInUiMode = UiModes.PROTEOMIC)]
         public Peptide Peptide
         {
-            get { return _peptide.Value; }
+            get
+            {
+                return _peptide;
+            }
         }
 
         [OneToMany(ForeignKey = "Precursor")]
@@ -191,14 +198,21 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             get { return SequenceMassCalc.PersistentMZ(DocNode.PrecursorMz); }
         }
 
+        /// <summary>
+        /// Predicted collision energy, not to be confused with <see cref="ExplicitCollisionEnergy"/>.
+        /// </summary>
         [Format(Formats.OPT_PARAMETER, NullValue = TextUtil.EXCEL_NA)]
-        public double CollisionEnergy
+        public double? CollisionEnergy
         {
             get
             {
-                // Note this is the predicited CE, explicit CE has its own display column
-                return SrmDocument.Settings.TransitionSettings.Prediction.CollisionEnergy
-                                  .GetCollisionEnergy(DocNode.PrecursorAdduct, GetRegressionMz());
+                var collisionEnergyRegression = SrmDocument.Settings.TransitionSettings.Prediction.CollisionEnergy;
+                if (collisionEnergyRegression == null || Equals(collisionEnergyRegression, CollisionEnergyList.NONE))
+                {
+                    return null;
+                }
+
+                return collisionEnergyRegression.GetCollisionEnergy(DocNode.PrecursorAdduct, GetRegressionMz());
             }
         }
 
@@ -341,8 +355,32 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             }
             set
             {
+                var unitsForSet = DocNode.ExplicitValues.IonMobilityUnits;
+                if (value.HasValue && unitsForSet == eIonMobilityUnits.none)
+                {
+                    // The user may not have set the IonMobilityUnits column yet. If the document
+                    // unambiguously implies a single unit, silently apply it along with the value -
+                    // saves the user a step and makes the audit log reflect the deduced unit.
+                    // If deduction is empty or ambiguous, accept the value with units=none and
+                    // let the user set the units column next; the safety net in
+                    // SrmSettings.GetIonMobilityFilter guards consumption of an unresolved state.
+                    // Settings + sibling transition groups on this peptide is sufficient evidence
+                    // and avoids walking the entire MoleculeTransitionGroups tree on every cell
+                    // edit during a large paste. The settings deduction is library-cached so the
+                    // expensive scan only runs once per document.
+                    var candidates = new HashSet<eIonMobilityUnits>(
+                        TransitionIonMobilityFiltering.GetSettingsIonMobilityUnits(SrmDocument.Settings));
+                    foreach (var siblingGroup in Peptide.DocNode.TransitionGroups)
+                    {
+                        var siblingUnits = siblingGroup.ExplicitValues.IonMobilityUnits;
+                        if (IonMobilityFilter.IsExplicitIonMobilityMeasurement(siblingUnits))
+                            candidates.Add(siblingUnits);
+                    }
+                    if (candidates.Count == 1)
+                        unitsForSet = candidates.Single();
+                }
                 ChangeDocNode(EditColumnDescription(nameof(ExplicitIonMobility), value),
-                    docNode=>docNode.ChangeExplicitValues(docNode.ExplicitValues.ChangeIonMobility(value, docNode.ExplicitValues.IonMobilityUnits)));
+                    docNode => docNode.ChangeExplicitValues(docNode.ExplicitValues.ChangeIonMobility(value, unitsForSet)));
             }
         }
 
@@ -415,7 +453,27 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             }
         }
 
-        public string SpectrumFilter { get { return DocNode.SpectrumClassFilter.ToString(); } }
+        [DataTypeSpecifier(typeof(SpectrumFilterColumnType))]
+        [Format(Width = 300)]
+        public string SpectrumFilter
+        {
+            get { return DocNode.SpectrumClassFilter.ToFilterString(); }
+            set
+            {
+                var newFilter = SpectrumClassFilter.ParseFilterString(value);
+                ChangeDocNode(EditColumnDescription(nameof(SpectrumFilter), value), docNode=>docNode.ChangeSpectrumClassFilter(newFilter));
+            }
+        }
+
+        /// <summary>
+        /// Applies an already-constructed filter (e.g. from the spectrum filter dialog),
+        /// bypassing the locale-sensitive text parse used by the <see cref="SpectrumFilter"/> setter.
+        /// </summary>
+        public void SetSpectrumClassFilter(SpectrumClassFilter spectrumClassFilter)
+        {
+            ChangeDocNode(EditColumnDescription(nameof(SpectrumFilter), spectrumClassFilter.ToFilterString()),
+                docNode => docNode.ChangeSpectrumClassFilter(spectrumClassFilter));
+        }
 
         [InvariantDisplayName("PrecursorNote")]
         [Importable]
@@ -492,7 +550,7 @@ namespace pwiz.Skyline.Model.Databinding.Entities
         public override string ToString()
         {
             // Consider: maybe change TransitionGroupDocNode.ToString() to be this as well:
-            return TransitionGroupTreeNode.GetLabel(DocNode.TransitionGroup, DocNode.PrecursorMz, string.Empty);
+            return TransitionGroupDocNode.GetLabel(DocNode.TransitionGroup, DocNode.PrecursorMz, string.Empty);
         }
 
         [Obsolete]
@@ -503,9 +561,9 @@ namespace pwiz.Skyline.Model.Databinding.Entities
         {
             if (nodeCount == 1)
             {
-                return string.Format(Resources.Precursor_GetDeleteConfirmation_Are_you_sure_you_want_to_delete_the_precursor___0___, this);
+                return string.Format(EntitiesResources.Precursor_GetDeleteConfirmation_Are_you_sure_you_want_to_delete_the_precursor___0___, this);
             }
-            return string.Format(Resources.Precursor_GetDeleteConfirmation_Are_you_sure_you_want_to_delete_these__0__precursors_, nodeCount);
+            return string.Format(EntitiesResources.Precursor_GetDeleteConfirmation_Are_you_sure_you_want_to_delete_these__0__precursors_, nodeCount);
         }
 
         [Importable]
@@ -543,6 +601,15 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             }
         }
 
+        [ChildDisplayName("Exemplary{0}")]
+        public SourcedPeakValue ExemplaryPeak
+        {
+            get
+            {
+                return SourcedPeakValue.FromSourcedPeak(DataSchema.PeakBoundaryImputer.GetExemplaryPeak(Peptide.DocNode));
+            }
+        }
+
         [InvariantDisplayName("PrecursorLocator")]
         public string Locator { get { return GetLocator(); } }
 
@@ -566,7 +633,7 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             protected override ImmutableList<Transition> CalculateValue(Precursor owner)
             {
                 return ImmutableList.ValueOf(owner.DocNode.Children
-                    .Select(child => new Transition(owner.DataSchema, new IdentityPath(owner.IdentityPath, child.Id))));
+                    .Select(child => new Transition(owner, child.Id)));
             }
 
             protected override IDictionary<ResultKey, PrecursorResult> CalculateValue1(Precursor owner)
@@ -575,6 +642,7 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             }
         }
     }
+
 
     public class PrecursorResultSummary : SkylineObject
     {
@@ -682,5 +750,15 @@ namespace pwiz.Skyline.Model.Databinding.Entities
             return string.Format(@"RT: {0} Area: {1}", BestRetentionTime, TotalArea); // CONSIDER: localize?
         }
 
+    }
+
+    /// <summary>
+    /// Marker type used with DataTypeSpecifierAttribute to indicate that a string property
+    /// represents a spectrum filter and should use SpectrumFilterDataGridViewColumn in the UI
+    /// (which edits via the spectrum filter dialog) without creating a compile-time dependency
+    /// from Model to UI.
+    /// </summary>
+    public class SpectrumFilterColumnType
+    {
     }
 }

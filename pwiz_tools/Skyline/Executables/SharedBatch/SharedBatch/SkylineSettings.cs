@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -114,6 +114,12 @@ namespace SharedBatch
 
         public static SkylineSettings ReadXmlVersion_20_2(XmlReader reader)
         {
+            // NOTE: unlike ReadXml above, this does NOT retype the configuration to Local when a
+            // local SkylineCmd.exe exists. That asymmetry is real and looks like a bug - the same
+            // configuration in the two formats can end up with different Skyline settings on the
+            // same machine - but the BcfgTestFiles round-trip baselines encode the current
+            // behaviour (they expect type="Skyline" to survive an old-format import/export), so
+            // changing it is a deliberate decision with baselines to regenerate, not a drive-by.
             var type = (SkylineType)Enum.Parse(typeof(SkylineType), reader.GetAttribute(Attr.Type), false);
             var cmdPath = reader.GetAttribute(Attr.CmdPath);
             if (type == SkylineType.Custom)
@@ -133,6 +139,8 @@ namespace SharedBatch
 
         public async Task<int[]> GetVersion(ProcessRunner baseProcessRunner)
         {
+            baseProcessRunner ??= new ProcessRunner();
+
             var output = "";
             var error = false;
             var versionCommand = "--version";
@@ -184,22 +192,31 @@ namespace SharedBatch
 
         public async Task <bool> HigherVersion(string versionCutoff, ProcessRunner baseProcessRunner = null)
         {
-            baseProcessRunner = baseProcessRunner ?? new ProcessRunner();
+            baseProcessRunner ??= new ProcessRunner();
+
             var cutoff = ParseVersionFromString(versionCutoff);
             if (_version == null)
+            {
                 _version = await GetVersion(baseProcessRunner);
+            }
             // log version output if it's already loaded
             else if (baseProcessRunner.OnDataReceived != null)
-                foreach (var data in _versionOutput) baseProcessRunner.OnDataReceived(data);
+            {
+                foreach (var data in _versionOutput)
+                    baseProcessRunner.OnDataReceived(data);
+            }
+
             if (_version == null)
             {
-                baseProcessRunner.OnDataReceived(Resources.SkylineSettings_HigherVersion_WARNING__Could_not_parse_Skyline_version__Running_earliest_supported_Skyline_commands_);
+                baseProcessRunner.OnDataReceived?.Invoke(Resources.SkylineSettings_HigherVersion_WARNING__Could_not_parse_Skyline_version__Running_earliest_supported_Skyline_commands_);
                 return false; // could not parse version
             }
             for (int i = 0; i < cutoff.Length; i++)
             {
-                if (_version[i] != cutoff[i]) return _version[i] > cutoff[i];
+                if (_version[i] != cutoff[i])
+                    return _version[i] > cutoff[i];
             }
+
             return true; // version is equal to cutoff
         }
 

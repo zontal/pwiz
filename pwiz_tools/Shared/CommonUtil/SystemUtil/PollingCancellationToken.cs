@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -28,19 +28,20 @@ namespace pwiz.Common.SystemUtil
     /// </summary>
     public class PollingCancellationToken : IDisposable
     {
-        private const int POLLING_INTERVAL = 100;
         private Func<bool> _isCancelledFunc;
         private CancellationTokenSource _cancellationTokenSource;
         private bool _isDisposed;
+        private Thread _pollingThread;
         public PollingCancellationToken(Func<bool> isCancelledFunc) : this (CancellationToken.None, isCancelledFunc)
         {
+            PollingInterval = 100;
         }
 
         public PollingCancellationToken(CancellationToken token, Func<bool> isCancelledFunc)
         {
             _isCancelledFunc = isCancelledFunc;
             _cancellationTokenSource = CancellationTokenSource.CreateLinkedTokenSource(token);
-            CommonActionUtil.RunAsync(CheckCancelledThreadProc);
+            _pollingThread = CommonActionUtil.RunAsync(CheckCancelledThreadProc);
         }
 
         public CancellationToken Token
@@ -51,13 +52,17 @@ namespace pwiz.Common.SystemUtil
             }
         }
 
+        public int PollingInterval { get; set; }
+
         public void Dispose()
         {
             lock (this)
             {
                 _cancellationTokenSource.Dispose();
                 _isDisposed = true;
+                Monitor.Pulse(this);
             }
+            _pollingThread.Join();
         }
 
         private void CheckCancelledThreadProc()
@@ -76,8 +81,9 @@ namespace pwiz.Common.SystemUtil
                         _cancellationTokenSource.Cancel();
                         return;
                     }
+
+                    Monitor.Wait(this, PollingInterval);
                 }
-                Thread.Sleep(POLLING_INTERVAL);
             }
         }
     }

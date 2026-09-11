@@ -12,6 +12,7 @@ if "_%B2_TOOLSET%_" == "_vc14_" call :Config_VC14
 if "_%B2_TOOLSET%_" == "_vc141_" call :Config_VC141
 if "_%B2_TOOLSET%_" == "_vc142_" call :Config_VC142
 if "_%B2_TOOLSET%_" == "_vc143_" call :Config_VC143
+if "_%B2_TOOLSET%_" == "_vc145_" call :Config_VC145
 if "_%B2_TOOLSET%_" == "_borland_" call :Config_BORLAND
 if "_%B2_TOOLSET%_" == "_como_" call :Config_COMO
 if "_%B2_TOOLSET%_" == "_gcc_" call :Config_GCC
@@ -96,7 +97,7 @@ goto :eof
 
 :Config_VC141
 if not defined CXX ( set "CXX=cl" )
-call vswhere_usability_wrapper.cmd
+call .\vswhere_usability_wrapper.cmd
 REM Reset ERRORLEVEL since from now on it's all based on ENV vars
 ver > nul 2> nul
 if "_%B2_TOOLSET_ROOT%_" == "__" (
@@ -118,7 +119,7 @@ goto :eof
 
 :Config_VC142
 if not defined CXX ( set "CXX=cl" )
-call vswhere_usability_wrapper.cmd
+call .\vswhere_usability_wrapper.cmd
 REM Reset ERRORLEVEL since from now on it's all based on ENV vars
 ver > nul 2> nul
 if "_%B2_TOOLSET_ROOT%_" == "__" (
@@ -138,9 +139,10 @@ set "B2_CXX_LINK=/link kernel32.lib advapi32.lib user32.lib"
 set "_known_=1"
 goto :eof
 
+:Config_VC145
 :Config_VC143
 if not defined CXX ( set "CXX=cl" )
-call vswhere_usability_wrapper.cmd
+call .\vswhere_usability_wrapper.cmd
 REM Reset ERRORLEVEL since from now on it's all based on ENV vars
 ver > nul 2> nul
 if "_%B2_TOOLSET_ROOT%_" == "__" (
@@ -162,7 +164,7 @@ goto :eof
 
 :Config_VCUNK
 if NOT "_%B2_TOOLSET%_" == "_vcunk_" goto Skip_VCUNK
-call vswhere_usability_wrapper.cmd
+call .\vswhere_usability_wrapper.cmd
 REM Reset ERRORLEVEL since from now on it's all based on ENV vars
 ver > nul 2> nul
 if "_%B2_TOOLSET_ROOT%_" == "__" (
@@ -185,7 +187,7 @@ goto :eof
 :Config_BORLAND
 if not defined CXX ( set "CXX=bcc32c" )
 if "_%B2_TOOLSET_ROOT%_" == "__" (
-    call guess_toolset.bat test_path bcc32c.exe )
+    call .\guess_toolset.bat test_path bcc32c.exe )
 if "_%B2_TOOLSET_ROOT%_" == "__" (
     if not errorlevel 1 (
         set "B2_TOOLSET_ROOT=%FOUND_PATH%..\"

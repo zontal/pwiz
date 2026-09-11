@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="BrowseOnly|Win32">
@@ -25,7 +25,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'" Label="Configuration">
     <ConfigurationType>Application</ConfigurationType>
     <OutDir>$(SolutionDir)build-nt-x86\msvc-release</OutDir>
-    <PlatformToolset>v141</PlatformToolset>
+    <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>MultiByte</CharacterSet>
     <CLRSupport>true</CLRSupport>
   </PropertyGroup>
@@ -33,7 +33,9 @@
     <PlatformToolset>v143</PlatformToolset>
     <ConfigurationType>Application</ConfigurationType>
     <CharacterSet>MultiByte</CharacterSet>
-    <CLRSupport>true</CLRSupport>
+  </PropertyGroup>
+  <PropertyGroup Label="Configuration" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <PlatformToolset>v143</PlatformToolset>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ImportGroup Label="ExtensionSettings">
@@ -63,21 +65,30 @@
     <NMakeOutput Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'" />
     <NMakePreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;WIN32;USE_RAW_PTR;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
     <NMakePreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;WIN32;USE_RAW_PTR;$(NMakePreprocessorDefinitions)</NMakePreprocessorDefinitions>
-    <IncludePath Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">$(SolutionDir);$(SolutionDir)libraries\boost_aux;$(SolutionDir)libraries\boost_1_76_0;$(SolutionDir)libraries\SQLite;$(SolutionDir)libraries\CSpline;$(SolutionDir)libraries\Eigen;$(IncludePath)</IncludePath>
-    <IncludePath Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">$(SolutionDir);$(SolutionDir)libraries\boost_aux;$(SolutionDir)libraries\boost_1_76_0;$(SolutionDir)libraries\SQLite;$(SolutionDir)libraries\CSpline;$(SolutionDir)libraries\Eigen;$(IncludePath)</IncludePath>
+    <IncludePath Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">$(SolutionDir);$(SolutionDir)libraries\boost_aux;$(SolutionDir)libraries\boost_1_86_0;$(SolutionDir)libraries\SQLite;$(SolutionDir)libraries\CSpline;$(SolutionDir)libraries\Eigen;$(IncludePath)</IncludePath>
+    <IncludePath Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">$(SolutionDir);$(SolutionDir)libraries\boost_aux;$(SolutionDir)libraries\boost_1_86_0;$(SolutionDir)libraries\SQLite;$(SolutionDir)libraries\CSpline;$(SolutionDir)libraries\Eigen;$(IncludePath)</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">
+    <ManagedAssembly>true</ManagedAssembly>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">
     <BuildLog />
     <ClCompile>
-      <PreprocessorDefinitions>PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;PWIZ_READER_SHIMADZU;PWIZ_READER_UNIFI;WIN32;USE_RAW_PTR;PWIZ_READER_BRUKER_WITH_COMPASSXTRACT;PWIZ_READER_UNIFI;PWIZ_READER_UIMF;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;PWIZ_READER_SHIMADZU;PWIZ_READER_UNIFI;WIN32;USE_RAW_PTR;PWIZ_READER_BRUKER_WITH_COMPASSXTRACT;PWIZ_READER_UNIFI;PWIZ_READER_UIMF;PWIZ_READER_MOBILION;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <CompileAsManaged>true</CompileAsManaged>
+      <ForcedUsingFiles>Microsoft.Extensions.DependencyInjection.Abstractions.dll;Microsoft.Extensions.Http.dll</ForcedUsingFiles>
+      <AdditionalUsingDirectories>pwiz_tools\Shared\Lib</AdditionalUsingDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">
     <BuildLog />
     <ClCompile>
-      <PreprocessorDefinitions>PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;PWIZ_READER_SHIMADZU;PWIZ_READER_UNIFI;WIN32;USE_RAW_PTR;PWIZ_READER_BRUKER_WITH_COMPASSXTRACT;PWIZ_READER_UNIFI;PWIZ_READER_UIMF;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <CompileAsManaged>true</CompileAsManaged>
+      <PreprocessorDefinitions>PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;PWIZ_READER_SHIMADZU;PWIZ_READER_UNIFI;WIN32;PWIZ_READER_BRUKER_WITH_COMPASSXTRACT;PWIZ_READER_UNIFI;PWIZ_READER_UIMF;PWIZ_READER_MOBILION;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalUsingDirectories>pwiz_tools\Shared\Lib</AdditionalUsingDirectories>
+      <ForcedUsingFiles>Microsoft.Extensions.DependencyInjection.Abstractions.dll;Microsoft.Extensions.Http.dll</ForcedUsingFiles>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -120,7 +131,6 @@
     <ClCompile Include="pwiz\analysis\demux\DemuxSolver.cpp" />
     <ClCompile Include="pwiz\analysis\demux\DemuxSolverTest.cpp" />
     <ClCompile Include="pwiz\analysis\demux\DemuxTestData.cpp" />
-    <ClCompile Include="pwiz\analysis\demux\FSDemux.cpp" />
     <ClCompile Include="pwiz\analysis\demux\MatrixIO.cpp" />
     <ClCompile Include="pwiz\analysis\demux\MatrixIOTest.cpp" />
     <ClCompile Include="pwiz\analysis\demux\MSXDemultiplexer.cpp" />
@@ -210,6 +220,7 @@
     <ClCompile Include="pwiz\analysis\spectrum_processing\MS2Deisotoper.cpp" />
     <ClCompile Include="pwiz\analysis\spectrum_processing\MS2DeisotoperTest.cpp" />
     <ClCompile Include="pwiz\analysis\spectrum_processing\MS2NoiseFilter.cpp" />
+    <ClCompile Include="pwiz\analysis\spectrum_processing\MzShiftFilter.cpp" />
     <ClCompile Include="pwiz\analysis\spectrum_processing\PrecursorMassFilter.cpp" />
     <ClCompile Include="pwiz\analysis\spectrum_processing\PrecursorRecalculatorDefault.cpp" />
     <ClCompile Include="pwiz\analysis\spectrum_processing\PrecursorRecalculatorDefaultTest.cpp" />
@@ -286,9 +297,7 @@
     <ClCompile Include="pwiz\data\identdata\MascotReader.cpp" />
     <ClCompile Include="pwiz\data\identdata\MascotReader_dummy.cpp" />
     <ClCompile Include="pwiz\data\identdata\Pep2MzIdent.cpp" />
-    <ClCompile Include="pwiz\data\identdata\Pep2MzIdentTest.cpp" />
     <ClCompile Include="pwiz\data\identdata\Reader.cpp" />
-    <ClCompile Include="pwiz\data\identdata\ReaderTest.cpp" />
     <ClCompile Include="pwiz\data\identdata\References.cpp" />
     <ClCompile Include="pwiz\data\identdata\ReferencesTest.cpp" />
     <ClCompile Include="pwiz\data\identdata\Serializer_protXML.cpp" />
@@ -342,6 +351,7 @@
     <ClCompile Include="pwiz\data\msdata\mz5\ReferenceRead_mz5.cpp" />
     <ClCompile Include="pwiz\data\msdata\mz5\ReferenceWrite_mz5.cpp" />
     <ClCompile Include="pwiz\data\msdata\mz5\Translator_mz5.cpp" />
+    <ClCompile Include="pwiz\data\msdata\mzmlb\Connection_mzMLb.cpp" />
     <ClCompile Include="pwiz\data\msdata\RAMPAdapter.cpp" />
     <ClCompile Include="pwiz\data\msdata\RAMPAdapterTest.cpp" />
     <ClCompile Include="pwiz\data\msdata\Reader.cpp" />
@@ -447,9 +457,15 @@
     <ClCompile Include="pwiz\data\vendor_readers\Bruker\Reader_Bruker_Test.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\Bruker\SpectrumList_Bruker.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\ExtendedReaderList.cpp" />
+    <ClCompile Include="pwiz\data\vendor_readers\Mobilion\ChromatogramList_Mobilion.cpp" />
+    <ClCompile Include="pwiz\data\vendor_readers\Mobilion\Reader_Mobilion.cpp" />
+    <ClCompile Include="pwiz\data\vendor_readers\Mobilion\Reader_Mobilion_Detail.cpp" />
+    <ClCompile Include="pwiz\data\vendor_readers\Mobilion\Reader_Mobilion_Test.cpp" />
+    <ClCompile Include="pwiz\data\vendor_readers\Mobilion\SpectrumList_Mobilion.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\Shimadzu\ChromatogramList_Shimadzu.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\Shimadzu\Reader_Shimadzu.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\Shimadzu\Reader_Shimadzu_Test.cpp" />
+    <ClCompile Include="pwiz\data\vendor_readers\Shimadzu\Reader_Shimadzu_Detail.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\Shimadzu\SpectrumList_Shimadzu.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\Thermo\ChromatogramList_Thermo.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\Thermo\Reader_Thermo.cpp" />
@@ -461,6 +477,10 @@
     <ClCompile Include="pwiz\data\vendor_readers\UIMF\Reader_UIMF_Test.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\UIMF\SpectrumList_UIMF.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\UNIFI\ChromatogramList_UNIFI.cpp" />
+    <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\Bruker\ChromatographyDataSqliteReader.cpp" />
+    <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\UNIFI\ParallelDownloadQueue.cpp">
+      <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">true</CompileAsManaged>
+    </ClCompile>
     <ClCompile Include="pwiz\data\vendor_readers\UNIFI\Reader_UNIFI_Test.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\UNIFI\Reader_UNIFI.cpp" />
     <ClCompile Include="pwiz\data\vendor_readers\UNIFI\Reader_UNIFI_Detail.cpp" />
@@ -562,6 +582,7 @@
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;WIN32;USE_RAW_PTR;PWIZ_BINDINGS_CLI_COMBINED;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;WIN32;USE_RAW_PTR;PWIZ_BINDINGS_CLI_COMBINED;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
+    <ClCompile Include="pwiz\utility\bindings\CLI\common\util.cpp" />
     <ClCompile Include="pwiz\utility\bindings\CLI\Diff.cpp" />
     <ClCompile Include="pwiz\utility\bindings\CLI\DiffTest.cpp" />
     <ClCompile Include="pwiz\utility\bindings\CLI\MSData.cpp" />
@@ -609,6 +630,8 @@
       <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">true</CompileAsManaged>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;WIN32;USE_RAW_PTR;PWIZ_BINDINGS_CLI_COMBINED;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">PWIZ_READER_THERMO;PWIZ_READER_AGILENT;PWIZ_READER_BRUKER;PWIZ_READER_WATERS;PWIZ_READER_ABI;PWIZ_READER_ABI_T2D;WIN32;USE_RAW_PTR;PWIZ_BINDINGS_CLI_COMBINED;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalUsingDirectories Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">$(SolutionDir)build-nt-x86\msvc-release-x86_64;$(SolutionDir)build-nt-x86\pwiz\utility\bindings\CLI\msvc-14.3\rls\adrs-mdl-64\thrd-mlt\us-clr-tr</AdditionalUsingDirectories>
+      <ForcedUsingFiles Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">pwiz_bindings_cli.dll</ForcedUsingFiles>
     </ClCompile>
     <ClCompile Include="pwiz\utility\bindings\CLI\msdata\Reader.cpp">
       <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">true</CompileAsManaged>
@@ -826,17 +849,20 @@
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\ABI\WiffFile2.ipp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\ABI\WiffFileTest.cpp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\Agilent\MassHunterData.cpp">
-      <AdditionalUsingDirectories Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">$(ProjectDir)pwiz_aux\msrc\utility\vendor_api\Agilent\vc10_x86</AdditionalUsingDirectories>
-      <AdditionalUsingDirectories Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">$(ProjectDir)pwiz_aux\msrc\utility\vendor_api\Agilent\vc10_x64</AdditionalUsingDirectories>
+      <AdditionalUsingDirectories Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">pwiz_aux\msrc\utility\vendor_api\Agilent\x86</AdditionalUsingDirectories>
+      <AdditionalUsingDirectories Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">pwiz_aux\msrc\utility\vendor_api\Agilent\x64</AdditionalUsingDirectories>
       <CompileAsManaged>true</CompileAsManaged>
       <ForcedUsingFiles>MassSpecDataReader.dll;BaseCommon.dll;BaseDataAcess.dll;MIDAC.dll</ForcedUsingFiles>
+      <ForcedUsingFiles Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">MassSpecDataReader.dll;BaseCommon.dll;BaseDataAccess.dll;MIDAC.dll</ForcedUsingFiles>
+      <ForcedUsingFiles Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">MassSpecDataReader.dll;BaseCommon.dll;BaseDataAccess.dll;MIDAC.dll</ForcedUsingFiles>
     </ClCompile>
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\Agilent\MassHunterDataTest.cpp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\Agilent\MidacData.cpp">
-      <ForcedUsingFiles Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">MassSpecDataReader.dll;BaseCommon.dll;BaseDataAcess.dll;MIDAC.dll</ForcedUsingFiles>
-      <ForcedUsingFiles Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">MassSpecDataReader.dll;BaseCommon.dll;BaseDataAcess.dll;MIDAC.dll</ForcedUsingFiles>
+      <ForcedUsingFiles Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">MassSpecDataReader.dll;BaseCommon.dll;BaseDataAccess.dll;MIDAC.dll</ForcedUsingFiles>
+      <ForcedUsingFiles Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">MassSpecDataReader.dll;BaseCommon.dll;BaseDataAccess.dll;MIDAC.dll</ForcedUsingFiles>
       <CompileAsManaged>true</CompileAsManaged>
-      <ForcedUsingFiles>MassSpecDataReader.dll;BaseCommon.dll;BaseDataAcess.dll;MIDAC.dll</ForcedUsingFiles>
+      <AdditionalUsingDirectories Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|Win32'">pwiz_aux\msrc\utility\vendor_api\Agilent\x86</AdditionalUsingDirectories>
+      <AdditionalUsingDirectories Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">pwiz_aux\msrc\utility\vendor_api\Agilent\x64</AdditionalUsingDirectories>
     </ClCompile>
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\Bruker\Baf2Sql.cpp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\Bruker\CompassData.cpp" />
@@ -852,6 +878,7 @@
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\thermo\RawFile.cpp">
       <ForcedUsingFiles Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">ThermoFisher.CommonCore.RawFileReader.dll;ThermoFisher.CommonCore.Data.dll</ForcedUsingFiles>
       <AdditionalUsingDirectories Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">pwiz_aux\msrc\utility\vendor_api\thermo</AdditionalUsingDirectories>
+      <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">true</CompileAsManaged>
     </ClCompile>
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\thermo\RawFileTest.cpp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\thermo\RawFileValues.cpp" />
@@ -859,8 +886,12 @@
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\thermo\ScanFilterTest.cpp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\UIMF\UIMFReader.cpp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\UIMF\UIMFReaderTest.cpp" />
-    <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\UNIFI\UnifiData.cpp" />
+    <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\UNIFI\UnifiData.cpp">
+      <ExternalWarningLevel Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">Level1</ExternalWarningLevel>
+      <CompileAsManaged Condition="'$(Configuration)|$(Platform)'=='BrowseOnly|x64'">true</CompileAsManaged>
+    </ClCompile>
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\UNIFI\UnifiDataTest.cpp" />
+    <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\UNIFI\WatersConnectData.ipp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\Waters\RawData.cpp" />
     <ClCompile Include="pwiz_aux\msrc\utility\vendor_api\Waters\RawDataTest.cpp" />
     <ClCompile Include="pwiz_tools\BiblioSpec\src\BuildParser.cpp" />
@@ -942,6 +973,7 @@
     <ClInclude Include="pwiz\analysis\proteome_processing\ProteinList_Filter.hpp" />
     <ClInclude Include="pwiz\analysis\spectrum_processing\MS2Deisotoper.hpp" />
     <ClInclude Include="pwiz\analysis\spectrum_processing\MS2NoiseFilter.hpp" />
+    <ClInclude Include="pwiz\analysis\spectrum_processing\MzShiftFilter.hpp" />
     <ClInclude Include="pwiz\analysis\spectrum_processing\SpectrumList_3D.hpp" />
     <ClInclude Include="pwiz\analysis\spectrum_processing\SpectrumList_ChargeFromIsotope.hpp" />
     <ClInclude Include="pwiz\analysis\spectrum_processing\SpectrumList_Demux.hpp" />
@@ -960,6 +992,7 @@
     <ClInclude Include="pwiz\data\msdata\mz5\ReferenceRead_mz5.hpp" />
     <ClInclude Include="pwiz\data\msdata\mz5\ReferenceWrite_mz5.hpp" />
     <ClInclude Include="pwiz\data\msdata\mz5\Translator_mz5.hpp" />
+    <ClInclude Include="pwiz\data\msdata\mzmlb\Connection_mzMLb.hpp" />
     <ClInclude Include="pwiz\data\msdata\Serializer_MSn.hpp" />
     <ClInclude Include="pwiz\data\msdata\Serializer_mz5.hpp" />
     <ClInclude Include="pwiz\data\msdata\SpectrumList_MSn.hpp" />
@@ -976,13 +1009,20 @@
     <ClInclude Include="pwiz\data\vendor_readers\bruker\reader_bruker.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\bruker\reader_bruker_detail.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\bruker\spectrumlist_bruker.hpp" />
+    <ClInclude Include="pwiz\data\vendor_readers\Mobilion\ChromatogramList_Mobilion.hpp" />
+    <ClInclude Include="pwiz\data\vendor_readers\Mobilion\Reader_Mobilion.hpp" />
+    <ClInclude Include="pwiz\data\vendor_readers\Mobilion\Reader_Mobilion_Detail.hpp" />
+    <ClInclude Include="pwiz\data\vendor_readers\Mobilion\SpectrumList_Mobilion.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\Shimadzu\ChromatogramList_Shimadzu.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\Shimadzu\Reader_Shimadzu.hpp" />
+    <ClInclude Include="pwiz\data\vendor_readers\Shimadzu\Reader_Shimadzu_Detail.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\Shimadzu\SpectrumList_Shimadzu.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\UIMF\ChromatogramList_UIMF.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\UIMF\Reader_UIMF.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\UIMF\SpectrumList_UIMF.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\UNIFI\ChromatogramList_UNIFI.hpp" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Bruker\CompassDataEnums.hpp" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\UNIFI\ParallelDownloadQueue.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\UNIFI\Reader_UNIFI.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\UNIFI\Reader_UNIFI_Detail.hpp" />
     <ClInclude Include="pwiz\data\vendor_readers\UNIFI\SpectrumList_UNIFI.hpp" />
@@ -1000,6 +1040,7 @@
     <ClInclude Include="pwiz\utility\bindings\CLI\common\SharedCLI.hpp" />
     <ClInclude Include="pwiz\utility\bindings\CLI\common\Unimod.hpp" />
     <ClInclude Include="pwiz\utility\bindings\CLI\common\unit.hpp" />
+    <ClInclude Include="pwiz\utility\bindings\CLI\common\util.hpp" />
     <ClInclude Include="pwiz\utility\bindings\CLI\common\vector.hpp" />
     <ClInclude Include="pwiz\utility\bindings\CLI\common\virtual_map.hpp" />
     <ClInclude Include="pwiz\utility\bindings\CLI\msdata\Diff.hpp" />
@@ -1332,15 +1373,23 @@
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Bruker\Baf2Sql.hpp" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Bruker\CompassData.hpp" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Bruker\TsfData.hpp" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIBinning.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBICalibration.h" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIChem.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBICollection.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIConstants.h" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIExceptions.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIFile.h" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIFileHDF5Adapter.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIFrame.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIGate.h" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIMerge.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIMetadata.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIScan.h" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIStitch.h" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBITrim.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIUtils.h" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Mobilion\MBIWrapper.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Shimadzu\ShimadzuReader.hpp" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Bruker\TimsData.hpp" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\thermo\RawFile.h" />
@@ -1350,6 +1399,7 @@
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\thermo\ScanFilter.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\UIMF\UIMFReader.hpp" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\UNIFI\UnifiData.hpp" />
+    <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\UNIFI\WatersConnectProtobuf.hpp" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Waters\MassLynxRaw.hpp" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Waters\MassLynxRawChromatogramReader.h" />
     <ClInclude Include="pwiz_aux\msrc\utility\vendor_api\Waters\MassLynxRawDataFile.h" />

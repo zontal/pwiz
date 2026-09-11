@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -30,7 +30,7 @@ namespace pwiz.Common.DataBinding
         {
         }
         public ColumnPropertyDescriptor(DisplayColumn displayColumn, string name, PropertyPath propertyPath, PivotKey pivotKey)
-            : base(name, displayColumn.GetColumnCaption(pivotKey), displayColumn.DataSchema.DataSchemaLocalizer, displayColumn.GetAttributes(pivotKey).ToArray())
+            : base(name, displayColumn.GetColumnCaption(pivotKey), displayColumn.DataSchema, displayColumn.GetAttributes(pivotKey).ToArray())
         {
             DisplayColumn = displayColumn;
             PropertyPath = propertyPath;
@@ -108,6 +108,11 @@ namespace pwiz.Common.DataBinding
 
                 return new PivotedColumnId(PivotKey, pivotCaption, DisplayColumn.PropertyPath, DisplayColumn.GetColumnCaption(null));
             }
+        }
+
+        public override bool CanBeFiltered(IFilterOperation filterOperation)
+        {
+            return filterOperation.IsValidFor(DisplayColumn.ColumnDescriptor);
         }
 
         #region Equality Members

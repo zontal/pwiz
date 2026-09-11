@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -45,6 +45,7 @@ namespace pwiz.Skyline.Util
             if (ExecutesJobOnBackgroundThread)
             {
                 RunOnBackgroundThread(action);
+                return;
             }
             RunOnThisThread(action);
         }

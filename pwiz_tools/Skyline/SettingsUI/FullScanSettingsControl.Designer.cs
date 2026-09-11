@@ -1,4 +1,4 @@
-﻿namespace pwiz.Skyline.SettingsUI
+namespace pwiz.Skyline.SettingsUI
 {
     partial class FullScanSettingsControl
     {
@@ -43,12 +43,12 @@
             this.radioUseSchedulingWindow = new System.Windows.Forms.RadioButton();
             this.radioKeepAllTime = new System.Windows.Forms.RadioButton();
             this.groupBoxMS1 = new System.Windows.Forms.GroupBox();
-            this.cbIgnoreSim = new System.Windows.Forms.CheckBox();
             this.labelPrecursorPPM = new System.Windows.Forms.Label();
             this.comboEnrichments = new System.Windows.Forms.ComboBox();
             this.labelEnrichments = new System.Windows.Forms.Label();
             this.labelPrecursorIsotopeFilterPercent = new System.Windows.Forms.Label();
             this.textPrecursorIsotopeFilter = new System.Windows.Forms.TextBox();
+            this.cbIncludeMinusOnePrecursor = new System.Windows.Forms.CheckBox();
             this.labelPrecursorIsotopeFilter = new System.Windows.Forms.Label();
             this.label23 = new System.Windows.Forms.Label();
             this.comboPrecursorIsotopes = new System.Windows.Forms.ComboBox();
@@ -167,7 +167,6 @@
             // 
             // groupBoxMS1
             // 
-            this.groupBoxMS1.Controls.Add(this.cbIgnoreSim);
             this.groupBoxMS1.Controls.Add(this.labelPrecursorPPM);
             this.groupBoxMS1.Controls.Add(this.comboEnrichments);
             this.groupBoxMS1.Controls.Add(this.labelEnrichments);
@@ -183,16 +182,10 @@
             this.groupBoxMS1.Controls.Add(this.labelPrecursorRes);
             this.groupBoxMS1.Controls.Add(this.comboPrecursorAnalyzerType);
             this.groupBoxMS1.Controls.Add(this.label32);
+            this.groupBoxMS1.Controls.Add(this.cbIncludeMinusOnePrecursor);
             resources.ApplyResources(this.groupBoxMS1, "groupBoxMS1");
             this.groupBoxMS1.Name = "groupBoxMS1";
             this.groupBoxMS1.TabStop = false;
-            // 
-            // cbIgnoreSim
-            // 
-            resources.ApplyResources(this.cbIgnoreSim, "cbIgnoreSim");
-            this.cbIgnoreSim.Name = "cbIgnoreSim";
-            this.toolTip.SetToolTip(this.cbIgnoreSim, resources.GetString("cbIgnoreSim.ToolTip"));
-            this.cbIgnoreSim.UseVisualStyleBackColor = true;
             // 
             // labelPrecursorPPM
             // 
@@ -221,6 +214,12 @@
             // 
             resources.ApplyResources(this.textPrecursorIsotopeFilter, "textPrecursorIsotopeFilter");
             this.textPrecursorIsotopeFilter.Name = "textPrecursorIsotopeFilter";
+            // 
+            // cbIncludeMinusOnePrecursor
+            // 
+            resources.ApplyResources(this.cbIncludeMinusOnePrecursor, "cbIncludeMinusOnePrecursor");
+            this.cbIncludeMinusOnePrecursor.Name = "cbIncludeMinusOnePrecursor";
+            this.cbIncludeMinusOnePrecursor.UseVisualStyleBackColor = true;
             // 
             // labelPrecursorIsotopeFilter
             // 
@@ -442,6 +441,7 @@
         private System.Windows.Forms.Label labelEnrichments;
         private System.Windows.Forms.Label labelPrecursorIsotopeFilterPercent;
         private System.Windows.Forms.TextBox textPrecursorIsotopeFilter;
+        private System.Windows.Forms.CheckBox cbIncludeMinusOnePrecursor;
         private System.Windows.Forms.Label labelPrecursorIsotopeFilter;
         private System.Windows.Forms.Label label23;
         private System.Windows.Forms.ComboBox comboPrecursorIsotopes;
@@ -475,6 +475,5 @@
         private System.Windows.Forms.Label labelProductPPM;
         private System.Windows.Forms.CheckBox cbHighSelectivity;
         private IonMobility.IonMobilityFilteringUserControl usercontrolIonMobilityFiltering;
-        private System.Windows.Forms.CheckBox cbIgnoreSim;
     }
 }

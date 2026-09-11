@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Dario Amodei <damodei .at. standard.edu>,
  *                  Mallick Lab, Department of Radiology, Stanford
  *
@@ -111,9 +111,20 @@ namespace pwiz.SkylineTest
                 }
                 SaveMProphetFeatures(resultsHandler, mProphetActual, CultureInfo.CurrentCulture, calcs);
                 AssertEx.FileEquals(mProphetExpected, mProphetActual);
+                // ReplicateName is the last column (after the variable-length feature columns) so that adding
+                // it does not shift any existing column index for position-based downstream parsers.
+                AssertEx.IsTrue(File.ReadLines(mProphetActual).First().EndsWith(MProphetResultsHandler.REPLICATE_NAME_COLUMN));
 
                 // 4. Export mProphet -> Import Peak Boundaries leads to same result as reintegrate
-                var resultsHandlerQAll = new MProphetResultsHandler(docOriginal, peakScoringModel) { QValueCutoff = 1.0 };
+                
+                // Remove RWSSIPLSQLHLI because its truncation values change between 24.11 and 24.12
+                // That is the ChromPeak.Truncated value stored in the .skyd file is different from
+                // what gets recalculated during peak boundary import.
+                var pepRemovePath = docOriginal.EnumeratePathsAtLevel(IdentityPath.ROOT, SrmDocument.Level.Molecules)
+                    .First(path => path.Child is Peptide { Sequence: @"RWSSIPLSQLHLI" });
+                var docRemoved = (SrmDocument) docOriginal.RemoveChild(pepRemovePath.Parent, docOriginal.FindNode(pepRemovePath));
+
+                var resultsHandlerQAll = new MProphetResultsHandler(docRemoved, peakScoringModel) { QValueCutoff = 1.0 };
                 resultsHandlerQAll.ScoreFeatures();
                 var docNewQAll = resultsHandlerQAll.ChangePeaks();
                 var peakBoundaryImporter = new PeakBoundaryImporter(docNewQAll);

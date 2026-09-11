@@ -64,6 +64,9 @@ bld/
 
 # Visual Studio 2015/2017 cache/options directory
 .vs/
+
+# Claude Code local settings (user-specific allowed commands)
+.claude/settings.local.json
 # Uncomment if you have tasks that create the project's static files in wwwroot
 #wwwroot/
 
@@ -171,6 +174,9 @@ _TeamCity*
 *.coverage
 *.coveragexml
 
+# Visual Studio test playlists
+*.playlist
+
 # NCrunch
 _NCrunch_*
 .*crunch*.local.xml
@@ -223,6 +229,11 @@ PublishScripts/
 # NuGet v3's project.json files produces more ignorable files
 *.nuget.props
 *.nuget.targets
+# Spurious NuGet.Config regenerated in a .nuget folder nested inside another
+# .nuget folder (seen only on some machines, e.g. idpicker/.nuget/.nuget/); never
+# part of the project. Anchored to the nested case so the tracked top-level
+# idpicker/.nuget/ files (NuGet.Config, NuGet.exe, NuGet.targets) are unaffected.
+**/.nuget/.nuget/
 
 # Microsoft Azure Build Output
 csx/
@@ -360,26 +371,37 @@ ASALocalRun/
 # NVidia Nsight GPU debugger configuration file
 *.nvuser
 
-/build-nt-x86
+# Ephemeral LLM browser-to-IDE handoff files (usually *.md)
+/ai/.tmp/
+
+build-nt-x86
+/src_subset
 /*.log
+/bs*.bat
 /libraries/boost_1_*
 /libraries/expat*
 /libraries/hdf5*
 /libraries/freetype*
 /libraries/libgd*
 /libraries/libpng*
-/libraries/msparser_2_8_1_x86_win64
+/libraries/msparser_*_win64
+/libraries/msparser_*_linux64
 /libraries/zlib*
+/libraries/zstd*
 Version.cpp
 /pwiz_tools/BiblioSpec/tests/inputs
 /pwiz_tools/BiblioSpec/tests/output
 /pwiz_tools/SeeMS/**/AssemblyInfo.cs
 /pwiz_tools/MSConvertGUI/**/AssemblyInfo.cs
+/pwiz_tools/Osprey/**/AssemblyInfo.cs
+/pwiz_tools/Osprey/dist/
 /pwiz_tools/Bumbershoot/**/*Version.cpp
 /pwiz_tools/Bumbershoot/**/AssemblyInfo.cpp
 /pwiz_tools/Bumbershoot/**/AssemblyInfo.cs
 /pwiz_tools/Bumbershoot/idpicker/Resources/Resources.*
-/pwiz_tools/Skyline/Executables/SkylineBatch/SkylineBatch/Properties/AssemblyInfo.cs
+/pwiz/utility/bindings/CLI/example/binaries
+/artifact_xml
+/jetbrains.dotcover.commandlinetools/*
 
 # Vendor reader test data extracted from tarballs (newer data should be committed directly to git)
 /pwiz/data/vendor_readers/*/Reader*Test.data/**/1SRef
@@ -391,6 +413,7 @@ Version.cpp
 /pwiz_aux/msrc/utility/vendor_api/**/*.dll
 /pwiz_aux/msrc/utility/vendor_api/*/EULA.*
 /pwiz_aux/msrc/utility/vendor_api/ABI/LicenseKey.h
+/pwiz_aux/msrc/utility/vendor_api/ABI/SCIEX.Apis.Data.v1.xml
 /pwiz_aux/msrc/utility/vendor_api/Agilent/x64/
 /pwiz_aux/msrc/utility/vendor_api/Agilent/x86/
 /pwiz_aux/msrc/utility/vendor_api/Bruker/BAF2SQL-README.txt
@@ -399,9 +422,12 @@ Version.cpp
 /pwiz_aux/msrc/utility/vendor_api/Bruker/x64/
 /pwiz_aux/msrc/utility/vendor_api/Bruker/x86/
 /pwiz_aux/msrc/utility/vendor_api/Bruker/**/*.h
+/pwiz_aux/msrc/utility/vendor_api/Bruker/**.SxS.manifest
+/pwiz_aux/msrc/utility/vendor_api/Mobilion/*.h
 /pwiz_aux/msrc/utility/vendor_api/Shimadzu/*.xml
 /pwiz_aux/msrc/utility/vendor_api/Shimadzu/*.txt
 /pwiz_aux/msrc/utility/vendor_api/Waters/MassLynx*.h*
+/pwiz_aux/msrc/utility/vendor_api/thermo/x64
 /pwiz_aux/msrc/utility/vendor_api/thermo/ThermoFisher.CommonCore.RawFileReader.xml
 /pwiz_aux/msrc/utility/vendor_api/thermo/ThermoFisher.CommonCore.MassPrecisionEstimator.xml
 /pwiz_aux/msrc/utility/vendor_api/thermo/ThermoFisher.CommonCore.Data.xml
@@ -412,52 +438,68 @@ Version.cpp
 /pwiz_tools/Skyline/ProtocolBuffers/tmp/*.cs
 /pwiz_tools/Skyline/SkylineTester test list.txt
 /pwiz_tools/Skyline/SkylineTester.log
+# Starting a run rolls the previous log aside to SkylineTester-<timestamp>.log beside it.
+/pwiz_tools/Skyline/SkylineTester-*.log
 SkylineTester Results
+/b.bat
 /b64.bat
 /b32.bat
+/bo*.bat
+/bs.bat
 /bs64.bat
 /bs32.bat
 /bso64.bat
 /bso32.bat
+/qb64.bat
 /SignAfterPublishPW.bat
-/OnyxTOFMS.试验.wiff.scan
-/160109_Mix1_calcurve_074_raw.skyl
-/160109_Mix1_calcurve_074_raw.skyd
-/160109_Mix1_calcurve_074_raw
-/160109_Mix1_calcurve_073_mzML.skyl
-/160109_Mix1_calcurve_073_mzML.skyd
-/160109_Mix1_calcurve_073_mzML
-/160109_Mix1_calcurve_071_raw.skyl
-/160109_Mix1_calcurve_071_raw.skyd
-/160109_Mix1_calcurve_071_raw
-/160109_Mix1_calcurve_070_mzML.skyl
-/160109_Mix1_calcurve_070_mzML.skyd
-/160109_Mix1_calcurve_070_mzML
-/REP02_CE_Vantage_15mTorr_0001_REP2_02_raw.skyl
-/REP02_CE_Vantage_15mTorr_0001_REP2_02_raw.skyd
-/REP02_CE_Vantage_15mTorr_0001_REP2_02_raw
-/REP02_CE_Vantage_15mTorr_0001_REP2_01_raw.skyl
-/REP02_CE_Vantage_15mTorr_0001_REP2_01_raw.skyd
-/REP02_CE_Vantage_15mTorr_0001_REP2_01_raw
-/REP01_CE_Vantage_15mTorr_0001_REP1_02_raw.skyl
-/REP01_CE_Vantage_15mTorr_0001_REP1_02_raw.skyd
-/REP01_CE_Vantage_15mTorr_0001_REP1_02_raw
-/REP01_CE_Vantage_15mTorr_0001_REP1_01_raw.skyl
-/REP01_CE_Vantage_15mTorr_0001_REP1_01_raw.skyd
-/REP01_CE_Vantage_15mTorr_0001_REP1_01_raw
+/160109_Mix1_calcurve_074_raw*
+/160109_Mix1_calcurve_073_mzML*
+/160109_Mix1_calcurve_071_raw*
+/160109_Mix1_calcurve_070_mzML*
+/REP02_CE_Vantage_15mTorr_0001_REP2_02_raw*
+/REP02_CE_Vantage_15mTorr_0001_REP2_01_raw*
+/REP01_CE_Vantage_15mTorr_0001_REP1_02_raw*
+/REP01_CE_Vantage_15mTorr_0001_REP1_01_raw*
 /pwiz_tools/Skyline/Properties/AssemblyInfo.cs
 /pwiz_tools/Skyline/SkylineCmd/Properties/AssemblyInfo.cs
 /pwiz_tools/Skyline/SkylineNightly/Properties/AssemblyInfo.cs
 /pwiz_tools/Skyline/SkylineNightlyShim/Properties/AssemblyInfo.cs
 /pwiz_tools/Skyline/SkylineTester/Properties/AssemblyInfo.cs
 /pwiz_tools/Skyline/TestRunner/Properties/AssemblyInfo.cs
+/pwiz_tools/Skyline/Executables/SkylineBatch/SkylineBatch/Properties/AssemblyInfo.cs
+/pwiz_tools/Skyline/Executables/AutoQC/AutoQC/Properties/AssemblyInfo.cs
+/pwiz_tools/Skyline/Executables/Tools/SkylineMcp/SkylineAiConnector/Properties/AssemblyInfo.cs
+/pwiz_tools/Skyline/Executables/Tools/SkylineMcp/SkylineMcpServer/Properties/AssemblyInfo.cs
 /pwiz_tools/Skyline/Executables/Installer/FileList64.txt
 /pwiz_tools/Skyline/TestSettings_x??.testsettings
 /pwiz_tools/Skyline/SignAfterPublishPW.bat
 /BrowseOnly
 /x64/BrowseOnly
-/qb64.bat
 /pwiz_tools/Skyline/Test/ProtocolBuffers/GeneratedCode/*.cs
 /pwiz_tools/Skyline/Test/ProtocolBuffers/tmp/*.cs
 /pwiz_tools/Skyline/Test/ProtocolBuffers/tmp
-/pwiz_aux/msrc/utility/vendor_api/ABI/SCIEX.Apis.Data.v1.xml
+/SearchControlLog.txt
+
+# created by WIFF2 SDK in working directory
+/UserSettings.data
+/UserSettings.data-journal
+
+# created by TeamCity for Skyline versions that need PrositConfig.xml
+/pwiz_tools/Skyline/Model/Prosit/
+
+# created by older versions of the code in the working directory
+/Enolase_repeats_AQv1.4.2*
+/PressureTrace1*
+/7600ZenoTOFMSMS*
+/swath.api*
+/timstof_prm_scheduler.prmsqlite
+
+# created by tc-perftests.bat
+/perfTestNames.txt
+/tutorialTestNames.txt
+/tests.txt
+/pwiz_tools/Skyline/Translation/Scratch
+
+# AI tooling junction (created by build with --ai flag)
+/.claude
+ai/

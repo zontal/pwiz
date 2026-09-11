@@ -72,10 +72,13 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             this.ddaSearchSettingsPage = new System.Windows.Forms.TabPage();
             this.searchSettingsTitlePanel = new System.Windows.Forms.Panel();
             this.lblSearchSettings = new System.Windows.Forms.Label();
-            this.ddaSearch = new System.Windows.Forms.TabPage();
+            this.ddaSearchPage = new System.Windows.Forms.TabPage();
             this.ddaSearchTitlePanel = new System.Windows.Forms.Panel();
             this.lblDDASearch = new System.Windows.Forms.Label();
             this.btnBack = new System.Windows.Forms.Button();
+            this.lblSettingsPreset = new System.Windows.Forms.Label();
+            this.cbSettingsPreset = new System.Windows.Forms.ComboBox();
+            this.btnSavePreset = new System.Windows.Forms.Button();
             this.wizardPagesImportPeptideSearch.SuspendLayout();
             this.buildSearchSpecLibPage.SuspendLayout();
             this.buildSpectralLibraryTitlePanel.SuspendLayout();
@@ -93,7 +96,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             this.converterSettingsTitlePanel.SuspendLayout();
             this.ddaSearchSettingsPage.SuspendLayout();
             this.searchSettingsTitlePanel.SuspendLayout();
-            this.ddaSearch.SuspendLayout();
+            this.ddaSearchPage.SuspendLayout();
             this.ddaSearchTitlePanel.SuspendLayout();
             this.SuspendLayout();
             // 
@@ -236,9 +239,10 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             this.wizardPagesImportPeptideSearch.Controls.Add(this.importFastaPage);
             this.wizardPagesImportPeptideSearch.Controls.Add(this.converterSettingsPage);
             this.wizardPagesImportPeptideSearch.Controls.Add(this.ddaSearchSettingsPage);
-            this.wizardPagesImportPeptideSearch.Controls.Add(this.ddaSearch);
+            this.wizardPagesImportPeptideSearch.Controls.Add(this.ddaSearchPage);
             this.wizardPagesImportPeptideSearch.Name = "wizardPagesImportPeptideSearch";
             this.wizardPagesImportPeptideSearch.SelectedIndex = 0;
+            this.wizardPagesImportPeptideSearch.TabStop = false;
             // 
             // buildSearchSpecLibPage
             // 
@@ -419,12 +423,12 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             this.lblSearchSettings.ForeColor = System.Drawing.SystemColors.ControlText;
             this.lblSearchSettings.Name = "lblSearchSettings";
             // 
-            // ddaSearch
+            // ddaSearchPage
             // 
-            this.ddaSearch.Controls.Add(this.ddaSearchTitlePanel);
-            resources.ApplyResources(this.ddaSearch, "ddaSearch");
-            this.ddaSearch.Name = "ddaSearch";
-            this.ddaSearch.UseVisualStyleBackColor = true;
+            this.ddaSearchPage.Controls.Add(this.ddaSearchTitlePanel);
+            resources.ApplyResources(this.ddaSearchPage, "ddaSearchPage");
+            this.ddaSearchPage.Name = "ddaSearchPage";
+            this.ddaSearchPage.UseVisualStyleBackColor = true;
             // 
             // ddaSearchTitlePanel
             // 
@@ -447,11 +451,32 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             this.btnBack.UseVisualStyleBackColor = true;
             this.btnBack.Click += new System.EventHandler(this.btnBack_Click);
             // 
+            // lblSettingsPreset
+            // 
+            resources.ApplyResources(this.lblSettingsPreset, "lblSettingsPreset");
+            this.lblSettingsPreset.Name = "lblSettingsPreset";
+            // 
+            // cbSettingsPreset
+            // 
+            resources.ApplyResources(this.cbSettingsPreset, "cbSettingsPreset");
+            this.cbSettingsPreset.DropDownStyle = System.Windows.Forms.ComboBoxStyle.DropDownList;
+            this.cbSettingsPreset.FormattingEnabled = true;
+            this.cbSettingsPreset.Name = "cbSettingsPreset";
+            // 
+            // btnSavePreset
+            // 
+            resources.ApplyResources(this.btnSavePreset, "btnSavePreset");
+            this.btnSavePreset.Name = "btnSavePreset";
+            this.btnSavePreset.UseVisualStyleBackColor = true;
+            // 
             // ImportPeptideSearchDlg
             // 
             resources.ApplyResources(this, "$this");
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.btnCancel;
+            this.Controls.Add(this.btnSavePreset);
+            this.Controls.Add(this.cbSettingsPreset);
+            this.Controls.Add(this.lblSettingsPreset);
             this.Controls.Add(this.btnBack);
             this.Controls.Add(this.btnEarlyFinish);
             this.Controls.Add(this.wizardPagesImportPeptideSearch);
@@ -479,13 +504,18 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             this.ms1FullScanSettingsTitlePanel.PerformLayout();
             this.importFastaPage.ResumeLayout(false);
             this.importFASTATitlePanel.ResumeLayout(false);
+            this.importFASTATitlePanel.PerformLayout();
             this.converterSettingsPage.ResumeLayout(false);
             this.converterSettingsTitlePanel.ResumeLayout(false);
+            this.converterSettingsTitlePanel.PerformLayout();
             this.ddaSearchSettingsPage.ResumeLayout(false);
             this.searchSettingsTitlePanel.ResumeLayout(false);
-            this.ddaSearch.ResumeLayout(false);
+            this.searchSettingsTitlePanel.PerformLayout();
+            this.ddaSearchPage.ResumeLayout(false);
             this.ddaSearchTitlePanel.ResumeLayout(false);
+            this.ddaSearchTitlePanel.PerformLayout();
             this.ResumeLayout(false);
+            this.PerformLayout();
 
         }
 
@@ -531,11 +561,14 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
         private System.Windows.Forms.TabPage ddaSearchSettingsPage;
         private System.Windows.Forms.Panel searchSettingsTitlePanel;
         private System.Windows.Forms.Label lblSearchSettings;
-        private System.Windows.Forms.TabPage ddaSearch;
+        private System.Windows.Forms.TabPage ddaSearchPage;
         private System.Windows.Forms.Panel ddaSearchTitlePanel;
         private System.Windows.Forms.Label lblDDASearch;
         private System.Windows.Forms.TabPage converterSettingsPage;
         private System.Windows.Forms.Panel converterSettingsTitlePanel;
         private System.Windows.Forms.Label label2;
+        private System.Windows.Forms.Label lblSettingsPreset;
+        private System.Windows.Forms.ComboBox cbSettingsPreset;
+        private System.Windows.Forms.Button btnSavePreset;
     }
 }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Tobias Rohde <tobiasr .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -20,6 +20,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
@@ -82,14 +83,14 @@ namespace pwiz.SkylineTestFunctional
 
             var unlocalizedMessageTypes = GetUnlocalizedMessageTypes();
             if (unlocalizedMessageTypes.Any())
-                Assert.Fail("The following properties are unlocalized:\n" + string.Join("\n", unlocalizedMessageTypes));
+                Assert.Fail("The following message types are unlocalized (not found in AuditLogStrings.ResourceManager):\n" + string.Join("\n", unlocalizedMessageTypes));
 
             //var unlocalized = GetUnlocalizedProperties(RootProperty.Create(typeof(SrmSettings), "Settings"), PropertyPath.Root);
             var unlocalized = GetAllUnlocalizedProperties(typeof(AuditLogEntry))
                 .Concat(GetAllUnlocalizedProperties(typeof(RowItem)))
                 .Concat(GetAllUnlocalizedProperties(typeof(ImmutableList))).ToList();
             if (unlocalized.Any())
-                Assert.Fail("The following properties are unlocalized:\n" + string.Join("\n", unlocalized));
+                Assert.Fail("The following properties are unlocalized (not found in PropertyNames.ResourceManager or EnumNames.ResourceManager):\n" + string.Join("\n", unlocalized));
         }
 
         private void VerifyStringLocalization(string expected, string unlocalized, SrmDocument.DOCUMENT_TYPE modeUI = SrmDocument.DOCUMENT_TYPE.none)
@@ -358,7 +359,9 @@ namespace pwiz.SkylineTestFunctional
             RunFunctionalTest();
         }
 
-        private static bool IsRecordMode { get { return false; } }
+        public static bool IsRecordModeStatic => false; // Necessary for AuditLogEntry to call
+
+        protected override bool IsRecordMode => IsRecordModeStatic;
 
         protected override void DoTest()
         {
@@ -499,6 +502,38 @@ namespace pwiz.SkylineTestFunctional
                 Assert.AreEqual("Reason 3", GetAuditLogEntryFromRow(auditLogForm, 3).Reason);
                 Assert.AreEqual("Reason 4", GetAuditLogEntryFromRow(auditLogForm, 3).AllInfo[1].Reason);
             });
+
+            VerifyLoggingSurvivesLockedLogFile(auditLogForm);
+        }
+
+        /// <summary>
+        /// The test harness records every document change to a log file, opening and closing it once per
+        /// entry, so verify that this survives another process holding that file open the way virus
+        /// scanners and file indexers do. A failure to append surfaces as a message box from
+        /// SkylineWindow.ModifyDocument that no test is expecting.
+        /// </summary>
+        private void VerifyLoggingSurvivesLockedLogFile(AuditLogForm auditLogForm)
+        {
+            var logFilePath = RecordedAuditLogFilePath;
+            Assert.IsTrue(File.Exists(logFilePath), "no audit log recorded at {0}", logFilePath);
+            long lengthBeforeLock = new FileInfo(logFilePath).Length;
+
+            using (File.Open(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+            {
+                RunUI(() => ChangeReason(auditLogForm, "Reason", 3, "Reason 5"));
+                AuditLogUtil.WaitForAuditLogForm(auditLogForm);
+                RunUI(() => Assert.AreEqual("Reason 5", GetAuditLogEntryFromRow(auditLogForm, 3).Reason));
+
+                // The reason change must have made it into the log file that is being held open
+                string appended;
+                using (var stream = File.Open(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                {
+                    stream.Seek(lengthBeforeLock, SeekOrigin.Begin);
+                    using (var reader = new StreamReader(stream))
+                        appended = reader.ReadToEnd();
+                }
+                StringAssert.Contains(appended, "Reason 5");
+            }
         }
 
         private static AuditLogEntry GetAuditLogEntryFromRow(AuditLogForm form, int row)
@@ -573,7 +608,7 @@ namespace pwiz.SkylineTestFunctional
                 var newestEntry = GetNewestEntry();
                 //PauseTest(newestEntry.UndoRedo.ToString());
 
-                if (IsRecordMode)
+                if (IsRecordModeStatic)
                 {
                     Console.WriteLine(AuditLogUtil.AuditLogEntryToCode(newestEntry));
                     return;

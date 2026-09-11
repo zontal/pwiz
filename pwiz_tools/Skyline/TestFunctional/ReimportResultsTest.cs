@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -69,6 +69,10 @@ namespace pwiz.SkylineTestFunctional
                 Assert.AreEqual(peak1.Item1, transitionChromInfo.StartRetentionTime, deltaRetentionTime);
                 Assert.AreEqual(peak1.Item2, transitionChromInfo.EndRetentionTime, deltaRetentionTime);
                 Assert.AreEqual(expectedArea1, transitionChromInfo.Area, 10);
+                // The shape correlation (and other peak shape values) must be present after
+                // manually adjusting the peak boundaries
+                Assert.IsNotNull(transitionChromInfo.PeakShapeValues);
+                Assert.AreEqual(0.9995, transitionChromInfo.PeakShapeValues.Value.ShapeCorrelation, 1e-4);
 
                 SkylineWindow.SelectedPath =
                     SkylineWindow.Document.GetPathTo((int) SrmDocument.Level.Transitions, 1);

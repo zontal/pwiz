@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Windows.Forms;
 using SharedBatch;
@@ -9,17 +9,15 @@ namespace SkylineBatch
     public partial class RemoteFileForm : Form
     {
         private CancellationTokenSource _cancelSource;
-        private IMainUiControl _mainControl;
 
         public RemoteFileForm(Server editingServer, string path, string title, IMainUiControl mainControl, SkylineBatchConfigManagerState state, bool templateFile = false)
         {
             InitializeComponent();
             Icon = Program.Icon();
 
-            path = path ?? string.Empty;
-            _mainControl = mainControl;
+            path ??= string.Empty;
             // fileRequired was originally false here, check if changing to true broke anything
-            RemoteFileControl = new RemoteFileControl(_mainControl, state, editingServer, FileUtil.GetPathDirectory(path), true, true, templateFile);
+            RemoteFileControl = new RemoteFileControl(mainControl, state, editingServer, FileUtil.GetPathDirectory(path), true, true, templateFile);
             RemoteFileControl.Dock = DockStyle.Fill;
             RemoteFileControl.Show();
             panelRemoteFile.Controls.Add(RemoteFileControl);
@@ -43,7 +41,7 @@ namespace SkylineBatch
             // Remove this when FTP sources supported
             if (RemoteFileControl.ServerFromUi().FileSource.FtpSource)
             {
-                AlertDlg.ShowError(this, Program.AppName(), 
+                AlertDlg.ShowError(this, 
                     Resources.RemoteFileForm_btnSave_Click_This_file_type_does_not_support_downloads_from_an_FTP_file_source__Please_download_this_file_from_Panorama_);
                 return;
             }
@@ -61,7 +59,7 @@ namespace SkylineBatch
             if (cancelled || error != null)
             {
                 if (error != null)
-                    RunUi(() => { AlertDlg.ShowError(this, Program.AppName(), error.Message); });
+                    RunUi(() => { AlertDlg.ShowError(this, error.Message); });
                 RunUi(() =>
                 {
                     btnSave.Enabled = true;

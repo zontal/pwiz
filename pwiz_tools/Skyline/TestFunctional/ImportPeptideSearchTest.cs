@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Kaipo Tamura <kaipot .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -139,8 +139,8 @@ namespace pwiz.SkylineTestFunctional
             RunUI(() =>
             {
                 // Define expected matched/unmatched modifications
-                var expectedMatched = new List<string> { "Acetyl (T)", "Carbamyl (K)", "GIST-Quat:2H(9) (N-term)" };
-                var expectedUnmatched = new List<string> { "R[+114.04293]" };
+                var expectedMatched = new List<string> { "Acetyl (T)", "Carbamyl (K)", "Dicarbamidomethyl (R)", "GIST-Quat:2H(9) (N-term)" };
+                var expectedUnmatched = new List<string>();
                 
                 // Verify matched/unmatched modifications
                 Assert.IsTrue(importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.match_modifications_page);
@@ -405,7 +405,7 @@ namespace pwiz.SkylineTestFunctional
                 Assert.AreEqual(0, missingResults.Length);
 
                 // Check exclude spectrum source files
-                Assert.IsTrue(importResultsControl.ExcluedSpectrumSourceFilesVisible);
+                Assert.IsTrue(importResultsControl.ExcludeSpectrumSourceFilesVisible);
                 importResultsControl.ExcludeSpectrumSourceFiles = true;
 
                 // The test files directory contains modless.raw, but no file with the same
@@ -502,7 +502,7 @@ namespace pwiz.SkylineTestFunctional
             });
             var peptidesPerProteinDlg2 = ShowDialog<AssociateProteinsDlg>(importPeptideSearchDlg.ClickNextButtonNoCheck);
             WaitForConditionUI(() => peptidesPerProteinDlg2.DocumentFinalCalculated);
-            int proteins, peptides, precursors, transitions;
+            int proteins, peptides, precursors, transitions, unmappedOrRemoved;
             RunUI(() =>
             {
                 //Assert.IsTrue(peptidesPerProteinDlg2.DuplicateControlsVisible);
@@ -517,69 +517,73 @@ namespace pwiz.SkylineTestFunctional
             WaitForConditionUI(() => peptidesPerProteinDlg2.DocumentFinalCalculated);
             RunUI(() =>
             {
-                peptidesPerProteinDlg2.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions);
+                peptidesPerProteinDlg2.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions, out unmappedOrRemoved);
                 Assert.AreEqual(3, proteins);
                 Assert.AreEqual(4, peptides);
                 Assert.AreEqual(4, precursors);
                 Assert.AreEqual(12, transitions);
+                Assert.AreEqual(1, unmappedOrRemoved);
                 peptidesPerProteinDlg2.RemoveRepeatedPeptides = true;
             });
             WaitForConditionUI(() => peptidesPerProteinDlg2.DocumentFinalCalculated);
             RunUI(() =>
             {
-                peptidesPerProteinDlg2.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions);
+                peptidesPerProteinDlg2.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions, out unmappedOrRemoved);
                 Assert.AreEqual(2, proteins);
                 Assert.AreEqual(2, peptides);
                 Assert.AreEqual(2, precursors);
                 Assert.AreEqual(6, transitions);
+                Assert.AreEqual(1, unmappedOrRemoved);
                 peptidesPerProteinDlg2.RemoveRepeatedPeptides = false;
                 peptidesPerProteinDlg2.RemoveDuplicatePeptides = true;
             });
             WaitForConditionUI(() => peptidesPerProteinDlg2.DocumentFinalCalculated);
             RunUI(() =>
             {
-                peptidesPerProteinDlg2.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions);
+                peptidesPerProteinDlg2.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions, out unmappedOrRemoved);
                 Assert.AreEqual(0, proteins);
                 Assert.AreEqual(0, peptides);
                 Assert.AreEqual(0, precursors);
                 Assert.AreEqual(0, transitions);
+                Assert.AreEqual(1, unmappedOrRemoved);
             });
             OkDialog(peptidesPerProteinDlg2, peptidesPerProteinDlg2.CancelDialog);
             RunUI(() => importPeptideSearchDlg.ImportFastaControl.SetFastaContent(GetTestPath("yeast-10.fasta")));
 
             var peptidesPerProteinDlg = ShowDialog<AssociateProteinsDlg>(importPeptideSearchDlg.ClickNextButtonNoCheck);
+            RunUI(() => { peptidesPerProteinDlg.MinPeptides = 1; });
+            WaitForConditionUI(() => peptidesPerProteinDlg.IsComplete);
             RunUI(() =>
             {
-                //int? emptyProteins;
-                //Assert.IsFalse(peptidesPerProteinDlg.DuplicateControlsVisible);
-                /*peptidesPerProteinDlg.MinPeptides = 0;
-                peptidesPerProteinDlg.NewTargetsAll(out proteins, out peptides, out precursors, out transitions);
-                Assert.AreEqual(11, proteins);
-                Assert.AreEqual(2, peptides);
-                Assert.AreEqual(2, precursors);
-                Assert.AreEqual(6, transitions);
-                peptidesPerProteinDlg.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions, out emptyProteins);
-                Assert.AreEqual(9, emptyProteins);*/
-                peptidesPerProteinDlg.MinPeptides = 2;
-            });
-            WaitForConditionUI(() => peptidesPerProteinDlg2.DocumentFinalCalculated);
-            RunUI(() =>
-            {
-                peptidesPerProteinDlg.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions);
-                Assert.AreEqual(0, proteins);
-                Assert.AreEqual(0, peptides);
-                Assert.AreEqual(0, precursors);
-                Assert.AreEqual(0, transitions);
-                peptidesPerProteinDlg.MinPeptides = 1;
-            });
-            WaitForConditionUI(() => peptidesPerProteinDlg2.DocumentFinalCalculated);
-            RunUI(() =>
-            {
-                peptidesPerProteinDlg.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions);
+                peptidesPerProteinDlg.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions,
+                    out unmappedOrRemoved);
                 Assert.AreEqual(2, proteins);
                 Assert.AreEqual(2, peptides);
                 Assert.AreEqual(2, precursors);
                 Assert.AreEqual(6, transitions);
+                Assert.AreEqual(1, unmappedOrRemoved);
+                peptidesPerProteinDlg.MinPeptides = 2;
+            });
+            WaitForConditionUI(() => peptidesPerProteinDlg.DocumentFinalCalculated);
+            RunUI(() =>
+            {
+                peptidesPerProteinDlg.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions, out unmappedOrRemoved);
+                Assert.AreEqual(0, proteins);
+                Assert.AreEqual(0, peptides);
+                Assert.AreEqual(0, precursors);
+                Assert.AreEqual(0, transitions);
+                Assert.AreEqual(1, unmappedOrRemoved);
+                peptidesPerProteinDlg.MinPeptides = 1;
+            });
+            WaitForConditionUI(() => peptidesPerProteinDlg.DocumentFinalCalculated);
+            RunUI(() =>
+            {
+                peptidesPerProteinDlg.NewTargetsFinalSync(out proteins, out peptides, out precursors, out transitions, out unmappedOrRemoved);
+                Assert.AreEqual(2, proteins);
+                Assert.AreEqual(2, peptides);
+                Assert.AreEqual(2, precursors);
+                Assert.AreEqual(6, transitions);
+                Assert.AreEqual(1, unmappedOrRemoved);
             });
             // The AllChromatogramsGraph will immediately show an error because the file being imported is bogus.
             var importResultsDlg = ShowDialog<AllChromatogramsGraph>(peptidesPerProteinDlg.OkDialog);

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -191,7 +191,7 @@ namespace pwiz.Skyline.Model.DocSettings.MetadataExtraction
             return null;
         }
 
-        string IKeyContainer<string>.GetKey()
+        public string GetKey()
         {
             return Name;
         }

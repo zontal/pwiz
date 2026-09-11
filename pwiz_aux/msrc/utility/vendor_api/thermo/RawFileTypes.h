@@ -114,6 +114,7 @@ enum PWIZ_API_DECL InstrumentModelType
     InstrumentModelType_Q_Exactive_HF,
     InstrumentModelType_Q_Exactive_HF_X,
     InstrumentModelType_Q_Exactive_UHMR,
+    InstrumentModelType_Q_Exactive_Focus,
     InstrumentModelType_Surveyor_PDA,
     InstrumentModelType_Accela_PDA,
     InstrumentModelType_Orbitrap_Fusion,
@@ -121,6 +122,7 @@ enum PWIZ_API_DECL InstrumentModelType
     InstrumentModelType_Orbitrap_Fusion_ETD,
     InstrumentModelType_Orbitrap_Ascend,
     InstrumentModelType_Orbitrap_ID_X,
+    InstrumentModelType_Orbitrap_IQ_X,
     InstrumentModelType_TSQ_Quantiva,
     InstrumentModelType_TSQ_Endura,
     InstrumentModelType_TSQ_Altis,
@@ -130,8 +132,29 @@ enum PWIZ_API_DECL InstrumentModelType
     InstrumentModelType_TSQ_9000,
     InstrumentModelType_Orbitrap_Exploris_120,
     InstrumentModelType_Orbitrap_Exploris_240,
+    InstrumentModelType_Orbitrap_Exploris_GC_240,
     InstrumentModelType_Orbitrap_Exploris_480,
+    InstrumentModelType_Orbitrap_Exploris_GC,
     InstrumentModelType_Orbitrap_Eclipse,
+    InstrumentModelType_Orbitrap_GC,
+    InstrumentModelType_Orbitrap_Astral,
+    InstrumentModelType_Orbitrap_Astral_Zoom,
+    InstrumentModelType_Orbitrap_Excedion_Pro,
+    InstrumentModelType_Q_Exactive_GC_Orbitrap,
+    InstrumentModelType_ISQ_7000,
+    InstrumentModelType_Velos_Pro,
+    InstrumentModelType_MALDI_LTQ_Orbitrap_XL,
+    InstrumentModelType_MALDI_LTQ_Orbitrap_Discovery,
+    InstrumentModelType_TSQ_Quantum_Access_MAX,
+    InstrumentModelType_LTQ_Orbitrap_Velos_ETD,
+    InstrumentModelType_ISQ_LT,
+    InstrumentModelType_ITQ,
+    InstrumentModelType_TSQ_Quantum_XLS,
+    InstrumentModelType_TSQ_8000,
+    InstrumentModelType_DeltaPlus_IRMS,
+    InstrumentModelType_ThermoQuest_Voyager,
+    InstrumentModelType_TSQ_Certis,
+    InstrumentModelType_Stellar,
 
     InstrumentModelType_Count,
 };
@@ -143,6 +166,7 @@ enum MatchType
 {
     Exact,
     Contains,
+    ContainsNoSpaces,
     StartsWith,
     EndsWith,
     ExactNoSpaces
@@ -173,6 +197,7 @@ const InstrumentNameToModelMapping nameToModelMapping[] =
     {"ELEMENT2", InstrumentModelType_Element_2, ExactNoSpaces},
     {"DELTA PLUSADVANTAGE", InstrumentModelType_Delta_Plus_Advantage, Exact},
     {"DELTAPLUSXP", InstrumentModelType_Delta_Plus_XP, Exact},
+    {"DELTA PLUS IRMS", InstrumentModelType_DeltaPlus_IRMS, Exact}, // predicted
     {"LCQ ADVANTAGE", InstrumentModelType_LCQ_Advantage, Exact},
     {"LCQ CLASSIC", InstrumentModelType_LCQ_Classic, Exact},
     {"LCQ DECA", InstrumentModelType_LCQ_Deca, Exact},
@@ -196,10 +221,11 @@ const InstrumentNameToModelMapping nameToModelMapping[] =
     {"LTQ ORBITRAP DISCOVERY", InstrumentModelType_LTQ_Orbitrap_Discovery, Exact},
     {"LTQ ORBITRAP XL", InstrumentModelType_LTQ_Orbitrap_XL, Exact},
     {"ORBITRAP VELOS PRO", InstrumentModelType_LTQ_Orbitrap_Velos_Pro, Contains},
+    {"LTQ ORBITRAP VELOS/ETD", InstrumentModelType_LTQ_Orbitrap_Velos_ETD, Exact},
     {"ORBITRAP VELOS", InstrumentModelType_LTQ_Orbitrap_Velos, Contains},
     {"ORBITRAP ELITE", InstrumentModelType_LTQ_Orbitrap_Elite, Contains},
     {"VELOS PLUS", InstrumentModelType_LTQ_Velos_Plus, Contains},
-    {"VELOS PRO", InstrumentModelType_LTQ_Velos_Plus, Contains},
+    {"VELOS PRO", InstrumentModelType_Velos_Pro, Contains},
     {"LTQ VELOS", InstrumentModelType_LTQ_Velos, Exact},
     {"LTQ VELOS ETD", InstrumentModelType_LTQ_Velos_ETD, Exact},
     {"LXQ", InstrumentModelType_LXQ, Exact},
@@ -207,15 +233,21 @@ const InstrumentNameToModelMapping nameToModelMapping[] =
     {"ITQ 700", InstrumentModelType_ITQ_700, Exact},
     {"ITQ 900", InstrumentModelType_ITQ_900, Exact},
     {"ITQ 1100", InstrumentModelType_ITQ_1100, Exact},
+    {"ITQ", InstrumentModelType_ITQ, Contains}, // predicted
     {"GC QUANTUM", InstrumentModelType_GC_Quantum, Exact},
     {"LTQ XL ETD", InstrumentModelType_LTQ_XL_ETD, Exact},
     {"LTQ ORBITRAP XL ETD", InstrumentModelType_LTQ_Orbitrap_XL_ETD, Exact},
     {"DFS", InstrumentModelType_DFS, Exact},
     {"DSQ II", InstrumentModelType_DSQ_II, Exact},
     {"ISQ SERIES", InstrumentModelType_ISQ, Exact},
+    {"ISQEC", InstrumentModelType_ISQ, ContainsNoSpaces},
+    {"ISQEM", InstrumentModelType_ISQ, ContainsNoSpaces},
+    {"ISQ 7000", InstrumentModelType_ISQ_7000, Exact}, // predicted
+    {"ISQ LT", InstrumentModelType_ISQ_LT, Exact}, // predicted
     {"MALDI LTQ XL", InstrumentModelType_MALDI_LTQ_XL, Exact},
     {"MALDI LTQ ORBITRAP", InstrumentModelType_MALDI_LTQ_Orbitrap, Exact},
     {"TSQ QUANTUM", InstrumentModelType_TSQ_Quantum, Exact},
+    {"TSQ QUANTUM ACCESS MAX", InstrumentModelType_TSQ_Quantum_Access_MAX, Contains}, // predicted
     {"TSQ QUANTUM ACCESS", InstrumentModelType_TSQ_Quantum_Access, Contains},
     {"TSQ QUANTUM ULTRA", InstrumentModelType_TSQ_Quantum_Ultra, Exact},
     {"TSQ QUANTUM ULTRA AM", InstrumentModelType_TSQ_Quantum_Ultra_AM, Exact},
@@ -227,27 +259,45 @@ const InstrumentNameToModelMapping nameToModelMapping[] =
     {"TSQ ALTIS", InstrumentModelType_TSQ_Altis, Exact},
     {"TSQ ALTIS PLUS", InstrumentModelType_TSQ_Altis_Plus, Exact},
     {"TSQ QUANTIS", InstrumentModelType_TSQ_Quantis, Exact},
+    {"TSQ CERTIS", InstrumentModelType_TSQ_Certis, Exact}, // predicted
+    {"TSQ QUANTUM XLS", InstrumentModelType_TSQ_Quantum_XLS, Exact}, // predicted
+    {"TSQ 8000", InstrumentModelType_TSQ_8000, Exact}, // predicted
     {"ELEMENT XR", InstrumentModelType_Element_XR, Exact},
     {"ELEMENT GD", InstrumentModelType_Element_GD, Exact},
     {"GC ISOLINK", InstrumentModelType_GC_IsoLink, Exact},
     {"ORBITRAP ID-X", InstrumentModelType_Orbitrap_ID_X, Exact},
+    {"ORBITRAP IQ-X", InstrumentModelType_Orbitrap_IQ_X, Exact}, // predicted
+    {"Q EXACTIVE GC ORBITRAP", InstrumentModelType_Q_Exactive_GC_Orbitrap, Contains},
     {"Q EXACTIVE PLUS", InstrumentModelType_Q_Exactive_Plus, Contains},
     {"Q EXACTIVE HF-X", InstrumentModelType_Q_Exactive_HF_X, Contains},
     {"Q EXACTIVE HF", InstrumentModelType_Q_Exactive_HF, Contains},
     {"Q EXACTIVE UHMR", InstrumentModelType_Q_Exactive_UHMR, Contains},
+    {"Q EXACTIVE FOCUS", InstrumentModelType_Q_Exactive_Focus, Contains}, // predicted
     {"Q EXACTIVE", InstrumentModelType_Q_Exactive, Contains},
     {"EXACTIVE PLUS", InstrumentModelType_Exactive_Plus, Contains},
     {"EXACTIVE", InstrumentModelType_Exactive, Contains},
     {"ORBITRAP EXPLORIS 120", InstrumentModelType_Orbitrap_Exploris_120, Exact},
     {"ORBITRAP EXPLORIS 240", InstrumentModelType_Orbitrap_Exploris_240, Exact},
+    {"ORBITRAPEXPLORISGC240", InstrumentModelType_Orbitrap_Exploris_GC_240, ExactNoSpaces}, // predicted
+    {"ORBITRAPEXPLORIS240GC", InstrumentModelType_Orbitrap_Exploris_GC_240, ExactNoSpaces}, // predicted
+    {"ORBITRAPEXPLORISGC", InstrumentModelType_Orbitrap_Exploris_GC, ContainsNoSpaces}, // predicted
     {"ORBITRAP EXPLORIS 480", InstrumentModelType_Orbitrap_Exploris_480, Exact},
+    {"ORBITRAP EXCEDION PRO", InstrumentModelType_Orbitrap_Excedion_Pro, Contains},
+    {"ORBITRAP EXCEDION", InstrumentModelType_Orbitrap_Excedion_Pro, Contains},
+    {"ORBITRAP GC", InstrumentModelType_Orbitrap_GC, Contains},
     {"ECLIPSE", InstrumentModelType_Orbitrap_Eclipse, Contains},
+    {"ASTRAL ZOOM", InstrumentModelType_Orbitrap_Astral_Zoom, Contains}, // predicted
+    {"ASTRAL", InstrumentModelType_Orbitrap_Astral, Contains},
+    {"MALDI LTQ ORBITRAP XL", InstrumentModelType_MALDI_LTQ_Orbitrap_XL, Exact},
+    {"MALDI LTQ ORBITRAP DISCOVERY", InstrumentModelType_MALDI_LTQ_Orbitrap_Discovery, Exact},
+    {"VOYAGER", InstrumentModelType_ThermoQuest_Voyager, Contains}, // predicted
     {"FUSION ETD", InstrumentModelType_Orbitrap_Fusion_ETD, Contains},
     {"FUSION LUMOS", InstrumentModelType_Orbitrap_Fusion_Lumos, Contains},
     {"FUSION", InstrumentModelType_Orbitrap_Fusion, Contains},
     {"ASCEND", InstrumentModelType_Orbitrap_Ascend, Contains},
     {"SURVEYOR PDA", InstrumentModelType_Surveyor_PDA, Exact},
     {"ACCELA PDA", InstrumentModelType_Accela_PDA, Exact},
+    {"STELLAR", InstrumentModelType_Stellar, Contains},
 };
 
 inline InstrumentModelType parseInstrumentModelType(const std::string& instrumentModel)
@@ -260,6 +310,7 @@ inline InstrumentModelType parseInstrumentModelType(const std::string& instrumen
             case Exact: if (mapping.name == type) return mapping.modelType; break;
             case ExactNoSpaces: if (mapping.name == typeNoSpaces) return mapping.modelType; break;
             case Contains: if (bal::contains(type, mapping.name)) return mapping.modelType; break;
+            case ContainsNoSpaces: if (bal::contains(typeNoSpaces, mapping.name)) return mapping.modelType; break;
             case StartsWith: if (bal::starts_with(type, mapping.name)) return mapping.modelType; break;
             case EndsWith: if (bal::ends_with(type, mapping.name)) return mapping.modelType; break;
             default:
@@ -310,6 +361,7 @@ inline std::vector<IonizationType> getIonSourcesForInstrumentModel(InstrumentMod
         case InstrumentModelType_LTQ_Velos:
         case InstrumentModelType_LTQ_Velos_ETD:
         case InstrumentModelType_LTQ_Velos_Plus:
+        case InstrumentModelType_Velos_Pro:
         case InstrumentModelType_LTQ_FT:
         case InstrumentModelType_LTQ_FT_Ultra:
         case InstrumentModelType_LTQ_Orbitrap:
@@ -319,6 +371,7 @@ inline std::vector<IonizationType> getIonSourcesForInstrumentModel(InstrumentMod
         case InstrumentModelType_LTQ_Orbitrap_XL_ETD:
         case InstrumentModelType_LTQ_Orbitrap_Velos:
         case InstrumentModelType_LTQ_Orbitrap_Velos_Pro:
+        case InstrumentModelType_LTQ_Orbitrap_Velos_ETD:
         case InstrumentModelType_LTQ_Orbitrap_Elite:
         case InstrumentModelType_Exactive:
         case InstrumentModelType_Exactive_Plus:
@@ -327,6 +380,7 @@ inline std::vector<IonizationType> getIonSourcesForInstrumentModel(InstrumentMod
         case InstrumentModelType_Q_Exactive_HF:
         case InstrumentModelType_Q_Exactive_HF_X:
         case InstrumentModelType_Q_Exactive_UHMR:
+        case InstrumentModelType_Q_Exactive_Focus:
         case InstrumentModelType_Orbitrap_Exploris_120:
         case InstrumentModelType_Orbitrap_Exploris_240:
         case InstrumentModelType_Orbitrap_Exploris_480:
@@ -336,6 +390,11 @@ inline std::vector<IonizationType> getIonSourcesForInstrumentModel(InstrumentMod
         case InstrumentModelType_Orbitrap_Fusion_ETD:
         case InstrumentModelType_Orbitrap_Ascend:
         case InstrumentModelType_Orbitrap_ID_X:
+        case InstrumentModelType_Orbitrap_IQ_X:
+        case InstrumentModelType_Orbitrap_Astral:
+        case InstrumentModelType_Orbitrap_Astral_Zoom:
+        case InstrumentModelType_Orbitrap_Excedion_Pro:
+        case InstrumentModelType_Stellar:
         case InstrumentModelType_TSQ:
         case InstrumentModelType_TSQ_Quantum:
         case InstrumentModelType_TSQ_Quantum_Access:
@@ -349,6 +408,10 @@ inline std::vector<IonizationType> getIonSourcesForInstrumentModel(InstrumentMod
         case InstrumentModelType_TSQ_Altis:
         case InstrumentModelType_TSQ_Altis_Plus:
         case InstrumentModelType_TSQ_Quantis:
+        case InstrumentModelType_TSQ_Quantum_Access_MAX:
+        case InstrumentModelType_TSQ_Quantum_XLS:
+        case InstrumentModelType_TSQ_Certis: 
+        case InstrumentModelType_TSQ_8000: // ESI/LC-MS instrument
             ionSources.push_back(IonizationType_ESI);
             break;
 
@@ -357,18 +420,33 @@ inline std::vector<IonizationType> getIonSourcesForInstrumentModel(InstrumentMod
         case InstrumentModelType_ITQ_700:
         case InstrumentModelType_ITQ_900:
         case InstrumentModelType_ITQ_1100:
+        case InstrumentModelType_ITQ:
         case InstrumentModelType_Trace_DSQ:
         case InstrumentModelType_GC_Quantum:
         case InstrumentModelType_DFS:
         case InstrumentModelType_DSQ_II:
         case InstrumentModelType_ISQ:
+        case InstrumentModelType_ISQ_7000:
+        case InstrumentModelType_ISQ_LT:
         case InstrumentModelType_GC_IsoLink:
+        case InstrumentModelType_Orbitrap_GC:
+        case InstrumentModelType_Orbitrap_Exploris_GC_240:
+        case InstrumentModelType_Orbitrap_Exploris_GC:
+        case InstrumentModelType_Q_Exactive_GC_Orbitrap:
+        case InstrumentModelType_ThermoQuest_Voyager:
+        case InstrumentModelType_Element_XR:
+        case InstrumentModelType_Element_2:
+        case InstrumentModelType_Delta_Plus_Advantage:
+        case InstrumentModelType_Delta_Plus_XP:
+        case InstrumentModelType_DeltaPlus_IRMS:
             ionSources.push_back(IonizationType_EI);
             break;
 
 
         case InstrumentModelType_MALDI_LTQ_XL:
         case InstrumentModelType_MALDI_LTQ_Orbitrap:
+        case InstrumentModelType_MALDI_LTQ_Orbitrap_XL:
+        case InstrumentModelType_MALDI_LTQ_Orbitrap_Discovery:
             ionSources.push_back(IonizationType_MALDI);
             break;
 
@@ -376,10 +454,6 @@ inline std::vector<IonizationType> getIonSourcesForInstrumentModel(InstrumentMod
             ionSources.push_back(IonizationType_GD);
             break;
 
-        case InstrumentModelType_Element_XR:
-        case InstrumentModelType_Element_2:
-        case InstrumentModelType_Delta_Plus_Advantage:
-        case InstrumentModelType_Delta_Plus_XP:
         case InstrumentModelType_Neptune:
         case InstrumentModelType_Tempus_TOF:
         case InstrumentModelType_Triton:
@@ -411,7 +485,9 @@ enum PWIZ_API_DECL ScanFilterMassAnalyzerType
     ScanFilterMassAnalyzerType_TOFMS = 3,         // Time of Flight
     ScanFilterMassAnalyzerType_FTMS = 4,          // Fourier Transform
     ScanFilterMassAnalyzerType_Sector = 5,        // Magnetic Sector
-    ScanFilterMassAnalyzerType_Count = 6
+    ScanFilterMassAnalyzerType_Any = 6,           // returned by RawFileReader when filter type is unspecified
+    ScanFilterMassAnalyzerType_ASTMS = 7,         // ASymmetric Track lossless
+    ScanFilterMassAnalyzerType_Count = 8
 };
 
 
@@ -426,6 +502,7 @@ enum PWIZ_API_DECL MassAnalyzerType
     MassAnalyzerType_Orbitrap,
     MassAnalyzerType_FTICR,
     MassAnalyzerType_Magnetic_Sector,
+    MassAnalyzerType_Astral, // ASymmetric TRack Lossless
     MassAnalyzerType_Count
 };
 
@@ -442,9 +519,14 @@ inline MassAnalyzerType convertScanFilterMassAnalyzer(ScanFilterMassAnalyzerType
         case InstrumentModelType_Q_Exactive_HF_X:
         case InstrumentModelType_Q_Exactive_HF:
         case InstrumentModelType_Q_Exactive_UHMR:
+        case InstrumentModelType_Q_Exactive_Focus:
+        case InstrumentModelType_Q_Exactive_GC_Orbitrap:
         case InstrumentModelType_Orbitrap_Exploris_120:
         case InstrumentModelType_Orbitrap_Exploris_240:
+        case InstrumentModelType_Orbitrap_Exploris_GC_240:
         case InstrumentModelType_Orbitrap_Exploris_480:
+        case InstrumentModelType_Orbitrap_Exploris_GC:
+        case InstrumentModelType_Orbitrap_Excedion_Pro:
             return MassAnalyzerType_Orbitrap;
 
         case InstrumentModelType_LTQ_Orbitrap:
@@ -453,15 +535,20 @@ inline MassAnalyzerType convertScanFilterMassAnalyzer(ScanFilterMassAnalyzerType
         case InstrumentModelType_LTQ_Orbitrap_XL:
         case InstrumentModelType_LTQ_Orbitrap_XL_ETD:
         case InstrumentModelType_MALDI_LTQ_Orbitrap:
+        case InstrumentModelType_MALDI_LTQ_Orbitrap_XL:
+        case InstrumentModelType_MALDI_LTQ_Orbitrap_Discovery:
         case InstrumentModelType_LTQ_Orbitrap_Velos:
         case InstrumentModelType_LTQ_Orbitrap_Velos_Pro:
+        case InstrumentModelType_LTQ_Orbitrap_Velos_ETD:
         case InstrumentModelType_LTQ_Orbitrap_Elite:
         case InstrumentModelType_Orbitrap_Fusion:
         case InstrumentModelType_Orbitrap_Fusion_Lumos:
         case InstrumentModelType_Orbitrap_Fusion_ETD:
         case InstrumentModelType_Orbitrap_Ascend:
         case InstrumentModelType_Orbitrap_ID_X:
+        case InstrumentModelType_Orbitrap_IQ_X:
         case InstrumentModelType_Orbitrap_Eclipse:
+        case InstrumentModelType_Orbitrap_GC:
         {
             switch (scanFilterType)
             {
@@ -472,6 +559,16 @@ inline MassAnalyzerType convertScanFilterMassAnalyzer(ScanFilterMassAnalyzerType
                     return MassAnalyzerType_Linear_Ion_Trap;
             }
         }
+
+        case InstrumentModelType_Orbitrap_Astral:
+        case InstrumentModelType_Orbitrap_Astral_Zoom:
+            switch (scanFilterType)
+            {
+                case ScanFilterMassAnalyzerType_FTMS: return MassAnalyzerType_Orbitrap;
+                default:
+                case ScanFilterMassAnalyzerType_ASTMS:
+                    return MassAnalyzerType_Astral;
+            }
 
         case InstrumentModelType_LTQ_FT:
         case InstrumentModelType_LTQ_FT_Ultra:
@@ -487,16 +584,20 @@ inline MassAnalyzerType convertScanFilterMassAnalyzer(ScanFilterMassAnalyzerType
         case InstrumentModelType_ISQ:
         case InstrumentModelType_Trace_DSQ:
         case InstrumentModelType_GC_IsoLink:
+        case InstrumentModelType_ThermoQuest_Voyager:
             return MassAnalyzerType_Single_Quadrupole;
 
         case InstrumentModelType_TSQ_7000:
+        case InstrumentModelType_TSQ_8000:
         case InstrumentModelType_TSQ_8000_Evo:
         case InstrumentModelType_TSQ_9000:
         case InstrumentModelType_TSQ:
         case InstrumentModelType_TSQ_Quantum:
         case InstrumentModelType_TSQ_Quantum_Access:
+        case InstrumentModelType_TSQ_Quantum_Access_MAX:
         case InstrumentModelType_TSQ_Quantum_Ultra:
         case InstrumentModelType_TSQ_Quantum_Ultra_AM:
+        case InstrumentModelType_TSQ_Quantum_XLS:
         case InstrumentModelType_TSQ_Vantage_Standard:
         case InstrumentModelType_TSQ_Vantage_EMR:
         case InstrumentModelType_TSQ_Vantage_AM:
@@ -506,6 +607,7 @@ inline MassAnalyzerType convertScanFilterMassAnalyzer(ScanFilterMassAnalyzerType
         case InstrumentModelType_TSQ_Altis:
         case InstrumentModelType_TSQ_Altis_Plus:
         case InstrumentModelType_TSQ_Quantis:
+        case InstrumentModelType_TSQ_Certis:
             return MassAnalyzerType_Triple_Quadrupole;
 
         case InstrumentModelType_LCQ_Advantage:
@@ -514,19 +616,21 @@ inline MassAnalyzerType convertScanFilterMassAnalyzer(ScanFilterMassAnalyzerType
         case InstrumentModelType_LCQ_Deca_XP_Plus:
         case InstrumentModelType_LCQ_Fleet:
         case InstrumentModelType_PolarisQ:
+        case InstrumentModelType_ITQ:
         case InstrumentModelType_ITQ_700:
         case InstrumentModelType_ITQ_900:
+        case InstrumentModelType_ITQ_1100:
             return MassAnalyzerType_Quadrupole_Ion_Trap;
 
         case InstrumentModelType_LTQ:
         case InstrumentModelType_LXQ:
         case InstrumentModelType_LTQ_XL:
         case InstrumentModelType_LTQ_XL_ETD:
-        case InstrumentModelType_ITQ_1100:
         case InstrumentModelType_MALDI_LTQ_XL:
         case InstrumentModelType_LTQ_Velos:
         case InstrumentModelType_LTQ_Velos_ETD:
         case InstrumentModelType_LTQ_Velos_Plus:
+        case InstrumentModelType_Stellar:
             return MassAnalyzerType_Linear_Ion_Trap;
 
         case InstrumentModelType_DFS:
@@ -535,16 +639,17 @@ inline MassAnalyzerType convertScanFilterMassAnalyzer(ScanFilterMassAnalyzerType
         case InstrumentModelType_MAT900XP_Trap:
         case InstrumentModelType_MAT95XP:
         case InstrumentModelType_MAT95XP_Trap:
-            return MassAnalyzerType_Magnetic_Sector;
-
-        case InstrumentModelType_Tempus_TOF:
-            return MassAnalyzerType_TOF;
-
         case InstrumentModelType_Element_XR:
         case InstrumentModelType_Element_2:
         case InstrumentModelType_Element_GD:
         case InstrumentModelType_Delta_Plus_Advantage:
         case InstrumentModelType_Delta_Plus_XP:
+        case InstrumentModelType_DeltaPlus_IRMS:
+            return MassAnalyzerType_Magnetic_Sector;
+
+        case InstrumentModelType_Tempus_TOF:
+            return MassAnalyzerType_TOF;
+
         case InstrumentModelType_Neptune:
         case InstrumentModelType_Triton:
             // TODO: get mass analyzer information for these instruments
@@ -562,6 +667,7 @@ inline MassAnalyzerType convertScanFilterMassAnalyzer(ScanFilterMassAnalyzerType
                 case ScanFilterMassAnalyzerType_SQMS: return MassAnalyzerType_Single_Quadrupole;
                 case ScanFilterMassAnalyzerType_TOFMS: return MassAnalyzerType_TOF;
                 case ScanFilterMassAnalyzerType_TQMS: return MassAnalyzerType_Triple_Quadrupole;
+                case ScanFilterMassAnalyzerType_ASTMS: return MassAnalyzerType_Astral;
                 default: return MassAnalyzerType_Unknown;
             }
     }
@@ -580,9 +686,15 @@ inline std::vector<MassAnalyzerType> getMassAnalyzersForInstrumentModel(Instrume
         case InstrumentModelType_Q_Exactive_HF_X:
         case InstrumentModelType_Q_Exactive_HF:
         case InstrumentModelType_Q_Exactive_UHMR:
+        case InstrumentModelType_Q_Exactive_Focus:
+        case InstrumentModelType_Q_Exactive_GC_Orbitrap:
         case InstrumentModelType_Orbitrap_Exploris_120:
         case InstrumentModelType_Orbitrap_Exploris_240:
+        case InstrumentModelType_Orbitrap_Exploris_GC_240:
         case InstrumentModelType_Orbitrap_Exploris_480:
+        case InstrumentModelType_Orbitrap_Exploris_GC:
+        case InstrumentModelType_Orbitrap_GC:
+        case InstrumentModelType_Orbitrap_Excedion_Pro:
             massAnalyzers.push_back(MassAnalyzerType_Orbitrap);
             break;
 
@@ -591,17 +703,27 @@ inline std::vector<MassAnalyzerType> getMassAnalyzersForInstrumentModel(Instrume
         case InstrumentModelType_LTQ_Orbitrap_Discovery:
         case InstrumentModelType_LTQ_Orbitrap_XL:
         case InstrumentModelType_MALDI_LTQ_Orbitrap:
+        case InstrumentModelType_MALDI_LTQ_Orbitrap_XL:
+        case InstrumentModelType_MALDI_LTQ_Orbitrap_Discovery:
         case InstrumentModelType_LTQ_Orbitrap_Velos:
         case InstrumentModelType_LTQ_Orbitrap_Velos_Pro:
+        case InstrumentModelType_LTQ_Orbitrap_Velos_ETD:
         case InstrumentModelType_LTQ_Orbitrap_Elite:
         case InstrumentModelType_Orbitrap_Fusion: // has a quadrupole but only for mass filtering, not analysis
         case InstrumentModelType_Orbitrap_Fusion_Lumos: // ditto
         case InstrumentModelType_Orbitrap_Fusion_ETD: // ditto
         case InstrumentModelType_Orbitrap_Ascend:
         case InstrumentModelType_Orbitrap_ID_X: // ditto
+        case InstrumentModelType_Orbitrap_IQ_X: // ditto
         case InstrumentModelType_Orbitrap_Eclipse:
             massAnalyzers.push_back(MassAnalyzerType_Orbitrap);
             massAnalyzers.push_back(MassAnalyzerType_Linear_Ion_Trap);
+            break;
+
+        case InstrumentModelType_Orbitrap_Astral:
+        case InstrumentModelType_Orbitrap_Astral_Zoom:
+            massAnalyzers.push_back(MassAnalyzerType_Orbitrap);
+            massAnalyzers.push_back(MassAnalyzerType_Astral);
             break;
 
         case InstrumentModelType_LTQ_FT:
@@ -615,19 +737,25 @@ inline std::vector<MassAnalyzerType> getMassAnalyzersForInstrumentModel(Instrume
         case InstrumentModelType_DSQ:
         case InstrumentModelType_DSQ_II:
         case InstrumentModelType_ISQ:
+        case InstrumentModelType_ISQ_7000:
+        case InstrumentModelType_ISQ_LT:
         case InstrumentModelType_Trace_DSQ:
         case InstrumentModelType_GC_IsoLink:
+        case InstrumentModelType_ThermoQuest_Voyager:
             massAnalyzers.push_back(MassAnalyzerType_Single_Quadrupole);
             break;
 
         case InstrumentModelType_TSQ_7000:
+        case InstrumentModelType_TSQ_8000: 
         case InstrumentModelType_TSQ_8000_Evo:
         case InstrumentModelType_TSQ_9000:
         case InstrumentModelType_TSQ:
         case InstrumentModelType_TSQ_Quantum:
         case InstrumentModelType_TSQ_Quantum_Access:
+        case InstrumentModelType_TSQ_Quantum_Access_MAX:
         case InstrumentModelType_TSQ_Quantum_Ultra:
         case InstrumentModelType_TSQ_Quantum_Ultra_AM:
+        case InstrumentModelType_TSQ_Quantum_XLS:
         case InstrumentModelType_TSQ_Vantage_Standard:
         case InstrumentModelType_TSQ_Vantage_EMR:
         case InstrumentModelType_TSQ_Vantage_AM:
@@ -637,6 +765,7 @@ inline std::vector<MassAnalyzerType> getMassAnalyzersForInstrumentModel(Instrume
         case InstrumentModelType_TSQ_Altis:
         case InstrumentModelType_TSQ_Altis_Plus:
         case InstrumentModelType_TSQ_Quantis:
+        case InstrumentModelType_TSQ_Certis:
             massAnalyzers.push_back(MassAnalyzerType_Triple_Quadrupole);
             break;
 
@@ -648,6 +777,8 @@ inline std::vector<MassAnalyzerType> getMassAnalyzersForInstrumentModel(Instrume
         case InstrumentModelType_PolarisQ:
         case InstrumentModelType_ITQ_700:
         case InstrumentModelType_ITQ_900:
+        case InstrumentModelType_ITQ_1100:
+        case InstrumentModelType_ITQ:
             massAnalyzers.push_back(MassAnalyzerType_Quadrupole_Ion_Trap);
             break;
 
@@ -656,11 +787,12 @@ inline std::vector<MassAnalyzerType> getMassAnalyzersForInstrumentModel(Instrume
         case InstrumentModelType_LTQ_XL:
         case InstrumentModelType_LTQ_XL_ETD:
         case InstrumentModelType_LTQ_Orbitrap_XL_ETD:
-        case InstrumentModelType_ITQ_1100:
         case InstrumentModelType_MALDI_LTQ_XL:
         case InstrumentModelType_LTQ_Velos:
         case InstrumentModelType_LTQ_Velos_ETD:
         case InstrumentModelType_LTQ_Velos_Plus:
+        case InstrumentModelType_Velos_Pro:
+        case InstrumentModelType_Stellar:
             massAnalyzers.push_back(MassAnalyzerType_Linear_Ion_Trap);
             break;
 
@@ -670,6 +802,12 @@ inline std::vector<MassAnalyzerType> getMassAnalyzersForInstrumentModel(Instrume
         case InstrumentModelType_MAT900XP_Trap:
         case InstrumentModelType_MAT95XP:
         case InstrumentModelType_MAT95XP_Trap:
+        case InstrumentModelType_Element_XR:
+        case InstrumentModelType_Element_2:
+        case InstrumentModelType_Element_GD:
+        case InstrumentModelType_Delta_Plus_Advantage:
+        case InstrumentModelType_Delta_Plus_XP:
+        case InstrumentModelType_DeltaPlus_IRMS:
             massAnalyzers.push_back(MassAnalyzerType_Magnetic_Sector);
             break;
 
@@ -677,11 +815,6 @@ inline std::vector<MassAnalyzerType> getMassAnalyzersForInstrumentModel(Instrume
             massAnalyzers.push_back(MassAnalyzerType_TOF);
             break;
 
-        case InstrumentModelType_Element_XR:
-        case InstrumentModelType_Element_2:
-        case InstrumentModelType_Element_GD:
-        case InstrumentModelType_Delta_Plus_Advantage:
-        case InstrumentModelType_Delta_Plus_XP:
         case InstrumentModelType_Neptune:
         case InstrumentModelType_Triton:
             // TODO: get mass analyzer information for these instruments
@@ -720,9 +853,15 @@ inline std::vector<DetectorType> getDetectorsForInstrumentModel(InstrumentModelT
         case InstrumentModelType_Q_Exactive_HF_X:
         case InstrumentModelType_Q_Exactive_HF:
         case InstrumentModelType_Q_Exactive_UHMR:
+        case InstrumentModelType_Q_Exactive_Focus:
+        case InstrumentModelType_Q_Exactive_GC_Orbitrap:
         case InstrumentModelType_Orbitrap_Exploris_120:
         case InstrumentModelType_Orbitrap_Exploris_240:
+        case InstrumentModelType_Orbitrap_Exploris_GC_240:
         case InstrumentModelType_Orbitrap_Exploris_480:
+        case InstrumentModelType_Orbitrap_Exploris_GC:
+        case InstrumentModelType_Orbitrap_GC:
+        case InstrumentModelType_Orbitrap_Excedion_Pro:
             detectors.push_back(DetectorType_Inductive);
             break;
 
@@ -734,21 +873,28 @@ inline std::vector<DetectorType> getDetectorsForInstrumentModel(InstrumentModelT
         case InstrumentModelType_LTQ_Orbitrap_XL:
         case InstrumentModelType_LTQ_Orbitrap_XL_ETD:
         case InstrumentModelType_MALDI_LTQ_Orbitrap:
+        case InstrumentModelType_MALDI_LTQ_Orbitrap_XL:
+        case InstrumentModelType_MALDI_LTQ_Orbitrap_Discovery:
         case InstrumentModelType_LTQ_Orbitrap_Velos:
         case InstrumentModelType_LTQ_Orbitrap_Velos_Pro:
+        case InstrumentModelType_LTQ_Orbitrap_Velos_ETD:
         case InstrumentModelType_LTQ_Orbitrap_Elite:
         case InstrumentModelType_Orbitrap_Fusion:
         case InstrumentModelType_Orbitrap_Fusion_Lumos:
         case InstrumentModelType_Orbitrap_Fusion_ETD:
         case InstrumentModelType_Orbitrap_Ascend:
         case InstrumentModelType_Orbitrap_ID_X:
+        case InstrumentModelType_Orbitrap_IQ_X:
         case InstrumentModelType_Orbitrap_Eclipse:
+        case InstrumentModelType_Orbitrap_Astral:
+        case InstrumentModelType_Orbitrap_Astral_Zoom:
             detectors.push_back(DetectorType_Inductive);
             detectors.push_back(DetectorType_Electron_Multiplier);
             break;
 
         case InstrumentModelType_SSQ_7000:
         case InstrumentModelType_TSQ_7000:
+        case InstrumentModelType_TSQ_8000:
         case InstrumentModelType_TSQ_8000_Evo:
         case InstrumentModelType_TSQ_9000:
         case InstrumentModelType_TSQ:
@@ -766,15 +912,19 @@ inline std::vector<DetectorType> getDetectorsForInstrumentModel(InstrumentModelT
         case InstrumentModelType_LTQ_Velos:
         case InstrumentModelType_LTQ_Velos_ETD:
         case InstrumentModelType_LTQ_Velos_Plus:
+        case InstrumentModelType_Velos_Pro:
         case InstrumentModelType_TSQ_Quantum:
         case InstrumentModelType_TSQ_Quantum_Access:
+        case InstrumentModelType_TSQ_Quantum_Access_MAX:
         case InstrumentModelType_TSQ_Quantum_Ultra:
         case InstrumentModelType_TSQ_Quantum_Ultra_AM:
+        case InstrumentModelType_TSQ_Quantum_XLS:
         case InstrumentModelType_TSQ_Vantage_Standard:
         case InstrumentModelType_TSQ_Vantage_EMR:
         case InstrumentModelType_TSQ_Vantage_AM:
         case InstrumentModelType_DSQ:
         case InstrumentModelType_PolarisQ:
+        case InstrumentModelType_ITQ:
         case InstrumentModelType_ITQ_700:
         case InstrumentModelType_ITQ_900:
         case InstrumentModelType_ITQ_1100:
@@ -783,12 +933,18 @@ inline std::vector<DetectorType> getDetectorsForInstrumentModel(InstrumentModelT
         case InstrumentModelType_DFS:
         case InstrumentModelType_DSQ_II:
         case InstrumentModelType_ISQ:
+        case InstrumentModelType_ISQ_LT:
+        case InstrumentModelType_ISQ_7000:
         case InstrumentModelType_GC_IsoLink:
         case InstrumentModelType_TSQ_Quantiva:
         case InstrumentModelType_TSQ_Endura:
         case InstrumentModelType_TSQ_Altis:
         case InstrumentModelType_TSQ_Altis_Plus:
         case InstrumentModelType_TSQ_Quantis:
+        case InstrumentModelType_TSQ_Certis:
+        case InstrumentModelType_Stellar:
+        case InstrumentModelType_DeltaPlus_IRMS:
+        case InstrumentModelType_ThermoQuest_Voyager:
             detectors.push_back(DetectorType_Electron_Multiplier);
             break;
 
@@ -884,28 +1040,28 @@ enum PWIZ_API_DECL PolarityType
 
 enum PWIZ_API_DECL DataPointType
 {
-	DataPointType_Unknown = -1,
-	DataPointType_Centroid = 0,
-	DataPointType_Profile,
+    DataPointType_Unknown = -1,
+    DataPointType_Centroid = 0,
+    DataPointType_Profile,
     DataPointType_Count
 };
 
 
 enum PWIZ_API_DECL AccurateMassType
 {
-	AccurateMass_Unknown = -1,
-	AccurateMass_NotActive = 0,                 // NOTE: in filter as "!AM": accurate mass not active
-	AccurateMass_Active,                        // accurate mass active 
-	AccurateMass_ActiveWithInternalCalibration, // accurate mass with internal calibration
-	AccurateMass_ActiveWithExternalCalibration  // accurate mass with external calibration
+    AccurateMass_Unknown = -1,
+    AccurateMass_NotActive = 0,                 // NOTE: in filter as "!AM": accurate mass not active
+    AccurateMass_Active,                        // accurate mass active 
+    AccurateMass_ActiveWithInternalCalibration, // accurate mass with internal calibration
+    AccurateMass_ActiveWithExternalCalibration  // accurate mass with external calibration
 };
 
 
 enum PWIZ_API_DECL TriBool
 {
-	TriBool_Unknown = -1,
-	TriBool_False = 0,
-	TriBool_True = 1
+    TriBool_Unknown = -1,
+    TriBool_False = 0,
+    TriBool_True = 1
 };
 
 } // namespace Thermo
@@ -913,3 +1069,5 @@ enum PWIZ_API_DECL TriBool
 } // namespace pwiz
 
 #endif // _RAWFILETYPES_H_
+
+

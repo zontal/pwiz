@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Tobias Rohde <tobiasr .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -23,18 +23,22 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Linq;
 using System.Windows.Forms;
+using pwiz.Common.SystemUtil.Caching;
 using pwiz.MSGraph;
+using pwiz.Skyline.EditUI;
 using pwiz.Skyline.Model;
+using pwiz.Skyline.Model.Hibernate;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 using ZedGraph;
 
 namespace pwiz.Skyline.Controls.Graphs
 {
-    public class AreaCVHistogram2DGraphPane : SummaryGraphPane, IDisposable, IAreaCVHistogramInfo
+    public class AreaCVHistogram2DGraphPane : SummaryGraphPane, IAreaCVHistogramInfo, IHeatMapDataProvider, ICursorTrackingTooltipProvider
     {
-        private readonly AreaCVGraphData.AreaCVGraphDataCache _cache;
+        private readonly Receiver<AreaCVGraphData.Parameters, AreaCVGraphData> _receiver;
         private AreaCVGraphData _areaCVGraphData;
+        private HeatMapData _heatMapData;
         private SrmDocument _document;
 
         private readonly LineItem[] _lineItems;
@@ -48,24 +52,13 @@ namespace pwiz.Skyline.Controls.Graphs
         {
             _areaCVGraphData = null;
             _lineItems = new LineItem[2];
-            _cache = new AreaCVGraphData.AreaCVGraphDataCache();
+            _receiver = AreaCVGraphData.PRODUCER.RegisterCustomer(graphSummary, OnProductAvailable);
         }
 
-        public AreaCVGraphData.AreaCVGraphDataCache Cache { get { return _cache; } }
 
         public int Items { get; private set; }
 
         public override bool HasToolbar { get { return true; } }
-
-        public override void OnClose(EventArgs e)
-        {
-            Dispose();
-        }
-
-        public void Dispose()
-        {
-            _cache.Dispose();
-        }
 
         public override bool HandleMouseMoveEvent(ZedGraphControl sender, MouseEventArgs e)
         {
@@ -122,9 +115,9 @@ namespace pwiz.Skyline.Controls.Graphs
             base.Draw(g);
         }
 
-        private void DataCallback(AreaCVGraphData data)
+        private void OnProductAvailable()
         {
-            GraphSummary.GraphControl.BeginInvoke((Action)(() => { GraphSummary.UpdateUI(); }));
+            GraphSummary.UpdateUI();
         }
 
         public override void UpdateGraph(bool selectionChanged)
@@ -136,23 +129,27 @@ namespace pwiz.Skyline.Controls.Graphs
             }
 
             _document = GraphSummary.DocumentUIContainer.DocumentUI;
+
             var settings = new AreaCVGraphData.AreaCVGraphSettings(_document.Settings, GraphSummary.Type);
             _percentage = !Settings.Default.AreaCVShowDecimals;
             _decimals = _percentage ? 1 : 3;
 
             CurveList.Clear();
 
-            var gotData = _cache.TryGet(_document, settings, DataCallback, out _areaCVGraphData);
+            var gotData =
+                _receiver.TryGetProduct(
+                    new AreaCVGraphData.Parameters(GraphSummary.DocumentUIContainer.DocumentUI, settings),
+                    out _areaCVGraphData);
 
             if (!gotData)
             {
-                Title.Text = Resources.AreaCVHistogram2DGraphPane_UpdateGraph_Calculating____;
+                Title.Text = GraphsResources.AreaCVHistogram2DGraphPane_UpdateGraph_Calculating____;
                 return;
             }
 
             if (!_areaCVGraphData.IsValid)
             {
-                Title.Text = Resources.AreaCVHistogram2DGraphPane_Draw_Not_enough_data;
+                Title.Text = GraphsResources.AreaCVHistogram2DGraphPane_Draw_Not_enough_data;
                 return;
             }
 
@@ -160,8 +157,8 @@ namespace pwiz.Skyline.Controls.Graphs
 
             Title.Text = string.Empty;
 
-            YAxis.Title.Text = Resources.AreaCVHistogram2DGraphPane_UpdateGraph_CV + (_percentage ? @" (%)" : string.Empty);
-            XAxis.Title.Text = Resources.AreaCvHistogram2DGraphPane_UpdateGraph_Log10_Mean_Area;
+            YAxis.Title.Text = GraphsResources.AreaCVHistogram2DGraphPane_UpdateGraph_CV + (_percentage ? @" (%)" : string.Empty);
+            XAxis.Title.Text = GraphsResources.AreaCvHistogram2DGraphPane_UpdateGraph_Log10_Mean_Area;
 
             XAxis.Scale.MinAuto = XAxis.Scale.MinAuto = XAxis.Scale.MaxAuto = YAxis.Scale.MaxAuto = false;
             XAxis.Scale.Min = Math.Max(0, double.IsNaN(Settings.Default.AreaCVMinLog10Area) ? _areaCVGraphData.MinMeanArea : Settings.Default.AreaCVMinLog10Area);
@@ -175,24 +172,26 @@ namespace pwiz.Skyline.Controls.Graphs
                 .Select(d => new HeatMapData.TaggedPoint3D(new Point3D(d.MeanArea, d.CV * factor, d.Frequency), d))
                 .ToList();
             Items = points.Count; // Because heatmaps can't be trusted to have a consistent number of points on all monitors
-            var heatMapData = new HeatMapData(points);
-            HeatMapGraphPane.GraphHeatMap(this, heatMapData, 17, 2, (float)(_areaCVGraphData.MinCV * factor), (float)(_areaCVGraphData.MaxCV * factor), Settings.Default.AreaCVLogScale, 0);
+            _heatMapData = new HeatMapData(points, HeatMapZAxisName);
+            HeatMapGraphPane.GraphHeatMap(this, _heatMapData, 17, 2, (float)(_areaCVGraphData.MinCV * factor), (float)(_areaCVGraphData.MaxCV * factor), Settings.Default.AreaCVLogScale, 0);
 
             var unit = _percentage ? @"%" : string.Empty;
 
             if (Settings.Default.AreaCVShowMedianCV)
             {
-                string text = string.Format(Resources.AreaCVHistogram2DGraphPane_UpdateGraph_Median___0_, HistogramHelper.FormatDouble(_areaCVGraphData.MedianCV * factor, _decimals) + unit);
+                string text = string.Format(GraphsResources.AreaCVHistogram2DGraphPane_UpdateGraph_Median___0_, HistogramHelper.FormatDouble(_areaCVGraphData.MedianCV * factor, _decimals) + unit);
                 _lineItems[0] = AddLineItem(text, XAxis.Scale.Min, XAxis.Scale.Max, _areaCVGraphData.MedianCV * factor, _areaCVGraphData.MedianCV * factor, Color.Blue);
+                _lineItems[0].LegendGroupName = GraphsResources.AreaCVHistogram2DGraphPane_UpdateGraph_CV;
                 CurveList.Insert(0, _lineItems[0]);
             }
 
             if (Settings.Default.AreaCVShowCVCutoff)
             {
-                string text = string.Format(Resources.AreaCVHistogramGraphPane_UpdateGraph_Below__0____1_, Settings.Default.AreaCVCVCutoff + unit,
+                string text = string.Format(GraphsResources.AreaCVHistogramGraphPane_UpdateGraph_Below__0____1_, Settings.Default.AreaCVCVCutoff + unit,
                               HistogramHelper.FormatDouble(_areaCVGraphData.BelowCVCutoff * factor, _decimals) +
                               unit);
                 _lineItems[1] = AddLineItem(text,XAxis.Scale.Min, XAxis.Scale.Max,Settings.Default.AreaCVCVCutoff, Settings.Default.AreaCVCVCutoff, Color.Red);
+                _lineItems[1].LegendGroupName = GraphsResources.AreaCVHistogram2DGraphPane_UpdateGraph_CV;
                 CurveList.Insert(0, _lineItems[1]);
             }
         }
@@ -201,6 +200,54 @@ namespace pwiz.Skyline.Controls.Graphs
         {
             return new LineItem(text, new[] { fromX, toX }, new[] { fromY, toY }, color, SymbolType.None, 2.0f)
             { Line = { Style = DashStyle.Dash } };
+        }
+
+        public HeatMapData HeatMapData => _heatMapData;
+        public string HeatMapZAxisName => GraphsResources.AreaCVHistogramGraphPane_UpdateGraph_Frequency;
+
+        TableDesc ICursorTrackingTooltipProvider.GetTooltipTable(Point pt)
+        {
+            using (var g = GraphSummary.GraphControl.CreateGraphics())
+            {
+                object nearestObject;
+                int index;
+                if (!FindNearestObject(pt, g, out nearestObject, out index))
+                    return null;
+
+                var lineItem = nearestObject as LineItem;
+                var objectList = lineItem?.Tag as List<object>;
+                if (objectList == null)
+                    return null;
+
+                var cvData = (CVData)objectList[index];
+                var factor = AreaGraphController.GetAreaCVFactorToDecimal();
+                var rt = CursorTipRenderTools;
+
+                var table = new TableDesc();
+                table.AddDetailRow(GraphsResources.AreaCvHistogram2DGraphPane_UpdateGraph_Log10_Mean_Area,
+                    cvData.MeanArea.ToString(Formats.Mz), rt);
+                table.AddDetailRow(GraphsResources.AreaCVHistogram2DGraphPane_UpdateGraph_CV,
+                    HistogramHelper.FormatDouble(cvData.CV * factor, _decimals) + (_percentage ? @"%" : string.Empty), rt);
+                table.AddDetailRow(HeatMapZAxisName, cvData.Frequency.ToString(), rt);
+                const int MAX_NAMED = 4;
+                int totalCount = cvData.PeptideAnnotationPairs?.Count() ?? 0;
+                if (totalCount > 0)
+                {
+                    int showCount = totalCount <= MAX_NAMED ? totalCount : MAX_NAMED - 1;
+                    string label = GraphsResources.MassErrorHistogram2DGraphPane_ToolTip_Peptides;
+                    // ReSharper disable once AssignNullToNotNullAttribute
+                    foreach (var peptide in cvData.PeptideAnnotationPairs.Take(showCount))
+                    {
+                        table.AddDetailRow(label, peptide.Peptide.TextId, rt);
+                        label = string.Empty;
+                    }
+                    if (totalCount > showCount)
+                        table.AddDetailRow(string.Empty,
+                            string.Format(GraphsResources.MassErrorHistogram2DGraphPane_ToolTip_Plus_N_More, totalCount - showCount), rt);
+                }
+
+                return table;
+            }
         }
 
         #region Functional Test Support

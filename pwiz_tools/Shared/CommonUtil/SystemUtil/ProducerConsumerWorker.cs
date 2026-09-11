@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -100,7 +100,7 @@ namespace pwiz.Common.SystemUtil
                         ((produceThreads == 0 && _produceThreads == null) || (produceThreads > 0 && _produceThreads != null && produceThreads == _produceThreads.Length)) &&
                         _queue.BoundedCapacity == maxQueueSize)
                         return;
-                    Abort();
+                    Abort(true);  // Wait for old threads to exit before creating new ones
                 }
                 _queue = new BlockingCollection<TItem>(new TProducerConsumerCollection(), maxQueueSize);
             }
@@ -179,7 +179,7 @@ namespace pwiz.Common.SystemUtil
                 {
                     //CONSIDER: observed a hang here with two file loader threads trying to take from 
                     //an empty queue. Maybe should use TryDequeue instead.
-                    var item = _queue.Take();
+                    var item = _queue?.Take();
                     if (item == null)
                         break;
                     _consume(item, (int) threadIndex);
@@ -196,7 +196,7 @@ namespace pwiz.Common.SystemUtil
             }
             try
             {
-                _threadExit.Signal();
+                _threadExit?.Signal();
             }
             catch
             {
@@ -224,7 +224,7 @@ namespace pwiz.Common.SystemUtil
         public void Clear()
         {
             // Clear work queue.
-            while (_queue.TryTake(out _))
+            while (_queue != null && _queue.TryTake(out _))
             {
             }
 
@@ -244,7 +244,7 @@ namespace pwiz.Common.SystemUtil
             else
             {
                 Interlocked.Increment(ref _itemsWaiting);
-                _queue.Add(item);
+                _queue?.Add(item);
             }
         }
 
@@ -308,8 +308,18 @@ namespace pwiz.Common.SystemUtil
         public void Dispose()
         {
             Abort(true);
-            if (_queue != null) _queue.Dispose();
-            if (_threadExit != null) _threadExit.Dispose();
+            SafeDispose(ref _queue);
+            SafeDispose(ref _threadExit);
+        }
+
+        private void SafeDispose<T>(ref T disposable) where T : IDisposable
+        {
+            if (disposable != null)
+            {
+                var d = disposable;
+                disposable = default;
+                d.Dispose();
+            }
         }
     }
 }

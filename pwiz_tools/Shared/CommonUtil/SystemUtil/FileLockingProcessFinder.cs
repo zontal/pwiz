@@ -1,0 +1,323 @@
+/*
+ * Original author: Brian Pratt <bspratt .at. protein.ms>,
+ *                  MacCoss Lab, Department of Genome Sciences, UW
+ *
+ * Copyright 2023 University of Washington - Seattle, WA
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ 
+  The work in this file is based on code found at
+  https://itecnote.com/tecnote/c-how-to-find-out-which-process-is-locking-a-file-using-net/
+ 
+ */
+
+//
+// Implements FileLockingProcessFinder.GetProcessesUsingFile(<full-path-to-file>)
+// Useful for debugging file locking problems
+//
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using System.Threading;
+using pwiz.Common.CommonResources;
+
+namespace pwiz.Common.SystemUtil
+{
+    public static class FileLockingProcessFinder
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        struct RM_UNIQUE_PROCESS
+        {
+            public int dwProcessId;
+            public System.Runtime.InteropServices.ComTypes.FILETIME ProcessStartTime;
+        }
+
+        const int RmRebootReasonNone = 0;
+        const int CCH_RM_MAX_APP_NAME = 255;
+        const int CCH_RM_MAX_SVC_NAME = 63;
+
+        enum RM_APP_TYPE
+        {
+            RmUnknownApp = 0,
+            RmMainWindow = 1,
+            RmOtherWindow = 2,
+            RmService = 3,
+            RmExplorer = 4,
+            RmConsole = 5,
+            RmCritical = 1000
+        }
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        struct RM_PROCESS_INFO
+        {
+            public RM_UNIQUE_PROCESS Process;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CCH_RM_MAX_APP_NAME + 1)]
+            public string strAppName;
+
+            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CCH_RM_MAX_SVC_NAME + 1)]
+            public string strServiceShortName;
+
+            public RM_APP_TYPE ApplicationType;
+            public uint AppStatus;
+            public uint TSSessionId;
+            [MarshalAs(UnmanagedType.Bool)] public bool bRestartable;
+        }
+
+        [DllImport("rstrtmgr.dll", CharSet = CharSet.Unicode)]
+        static extern int RmRegisterResources(uint pSessionHandle,
+            UInt32 nFiles,
+            string[] rgsFilenames,
+            UInt32 nApplications,
+            [In] RM_UNIQUE_PROCESS[] rgApplications,
+            UInt32 nServices,
+            string[] rgsServiceNames);
+
+        [DllImport("rstrtmgr.dll", CharSet = CharSet.Auto)]
+        static extern int RmStartSession(out uint pSessionHandle, int dwSessionFlags, string strSessionKey);
+
+        [DllImport("rstrtmgr.dll")]
+        static extern int RmEndSession(uint pSessionHandle);
+
+        [DllImport("rstrtmgr.dll")]
+        static extern int RmGetList(uint dwSessionHandle,
+            out uint pnProcInfoNeeded,
+            ref uint pnProcInfo,
+            [In, Out] RM_PROCESS_INFO[] rgAffectedApps,
+            ref uint lpdwRebootReasons);
+
+        /// <summary>
+        /// Find out what process(es) have a lock on the specified file.
+        /// </summary>
+        /// <param name="fullPathToFile">Path of the file.</param>
+        /// <returns>Processes locking the file</returns>
+        /// <remarks>See also:
+        /// http://msdn.microsoft.com/en-us/library/windows/desktop/aa373661(v=vs.85).aspx
+        /// http://wyupdate.googlecode.com/svn-history/r401/trunk/frmFilesInUse.cs (no copyright in code at time of viewing)
+        /// 
+        /// </remarks>
+        public static List<Process> GetProcessesUsingFile(string fullPathToFile)
+        {
+            uint handle;
+            string key = Guid.NewGuid().ToString();
+            List<Process> processes = new List<Process>();
+
+            int res = RmStartSession(out handle, 0, key);
+            if (res != 0)
+                throw new Exception(@"Could not begin restart session.  Unable to determine file locker.");
+
+            try
+            {
+                const int ERROR_MORE_DATA = 234;
+                uint pnProcInfoNeeded = 0,
+                    pnProcInfo = 0,
+                    lpdwRebootReasons = RmRebootReasonNone;
+
+                string[] resources = new[] { fullPathToFile }; // Just checking on one resource.
+
+                res = RmRegisterResources(handle, (uint)resources.Length, resources, 0, null, 0, null);
+
+                if (res != 0)
+                    throw new Exception(@"Could not register resource.");
+
+                //Note: there's a race condition here -- the first call to RmGetList() returns
+                //      the total number of process. However, when we call RmGetList() again to get
+                //      the actual processes this number may have increased.
+                res = RmGetList(handle, out pnProcInfoNeeded, ref pnProcInfo, null, ref lpdwRebootReasons);
+
+                if (res == ERROR_MORE_DATA)
+                {
+                    // Create an array to store the process results
+                    RM_PROCESS_INFO[] processInfo = new RM_PROCESS_INFO[pnProcInfoNeeded];
+                    pnProcInfo = pnProcInfoNeeded;
+
+                    // Get the list
+                    res = RmGetList(handle, out pnProcInfoNeeded, ref pnProcInfo, processInfo, ref lpdwRebootReasons);
+                    if (res == 0)
+                    {
+                        processes = new List<Process>((int)pnProcInfo);
+
+                        // Enumerate all of the results and add them to the 
+                        // list to be returned
+                        for (int i = 0; i < pnProcInfo; i++)
+                        {
+                            try
+                            {
+                                processes.Add(Process.GetProcessById(processInfo[i].Process.dwProcessId));
+                            }
+                            // catch the error -- in case the process is no longer running
+                            catch (ArgumentException)
+                            {
+                            }
+                        }
+                    }
+                    else
+                        throw new Exception(@"Could not list processes locking resource.");
+                }
+                else if (res != 0)
+                    throw new Exception(@"Could not list processes locking resource. Failed to get size of result.");
+            }
+            finally
+            {
+                RmEndSession(handle);
+            }
+
+            return processes;
+        }
+
+        public static void DeleteDirectoryWithFileLockingDetails(string dirPath)
+        {
+            const int maxRetryCount = 4;
+            const int delayMilliseconds = 500;
+
+            int retry = 0;
+            for (; ; )
+            {
+                try
+                {
+                    Directory.Delete(dirPath, true);
+                    return; // Success
+                }
+                catch (Exception x)
+                {
+                    if (retry++ < maxRetryCount)
+                    {
+                        Thread.Sleep(delayMilliseconds);
+                        continue;   // Keep trying
+                    }
+
+                    // Try to get locking information and throw a new exception with more info
+                    var lockingException = ToFileLockingException(x, dirPath);
+                    if (!ReferenceEquals(x, lockingException))
+                        throw lockingException;
+
+                    // But just throw this exception without altering it if that fails
+                    throw;
+                }
+            }
+        }
+
+        private const int ERROR_SHARING_VIOLATION = unchecked((int)0x80070020);
+
+        /// <summary>
+        /// If <paramref name="x"/> is a sharing violation, wrap it in an exception that names the
+        /// process holding the lock, which is otherwise impossible to determine after the fact.
+        /// Returns the exception unchanged if there is nothing to add.
+        /// <para>
+        /// The quoted path in the exception message may be either a full path (as <see cref="FileStream"/>
+        /// reports) or a bare name to locate beneath <paramref name="dirPath"/> (as a failed directory
+        /// delete reports). Callers that already have a rooted path may pass a null <paramref name="dirPath"/>.
+        /// </para>
+        /// This never throws, so it is safe to call from a catch block, including on the UI thread.
+        /// </summary>
+        public static Exception ToFileLockingException(Exception x, string dirPath)
+        {
+            // If it's a file locking issue, wrap the exception to report the locking process. A lock
+            // surfaces two ways: a sharing violation when the file is opened, and access-denied when
+            // it is deleted or replaced, which is what an overwriting unzip does. Access-denied has
+            // innocent causes too (a read-only file, an ACL), but those name no locking process and
+            // fall through below with the original exception intact.
+            bool isSharingViolation = x is IOException { HResult: ERROR_SHARING_VIOLATION };
+            if (!isSharingViolation && !(x is UnauthorizedAccessException))
+                return x;
+
+            var quoted = Regex.Matches(x.Message, "'([^']+)'")
+                .Cast<Match>().Select(m => m.Groups[1].Value).ToArray();
+            if (quoted.Length == 0)
+                return x;
+
+            try
+            {
+                // Prefer the first quoted run that is actually a rooted path. These messages are
+                // localized, and some languages put an apostrophe ahead of the path - the French
+                // access-denied message opens "L'acces au chemin d'acces '<path>'" - so taking the
+                // first quoted run there captures a fragment of the prose and names a file that
+                // never existed. Fall back to the first run for messages that quote a bare name.
+                string lockedName = quoted.FirstOrDefault(IsRootedPath) ?? quoted[0];
+                string lockedFilePath = ResolveLockedPath(lockedName, dirPath);
+                if (lockedFilePath == null)
+                {
+                    // Only a sharing violation is proof that a lock existed. Access-denied says
+                    // nothing of the kind - a read-only file, an ACL, or a path that is a directory
+                    // all arrive here - so reporting one as "locked but since deleted" invents a
+                    // lock that was never held and sends the reader after a process that never
+                    // existed. Nothing resolved and nothing to add, so keep what actually happened.
+                    if (!isSharingViolation)
+                        return x;
+
+                    // It was locked at the time of the failure, but is gone now
+                    var searchedDir = dirPath ?? Path.GetDirectoryName(lockedName);
+                    return new IOException(
+                        string.Format(MessageResources.FileLockingProcessFinder_ToFileLockingException_The_file___0___was_locked_but_has_since_been_deleted_from___1__, lockedName, searchedDir), x);
+                }
+
+                var processesLockingFile = GetProcessesUsingFile(lockedFilePath);
+                if (processesLockingFile.Count == 0)
+                    return x;   // Nothing to add beyond the original message; keep it
+
+                int currentProcessId = Process.GetCurrentProcess().Id;
+                Func<int, string> pidOrThisProcess = pid =>
+                    pid == currentProcessId ? MessageResources.FileLockingProcessFinder_ToFileLockingException_this_process : $@"PID: {pid}";
+                var names = string.Join(@", ",
+                    processesLockingFile.Select(p => $@"{p.ProcessName} ({pidOrThisProcess(p.Id)})"));
+                return new IOException(string.Format(MessageResources.FileLockingProcessFinder_ToFileLockingException_The_file___0___is_locked_by___1_, lockedFilePath, names), x);
+            }
+            catch (Exception)
+            {
+                // The restart manager is not always available to name the locker, and losing the
+                // original exception to that would be worse than not knowing
+                return x;
+            }
+        }
+
+        private static bool IsRootedPath(string value)
+        {
+            try
+            {
+                return Path.IsPathRooted(value);
+            }
+            catch (ArgumentException)
+            {
+                return false;   // Invalid path characters, so not the path we are looking for
+            }
+        }
+
+        /// <summary>
+        /// Resolves the path quoted in a sharing violation message to something that exists, or null
+        /// if it does not. The message may carry a full path, or a bare name to locate beneath
+        /// <paramref name="dirPath"/>.
+        /// </summary>
+        private static string ResolveLockedPath(string lockedName, string dirPath)
+        {
+            if (Path.IsPathRooted(lockedName))
+                return File.Exists(lockedName) || Directory.Exists(lockedName) ? lockedName : null;
+
+            if (dirPath == null)
+                return null;
+
+            // Look directly beneath dirPath first, so that a locked directory is recognized as one
+            // instead of being sought among the files
+            var candidate = Path.Combine(dirPath, lockedName);
+            if (File.Exists(candidate) || Directory.Exists(candidate))
+                return candidate;
+
+            var lockedFilePaths = Directory.GetFiles(dirPath, lockedName, SearchOption.AllDirectories);
+            return lockedFilePaths.Length > 0 ? lockedFilePaths[0] : null;
+        }
+    }
+}

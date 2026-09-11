@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -16,6 +16,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
 using System.Collections.Generic;
 using System.Linq;
 using pwiz.Common.Chemistry;
@@ -186,7 +187,10 @@ namespace pwiz.Skyline.Model.Lib
 
             public RankedMI ChangeMatchedIons(IEnumerable<MatchedFragmentIon> matchedIons)
             {
-                return ChangeProp(ImClone(this), im => im.MatchedIons = ImmutableList.ValueOf(matchedIons));
+                return ChangeProp(ImClone(this), im =>
+                {
+                    im.MatchedIons = ImmutableList.ValueOf(matchedIons);
+                });
             }
 
             private bool Equals(RankedMI other)
@@ -251,7 +255,7 @@ namespace pwiz.Skyline.Model.Lib
         public bool HasVisibleLoss(ICollection<string> showLosses)
         {
             return showLosses == null || Losses == null ||
-                   Losses.Losses.Any(loss => showLosses.Contains(loss.Loss.Formula));
+                   Losses.Losses.Any(loss => showLosses.Contains(loss.Loss.PersistentName));
         }
 
     }

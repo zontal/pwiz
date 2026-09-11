@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Tobias Rohde <tobiasr .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -79,7 +79,7 @@ namespace pwiz.Skyline.Model.AuditLog
                 //Make the error dialog a bit more user friendly by showing the full chain of nested exceptions in the message
                 //so they don't have to dig through the stack traces to find the root cause.
                 if (msgStrings.Count > 0)
-                    msgStrings.Add(Resources.ExceptionDialog_Caused_by_____);
+                    msgStrings.Add(AuditLogResources.ExceptionDialog_Caused_by_____);
                 msgStrings.Add(ex.Message);
                 ex = ex.InnerException;
 
@@ -98,6 +98,17 @@ namespace pwiz.Skyline.Model.AuditLog
         public const string DOCUMENT_ROOT = "audit_log_root";
 
         public static bool IgnoreTestChecks { get; set; }
+
+        /// <summary>
+        /// Use inside a using clause to set <see cref="IgnoreTestChecks"/> to
+        /// true for a limited scope and be assured that it gets set back to false
+        /// even if the test fails.
+        /// </summary>
+        public class IgnoreTestChecksScope : IDisposable
+        {
+            public IgnoreTestChecksScope() { IgnoreTestChecks = true; }
+            public void Dispose() { IgnoreTestChecks = false; }
+        }
 
         public AuditLogList(AuditLogEntry entries)
         {
@@ -256,7 +267,7 @@ namespace pwiz.Skyline.Model.AuditLog
         {
             using (var fileSaver = new FileSaver(fileName))
             {
-                using (var writer = new XmlTextWriter(fileSaver.SafeName, Encoding.UTF8))
+                using (var writer = new XmlTextWriter(fileSaver.SafeName, new UTF8Encoding(false))) // UTF-8 without BOM
                 {
                     writer.Formatting = Formatting.Indented;
                     WriteToXmlWriter(writer, documentHash);
@@ -546,6 +557,31 @@ namespace pwiz.Skyline.Model.AuditLog
     [XmlRoot(XML_ROOT)]
     public class AuditLogEntry : Immutable, IXmlSerializable
     {
+        public interface ITimeProvider
+        {
+            DateTime Now { get; }
+        }
+
+        /// <summary>
+        /// For consistent screenshots involving AuditLogEntries
+        /// </summary>
+        public static ITimeProvider TimeProvider { get; set; }
+
+        public static DateTime Now
+        {
+            get { return TimeProvider?.Now ?? DateTime.UtcNow; }
+        }
+
+        public interface IVersionProvider
+        {
+            string Version { get; }
+        }
+
+        /// <summary>
+        /// For consistent screenshots involving AuditLogEntries version display
+        /// </summary>
+        public static IVersionProvider VersionProvider { get; set; }
+
         public const string XML_ROOT = "audit_log_entry";
 
         private ImmutableList<DetailLogMessage> _allInfo;
@@ -554,11 +590,16 @@ namespace pwiz.Skyline.Model.AuditLog
 
         public static string _user = WindowsIdentity.GetCurrent().Name; // This won't change during app's run, so cache it
 
-        public static string _skylineVersion = // This won't change during app's run, so cache it
+        private static string _defaultSkylineVersion = // This won't change during app's run, so cache it
             (string.IsNullOrEmpty(Install.Version)
                ? string.Format(@"Developer build, document format {0}",DocumentFormat.CURRENT) // CONSIDER: can we be more informative?
                : Install.Version)
                + (Install.Is64Bit ? @" (64-Bit)" : string.Empty);
+
+        public static string _skylineVersion
+        {
+            get { return VersionProvider?.Version ?? _defaultSkylineVersion; }
+        }
 
         public static AuditLogEntry ROOT = new AuditLogEntry { Count = 0, LogIndex = int.MaxValue };
 
@@ -904,7 +945,7 @@ namespace pwiz.Skyline.Model.AuditLog
         /// </summary>
         public static AuditLogEntry CreateEmptyEntry()
         {
-            return new AuditLogEntry(DateTime.UtcNow, string.Empty, SrmDocument.DOCUMENT_TYPE.none);
+            return new AuditLogEntry(Now, string.Empty, SrmDocument.DOCUMENT_TYPE.none);
         }
 
         /// <summary>
@@ -1015,7 +1056,7 @@ namespace pwiz.Skyline.Model.AuditLog
         /// </summary>
         public static AuditLogEntry CreateSingleMessageEntry(MessageInfo info, string extraInfo = null)
         {
-            var result = new AuditLogEntry(DateTime.UtcNow, string.Empty, info.DocumentType, extraInfo)
+            var result = new AuditLogEntry(Now, string.Empty, info.DocumentType, extraInfo)
             {
                 UndoRedo = info.ToMessage(LogLevel.undo_redo),
                 Summary = info.ToMessage(LogLevel.summary),
@@ -1103,8 +1144,7 @@ namespace pwiz.Skyline.Model.AuditLog
                 Reflector<Targets>.EnumerateDiffNodes(objInfo, property, docType, false,
                     ignoreTransitions
                         ? (Func<DiffNode, bool>) (node => !IsTransitionDiff(node.Property.PropertyType))
-                        : null),
-                DateTime.UtcNow);
+                        : null));
 
             if (diffTree.Root != null)
             {
@@ -1127,7 +1167,7 @@ namespace pwiz.Skyline.Model.AuditLog
         /// </summary>
         public static AuditLogEntry CreateLogEnabledDisabledEntry(SrmDocument document)
         {
-            var result = new AuditLogEntry(DateTime.UtcNow, string.Empty, document.DocumentType);
+            var result = new AuditLogEntry(Now, string.Empty, document.DocumentType);
 
             var type = document.Settings.DataSettings.AuditLogging ? MessageType.log_enabled : MessageType.log_disabled;
             var docType = document.DocumentType;
@@ -1635,7 +1675,7 @@ namespace pwiz.Skyline.Model.AuditLog
                     .ChangeRootObjectPair(docPair.ToObjectType());
 
             var diffTree =
-                DiffTree.FromEnumerator(Reflector<T>.EnumerateDiffNodes(docPair.ToObjectType(), rootProp, docPair.OldDocumentType, (T)this), DateTime.UtcNow);
+                DiffTree.FromEnumerator(Reflector<T>.EnumerateDiffNodes(docPair.ToObjectType(), rootProp, docPair.OldDocumentType, (T)this));
             if (diffTree.Root == null)
                 return baseEntry;
 

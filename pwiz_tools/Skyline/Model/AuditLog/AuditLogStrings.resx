@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -296,6 +296,9 @@
   <data name="added_peptide_decoys" xml:space="preserve">
     <value>Added {0} peptide decoys using {1} method</value>
   </data>
+  <data name="ran_command_line" xml:space="preserve">
+    <value>Ran command: {0}</value>
+  </data>
   <data name="refined_targets" xml:space="preserve">
     <value>Refined targets</value>
   </data>
@@ -524,6 +527,9 @@
   <data name="removed_replicate" xml:space="preserve">
     <value>Removed replicate {0}</value>
   </data>
+  <data name="removed_library" xml:space="preserve">
+    <value>Removed library {0}</value>
+  </data>
   <data name="accepted_peptide" xml:space="preserve">
     <value>Accepted peptide {0}</value>
   </data>
@@ -676,6 +682,54 @@ For reference, the audit log is located here: "{0}"</value>
     <value>Added complete permutations of isotope modification '{0}'</value>
   </data>
   <data name="added_spectrum_filter" xml:space="preserve">
-	<value>Added spectrum filter</value>
+    <value>Added spectrum filter</value>
+  </data>
+  <data name="imputed_boundaries" xml:space="preserve">
+    <value>Imputed boundaries for '{0}'</value>
+  </data>
+  <data name="files_tree_node_renamed" xml:space="preserve">
+    <value>Renamed node {0} to {1} in the Files window</value>
+  </data>
+  <data name="files_tree_node_drag_and_drop" xml:space="preserve">
+    <value>Drag and dropped {0} node to {1} in the Files window</value>
+  </data>
+  <data name="files_tree_nodes_drag_and_drop" xml:space="preserve">
+    <value>Drag and dropped {0} nodes to {1} in the Files window</value>
+  </data>
+  <data name="files_tree_replicates_remove_one" xml:space="preserve">
+    <value>Removed replicate {0} in the Files window</value>
+  </data>
+  <data name="files_tree_replicates_remove_several" xml:space="preserve">
+    <value>Removed {0} replicates in the Files window</value>
+  </data>
+  <data name="files_tree_replicates_remove_all" xml:space="preserve">
+    <value>Removed all replicates in the Files window</value>
+  </data>
+  <data name="files_tree_libraries_remove_one" xml:space="preserve">
+    <value>Removed spectral library {0} in the Files window</value>
+  </data>
+  <data name="files_tree_libraries_remove_several" xml:space="preserve">
+    <value>Removed {0} spectral libraries in the Files window</value>
+  </data>
+  <data name="files_tree_libraries_remove_all" xml:space="preserve">
+    <value>Removed all spectral libraries in the Files window</value>
+  </data>
+  <data name="files_tree_background_proteome_update" xml:space="preserve">
+    <value>Edited background proteome named {0} from the Files window</value>
+  </data>
+  <data name="files_tree_rt_calculator_update" xml:space="preserve">
+    <value>Edited retention time calculator named {0} from the Files window</value>
+  </data>
+  <data name="files_tree_optimization_library_update" xml:space="preserve">
+    <value>Edited optimization library named {0} from the Files window</value>
+  </data>
+  <data name="files_tree_ion_mobility_library_update" xml:space="preserve">
+    <value>Edited ion mobility library named {0} from the Files window</value>
+  </data>
+  <data name="files_tree_spectral_library_update" xml:space="preserve">
+    <value>Edited spectral library named {0} from the Files window</value>
+  </data>
+  <data name="reordered_elements" xml:space="preserve">
+    <value>Ordering of elements in document changed</value>
   </data>
 </root>

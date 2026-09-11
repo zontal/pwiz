@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -22,7 +22,6 @@ using System.Linq;
 using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Model.Results;
 using pwiz.Skyline.Model.Serialization;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 
 namespace pwiz.Skyline.Model
@@ -57,6 +56,14 @@ namespace pwiz.Skyline.Model
             CacheFormatVersion.Fifteen, DocumentFormat.VERSION_21_2);
         public static readonly SkylineVersion V22_2 = ReleaseVersion(22, 2,
             CacheFormatVersion.Fifteen, DocumentFormat.VERSION_22_2);
+        public static readonly SkylineVersion V23_1 = ReleaseVersion(23, 1,
+            CacheFormatVersion.Eighteen, DocumentFormat.VERSION_23_1);
+        public static readonly SkylineVersion V24_1 = ReleaseVersion(24, 1,
+            CacheFormatVersion.Eighteen, DocumentFormat.VERSION_24_1);
+        public static readonly SkylineVersion V25_1 = ReleaseVersion(25, 1,
+            CacheFormatVersion.Eighteen, DocumentFormat.VERSION_25_1);
+        public static readonly SkylineVersion V26_1 = ReleaseVersion(26, 1,
+            CacheFormatVersion.Nineteen, DocumentFormat.VERSION_26_1);
 
         private SkylineVersion(Func<String> getLabelFunc, String versionName, 
             int majorVersion,
@@ -117,7 +124,7 @@ namespace pwiz.Skyline.Model
         {
             List<SkylineVersion> versions = new List<SkylineVersion>
             {
-                V22_2, V21_2, V21_1, V20_2, V20_1, V19_1, V4_2, V4_1, V3_7, V3_6
+                V26_1, V25_1, V24_1, V23_1, V22_2, V21_2, V21_1, V20_2, V20_1, V19_1, V4_2, V4_1, V3_7, V3_6
             };
             if (CURRENT.CompareTo(versions.First()) != 0)
             {
@@ -128,11 +135,11 @@ namespace pwiz.Skyline.Model
 
         public static String GetCurrentVersionName()
         {
-            String labelFormat = Resources.SkylineVersion_GetCurrentVersionName_Latest___0__;
+            String labelFormat = ModelResources.SkylineVersion_GetCurrentVersionName_Latest___0__;
 
             if (Install.Type == Install.InstallType.developer)
             {
-                return string.Format(labelFormat, Resources.SkylineVersion_GetCurrentVersionName_Developer_Build);
+                return string.Format(labelFormat, ModelResources.SkylineVersion_GetCurrentVersionName_Developer_Build);
             }
             return string.Format(labelFormat, Install.ProgramNameAndVersion);
         }

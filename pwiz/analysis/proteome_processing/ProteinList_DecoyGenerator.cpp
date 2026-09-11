@@ -23,7 +23,7 @@
 #define PWIZ_SOURCE
 
 #include "ProteinList_DecoyGenerator.hpp"
-#include <boost/random.hpp>
+#include <random>
 #include "pwiz/utility/misc/Std.hpp"
 
 namespace pwiz {
@@ -82,7 +82,7 @@ PWIZ_API_DECL size_t ProteinList_DecoyGenerator::find(const string& id) const
 
 PWIZ_API_DECL ProteinPtr ProteinList_DecoyGenerator::protein(size_t index, bool getSequence) const
 {
-    if (index > size())
+    if (index >= size())
         throw out_of_range("[ProteinList_DecoyGenerator::protein] Index out of range");
 
     size_t originalIndex = index % impl_->original->size();
@@ -125,13 +125,12 @@ PWIZ_API_DECL ProteinPtr ProteinList_DecoyGeneratorPredicate_Reversed::generate(
 struct ProteinList_DecoyGeneratorPredicate_Shuffled::Impl
 {
     Impl(boost::uint32_t randomSeed)
-    :   engine(randomSeed), rng(engine, distribution)
+    :   rng(randomSeed)
     {
     }
 
-    boost::mt19937 engine;
-    boost::uniform_int<> distribution;
-    boost::variate_generator<boost::mt19937, boost::uniform_int<> > rng;
+    std::random_device rd;
+    std::mt19937 rng;
 };
 
 //
@@ -149,7 +148,7 @@ PWIZ_API_DECL ProteinList_DecoyGeneratorPredicate_Shuffled::ProteinList_DecoyGen
 PWIZ_API_DECL ProteinPtr ProteinList_DecoyGeneratorPredicate_Shuffled::generate(const Protein& protein) const
 {
     string shuffledSequence = protein.sequence();
-    std::random_shuffle(shuffledSequence.begin(), shuffledSequence.end(), impl_->rng);
+    std::shuffle(shuffledSequence.begin(), shuffledSequence.end(), impl_->rng);
     return ProteinPtr(new Protein(decoyPrefix_ + protein.id, protein.index, "", shuffledSequence));
 }
 

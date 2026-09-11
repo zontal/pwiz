@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -26,8 +26,10 @@ using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Schema;
 using System.Xml.Serialization;
+using pwiz.Common.Chemistry;
 using pwiz.Common.Collections;
 using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.Skyline.Model.Crosslinking;
 using pwiz.Skyline.Model.DocSettings.AbsoluteQuantification;
 using pwiz.Skyline.Model.Lib;
@@ -38,6 +40,7 @@ using pwiz.Skyline.Model.Results;
 using pwiz.Skyline.Model.Results.Scoring;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
+using pwiz.Skyline.Util.Extensions;
 
 namespace pwiz.Skyline.Model.DocSettings
 {
@@ -71,6 +74,7 @@ namespace pwiz.Skyline.Model.DocSettings
             }
             Quantification = QuantificationSettings.DEFAULT;
             ProteinAssociationSettings = proteinAssociationSettings;
+            Imputation = ImputationSettings.DEFAULT;
         }
 
         [TrackChildren]
@@ -102,6 +106,19 @@ namespace pwiz.Skyline.Model.DocSettings
 
         [TrackChildren]
         public ProteinAssociation.ParsimonySettings ProteinAssociationSettings { get; private set; }
+
+        [TrackChildren]
+        public ImputationSettings Imputation { get; private set; }
+
+        public bool HasLibraries { get { return Libraries != null && Libraries.HasLibraries; } }
+
+        public bool HasDocumentLibrary { get { return Libraries != null && Libraries.HasDocumentLibrary; } }
+
+        public bool HasBackgroundProteome { get { return BackgroundProteome != null && !BackgroundProteome.IsNone; } }
+
+        public bool HasRTPrediction { get { return Prediction != null && Prediction.RetentionTime != null; } }
+
+        public bool HasRTCalcPersisted { get { return HasRTPrediction && Prediction.RetentionTime.Calculator.PersistencePath != null; } }
 
         #region Property change methods
 
@@ -164,6 +181,11 @@ namespace pwiz.Skyline.Model.DocSettings
         public PeptideSettings ChangeParsimonySettings(ProteinAssociation.ParsimonySettings prop)
         {
             return ChangeProp(ImClone(this), im => im.ProteinAssociationSettings = prop);
+        }
+
+        public PeptideSettings ChangeImputation(ImputationSettings imputation)
+        {
+            return ChangeProp(ImClone(this), im => im.Imputation = imputation);
         }
 
         public PeptideSettings MergeDefaults(PeptideSettings defPep)
@@ -230,10 +252,12 @@ namespace pwiz.Skyline.Model.DocSettings
                 Integration = reader.DeserializeElement<PeptideIntegration>();
                 Quantification = reader.DeserializeElement<QuantificationSettings>();
                 ProteinAssociationSettings = reader.DeserializeElement<ProteinAssociation.ParsimonySettings>();
+                Imputation = reader.DeserializeElement<ImputationSettings>();
                 reader.ReadEndElement();
             }
 
-            Quantification = Quantification ?? QuantificationSettings.DEFAULT;
+            Quantification ??= QuantificationSettings.DEFAULT;
+            Imputation ??= ImputationSettings.DEFAULT;
             // Defer validation to the SrmSettings object
         }
 
@@ -254,6 +278,8 @@ namespace pwiz.Skyline.Model.DocSettings
                 writer.WriteElement(Quantification);
             if (!Equals(ProteinAssociationSettings, ProteinAssociation.ParsimonySettings.DEFAULT))
                 writer.WriteElement(ProteinAssociationSettings);
+            if (!Equals(Imputation, ImputationSettings.DEFAULT))
+                writer.WriteElement(Imputation);
         }
 
         #endregion
@@ -273,7 +299,8 @@ namespace pwiz.Skyline.Model.DocSettings
                    Equals(obj.Integration, Integration) &&
                    Equals(obj.BackgroundProteome, BackgroundProteome) &&
                    Equals(obj.Quantification, Quantification) &&
-                   Equals(obj.ProteinAssociationSettings, ProteinAssociationSettings);
+                   Equals(obj.ProteinAssociationSettings, ProteinAssociationSettings) &&
+                   Equals(obj.Imputation, Imputation);
         }
 
         public override bool Equals(object obj)
@@ -297,7 +324,7 @@ namespace pwiz.Skyline.Model.DocSettings
                 result = (result*397) ^ Integration.GetHashCode();
                 result = (result*397) ^ BackgroundProteome.GetHashCode();
                 result = (result*397) ^ Quantification.GetHashCode();
-                result = (result*397) ^ ProteinAssociationSettings?.GetHashCode() ?? 0;
+                result = (result*397) ^ (ProteinAssociationSettings?.GetHashCode() ?? 0);
                 return result;
             }
         }
@@ -349,7 +376,7 @@ namespace pwiz.Skyline.Model.DocSettings
         public int CalcMaxTrendReplicates(SrmDocument document)
         {
             if (!UseMeasuredRTs || !MeasuredRTWindow.HasValue)
-                throw new InvalidOperationException(Resources.PeptidePrediction_CalcMaxTrendReplicates_Calculating_scheduling_from_trends_requires_a_retention_time_window_for_measured_data);
+                throw new InvalidOperationException(DocSettingsResources.PeptidePrediction_CalcMaxTrendReplicates_Calculating_scheduling_from_trends_requires_a_retention_time_window_for_measured_data);
 
             int i;
             for (i = 1; i < MAX_TREND_PREDICTION_REPLICATES; i++)
@@ -629,7 +656,7 @@ namespace pwiz.Skyline.Model.DocSettings
                 else if (MIN_MEASURED_RT_WINDOW > MeasuredRTWindow || MeasuredRTWindow > MAX_MEASURED_RT_WINDOW)
                 {
                     throw new InvalidDataException(
-                        string.Format(Resources.PeptidePrediction_DoValidate_The_retention_time_window__0__for_a_scheduled_method_based_on_measured_results_must_be_between__1__and__2__,
+                        string.Format(DocSettingsResources.PeptidePrediction_DoValidate_The_retention_time_window__0__for_a_scheduled_method_based_on_measured_results_must_be_between__1__and__2__,
                                       MeasuredRTWindow, MIN_MEASURED_RT_WINDOW, MAX_MEASURED_RT_WINDOW));
                 }
             }
@@ -785,7 +812,7 @@ namespace pwiz.Skyline.Model.DocSettings
         bool Accept(SrmSettings settings, Peptide peptide, ExplicitMods explicitMods, out bool allowVariableMods);
 
         /// <summary>
-        /// Returns a potential override to the maximum number of variable modifcations in the SrmSettings.
+        /// Returns a potential override to the maximum number of variable modifications in the SrmSettings.
         /// </summary>
         int? MaxVariableMods { get; }
     }
@@ -1022,11 +1049,11 @@ namespace pwiz.Skyline.Model.DocSettings
         private void DoValidate()
         {
             // These values are repeated in PeptideSettingsUI
-            ValidateIntRange(Resources.PeptideFilter_DoValidate_excluded_n_terminal_amino_acids, ExcludeNTermAAs,
+            ValidateIntRange(DocSettingsResources.PeptideFilter_DoValidate_excluded_n_terminal_amino_acids, ExcludeNTermAAs,
                 MIN_EXCLUDE_NTERM_AA, MAX_EXCLUDE_NTERM_AA);
-            ValidateIntRange(Resources.PeptideFilter_DoValidate_minimum_peptide_length, MinPeptideLength,
+            ValidateIntRange(DocSettingsResources.PeptideFilter_DoValidate_minimum_peptide_length, MinPeptideLength,
                 MIN_MIN_LENGTH, MAX_MIN_LENGTH);
-            ValidateIntRange(Resources.PeptideFilter_DoValidate_maximum_peptide_length, MaxPeptideLength,
+            ValidateIntRange(DocSettingsResources.PeptideFilter_DoValidate_maximum_peptide_length, MaxPeptideLength,
                 Math.Max(MIN_MAX_LENGTH, MinPeptideLength), MAX_MAX_LENGTH);
 
             if (_regexExclude != null)
@@ -1052,7 +1079,7 @@ namespace pwiz.Skyline.Model.DocSettings
                     catch(ArgumentException x)
                     {
                         throw new InvalidDataException(
-                            string.Format(Resources.PeptideFilter_DoValidate_The_peptide_exclusion__0__has_an_invalid_regular_expression__1__,
+                            string.Format(DocSettingsResources.PeptideFilter_DoValidate_The_peptide_exclusion__0__has_an_invalid_regular_expression__1__,
                                           exclude.Name, exclude.Regex), x);
                     }
 
@@ -1090,7 +1117,7 @@ namespace pwiz.Skyline.Model.DocSettings
             }
             catch (ArgumentException x)
             {
-                throw new InvalidDataException(Resources.PeptideFilter_ExcludeExprToRegEx_Invalid_exclusion_list, x);
+                throw new InvalidDataException(DocSettingsResources.PeptideFilter_ExcludeExprToRegEx_Invalid_exclusion_list, x);
             }
         }
 
@@ -1098,7 +1125,7 @@ namespace pwiz.Skyline.Model.DocSettings
         {
             if (min > n || n > max)
             {
-                throw new InvalidDataException(string.Format(Resources.PeptideFilter_ValidateIntRange_The_value__1__for__0__must_be_between__2__and__3__,
+                throw new InvalidDataException(string.Format(DocSettingsResources.PeptideFilter_ValidateIntRange_The_value__1__for__0__must_be_between__2__and__3__,
                                                              label, n, min, max));
             }
         }
@@ -1306,14 +1333,14 @@ namespace pwiz.Skyline.Model.DocSettings
             {
                 var modLosses = StaticModifications.SelectMany(mod => mod.Losses ?? (new List<FragmentLoss>())).ToList();
                 //Deduplicate the losses on formula
-                modLosses = modLosses.GroupBy(loss => loss.Formula, loss => loss, (formula, losses) => losses.FirstOrDefault()).ToList();
+                modLosses = modLosses.GroupBy(loss => new Tuple<string, int>(loss.Formula, loss.Charge), loss => loss, (formula, losses) => losses.FirstOrDefault()).ToList();
                 return ImmutableList.ValueOf(modLosses);
             }
         }
 
-        public ImmutableList<string> StaticModsFormulae
+        public ImmutableList<string> StaticModsLosses
         {
-            get { return ImmutableList.ValueOf(StaticModsDeduped.Select(loss => loss.FormulaNoNull)); }
+            get { return ImmutableList.ValueOf(StaticModsDeduped.Select(loss => loss.PersistentName)); }
         }
 
         public bool HasVariableModifications
@@ -1522,7 +1549,7 @@ namespace pwiz.Skyline.Model.DocSettings
         {
             int index = GetModIndex(labelType);
             if (index == -1)
-                throw new IndexOutOfRangeException(string.Format(Resources.PeptideModifications_ChangeModifications_Modification_type__0__not_found, labelType));
+                throw new IndexOutOfRangeException(string.Format(DocSettingsResources.PeptideModifications_ChangeModifications_Modification_type__0__not_found, labelType));
             var modifications = _modifications.ToArrayStd();
             modifications[index] = new TypedModifications(labelType, prop);
             return ChangeProp(ImClone(this), im => im._modifications = MakeReadOnly(modifications));
@@ -1686,13 +1713,13 @@ namespace pwiz.Skyline.Model.DocSettings
             if (MIN_MAX_VARIABLE_MODS > MaxVariableMods || MaxVariableMods > MAX_MAX_VARIABLE_MODS)
             {
                 throw new InvalidDataException(
-                    string.Format(Resources.PeptideModifications_DoValidate_Maximum_variable_modifications__0__must_be_between__1__and__2__,
+                    string.Format(DocSettingsResources.PeptideModifications_DoValidate_Maximum_variable_modifications__0__must_be_between__1__and__2__,
                                   MaxVariableMods, MIN_MAX_VARIABLE_MODS, MAX_MAX_VARIABLE_MODS));
             }
             if (MIN_MAX_NEUTRAL_LOSSES > MaxNeutralLosses || MaxNeutralLosses > MAX_MAX_NEUTRAL_LOSSES)
             {
                 throw new InvalidDataException(
-                    string.Format(Resources.PeptideModifications_DoValidate_Maximum_neutral_losses__0__must_be_between__1__and__2__,
+                    string.Format(DocSettingsResources.PeptideModifications_DoValidate_Maximum_neutral_losses__0__must_be_between__1__and__2__,
                                   MaxNeutralLosses, MIN_MAX_NEUTRAL_LOSSES, MAX_MAX_NEUTRAL_LOSSES));
             }
 
@@ -1782,7 +1809,7 @@ namespace pwiz.Skyline.Model.DocSettings
                     else if (typeOrder > IsotopeLabelType.FirstHeavy)
                     {
                         throw new InvalidDataException(
-                            string.Format(Resources.PeptideModifications_ReadXml_Heavy_modifications_found_without__0__attribute,
+                            string.Format(DocSettingsResources.PeptideModifications_ReadXml_Heavy_modifications_found_without__0__attribute,
                                           ATTR.isotope_label));
                     }
                     typeOrder++;
@@ -1803,7 +1830,7 @@ namespace pwiz.Skyline.Model.DocSettings
                 int iMissingType = internalStandardTypes.IndexOf(labelType => labelType == null);
                 if (iMissingType != -1)
                 {
-                    throw new InvalidDataException(string.Format(Resources.PeptideModifications_ReadXml_Internal_standard_type__0__not_found,
+                    throw new InvalidDataException(string.Format(DocSettingsResources.PeptideModifications_ReadXml_Internal_standard_type__0__not_found,
                                                                  internalStandardNames[iMissingType]));
                 }
                 reader.ReadEndElement();
@@ -1908,7 +1935,7 @@ namespace pwiz.Skyline.Model.DocSettings
     public enum PeptidePick { library, filter, both, either }
 
     [XmlRoot("peptide_libraries")]
-    public sealed class PeptideLibraries : Immutable, IValidating, IXmlSerializable
+    public sealed class PeptideLibraries : Immutable, IValidating, IXmlSerializable, IExplainDiff
     {
         public const int MIN_PEPTIDE_COUNT = 1;
         public const int MAX_PEPTIDE_COUNT = 20;
@@ -1926,7 +1953,6 @@ namespace pwiz.Skyline.Model.DocSettings
             HasDocumentLibrary = hasDocLib;
             LibrarySpecs = librarySpecs;
             Libraries = libraries;
-
             DoValidate();
         }
 
@@ -2172,6 +2198,22 @@ namespace pwiz.Skyline.Model.DocSettings
         }
 
         /// <summary>
+        /// Distinct non-none ion mobility units present anywhere in the active libraries.
+        /// Used when deducing units for an explicit ion mobility value that was entered without units.
+        /// Libraries cache their own results so repeated calls during e.g. a bulk Document Grid paste
+        /// are cheap.
+        /// </summary>
+        public IReadOnlyCollection<eIonMobilityUnits> GetDistinctIonMobilityUnits()
+        {
+            var result = new HashSet<eIonMobilityUnits>();
+            foreach (var lib in _libraries.Where(l => l != null))
+            {
+                result.UnionWith(lib.GetDistinctIonMobilityUnits());
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Get all ion mobilities from libs associated with this filepath.  Then look at all the others
         /// and get any values that don't appear in the initial set (how that list is used - averaged etc - is determined elsewhere).
         /// TODO(bspratt): It would be more maintainable if this and other things we get from libraries (like RT)
@@ -2260,7 +2302,7 @@ namespace pwiz.Skyline.Model.DocSettings
             return ChangeProp(ImClone(this), im => im.HasDocumentLibrary = prop);
         }
 
-        public PeptideLibraries ChangeDocumentLibraryPath(string path)
+        public PeptideLibraries ChangeDocumentLibraryPath(string path, ConnectionPool connectionPool)
         {
             var specs = new LibrarySpec[LibrarySpecs.Count];
             var libs = new Library[specs.Length];
@@ -2268,8 +2310,11 @@ namespace pwiz.Skyline.Model.DocSettings
             {
                 if (LibrarySpecs[i].IsDocumentLibrary)
                 {
-                    specs[i] = BiblioSpecLiteSpec.GetDocumentLibrarySpec(path);
-                    libs[i] = null;
+                    var newDocumentLibrarySpec = BiblioSpecLiteSpec.GetDocumentLibrarySpec(path);
+                    var newDocumentLibrary =
+                        (Libraries[i] as BiblioSpecLiteLibrary)?.ChangeLibrarySpec(newDocumentLibrarySpec, connectionPool);
+                    specs[i] = newDocumentLibrarySpec;
+                    libs[i] = newDocumentLibrary;
                 }
                 else
                 {
@@ -2283,21 +2328,38 @@ namespace pwiz.Skyline.Model.DocSettings
         public PeptideLibraries ChangeLibrarySpecs(IList<LibrarySpec> prop)
         {
             return ChangeProp(ImClone(this),
-                              im =>
-                                  {
-                                      im.LibrarySpecs = prop;
-                                      // Keep the libraries array in synch, reloading all libraries, if necessary.
-                                      // CONSIDER: Loop checking name matching?
-                                      if (im.Libraries.Count != prop.Count)
-                                      {
-                                          im.Libraries = new Library[prop.Count];
-                                      }
-                                  });
+                im =>
+                {
+                    // Keep the libraries array in sync
+                    // Try to preserve existing library instances where possible
+                    // Otherwise, set to null to indicate not yet loaded for LibraryManager to load
+                    im.Libraries = prop.Select((spec, i) =>
+                    {
+                        // Try to find existing library matching this spec by ID
+                        int specIndex = im.LibrarySpecs.IndexOf(existing =>
+                            ReferenceEquals(existing?.Id, spec.Id));
+                        if (specIndex == -1)
+                        {
+                            // If no matching spec, try finding a library with the right filename
+                            string fileName = Path.GetFileName(spec.FilePath);
+                            specIndex = im.Libraries.IndexOf(existing =>
+                                Equals(existing.FileNameHint, fileName));
+                            // Use it only if it resolves an unresolved library spec
+                            if (specIndex != -1 && im.LibrarySpecs[specIndex] != null)
+                                specIndex = -1;
+                        }
+                        return specIndex != -1 ? im.Libraries[specIndex] : null;
+                    }).ToArray();
+                    im.LibrarySpecs = prop;
+                });
         }        
 
         public PeptideLibraries ChangeLibraries(IList<Library> prop)
         {
-            return ChangeProp(ImClone(this), im => im.Libraries = prop);
+            return ChangeProp(ImClone(this), im =>
+            {
+                im.Libraries = prop;
+            });
         }
 
         public PeptideLibraries ChangeLibraries(IList<LibrarySpec> specs, IList<Library> libs)
@@ -2412,6 +2474,11 @@ namespace pwiz.Skyline.Model.DocSettings
             return ChangeLibrarySpecs(librarySpecs);
         }
 
+        public bool AnyExplicitPeakBounds()
+        {
+            return Libraries.Any(lib => lib is { UseExplicitPeakBounds: true, HasExplicitBounds: true });
+        }
+
         #endregion
 
         #region Implementation of IXmlSerializable
@@ -2470,7 +2537,7 @@ namespace pwiz.Skyline.Model.DocSettings
             }
 
             if (idFound == null)
-                throw new InvalidDataException(string.Format(Resources.PeptideLibraries_EnsureRankId_Specified_libraries_do_not_support_the___0___peptide_ranking, idName));
+                throw new InvalidDataException(string.Format(DocSettingsResources.PeptideLibraries_EnsureRankId_Specified_libraries_do_not_support_the___0___peptide_ranking, idName));
 
             // No longer necessary
             _rankIdName = null;
@@ -2494,21 +2561,21 @@ namespace pwiz.Skyline.Model.DocSettings
         private void DoValidate()
         {
             if ((Pick == PeptidePick.filter || Pick == PeptidePick.either) && RankId != null)
-                throw new InvalidDataException(Resources.PeptideLibraries_DoValidate_The_specified_method_of_matching_library_spectra_does_not_support_peptide_ranking);
+                throw new InvalidDataException(DocSettingsResources.PeptideLibraries_DoValidate_The_specified_method_of_matching_library_spectra_does_not_support_peptide_ranking);
             if (_rankIdName == null && RankId == null && PeptideCount != null)
-                throw new InvalidDataException(Resources.PeptideLibraries_DoValidate_Limiting_peptides_per_protein_requires_a_ranking_method_to_be_specified);
+                throw new InvalidDataException(DocSettingsResources.PeptideLibraries_DoValidate_Limiting_peptides_per_protein_requires_a_ranking_method_to_be_specified);
 
             EnsureRankId();
 
             if (PeptideCount.HasValue && (PeptideCount.Value < MIN_PEPTIDE_COUNT || PeptideCount.Value > MAX_PEPTIDE_COUNT))
             {
-                throw new InvalidDataException(string.Format(Resources.PeptideLibraries_DoValidate_Library_picked_peptide_count__0__must_be_between__1__and__2__,
+                throw new InvalidDataException(string.Format(DocSettingsResources.PeptideLibraries_DoValidate_Library_picked_peptide_count__0__must_be_between__1__and__2__,
                                                              PeptideCount, MIN_PEPTIDE_COUNT, MAX_PEPTIDE_COUNT));
             }
 
             // Libraries and library specs must match.  If they do not, then
             // there was a coding error.
-            Assume.IsTrue(LibrariesMatch(), Resources.PeptideLibraries_DoValidate_Libraries_and_library_specifications_do_not_match_);
+            Assume.IsTrue(LibrariesMatch(), DocSettingsResources.PeptideLibraries_DoValidate_Libraries_and_library_specifications_do_not_match_);
 
             // Leave connecting the libraries to the LibrarySpecs in the
             // SpectralLibraryList until the root settings object is validated.
@@ -2665,7 +2732,7 @@ namespace pwiz.Skyline.Model.DocSettings
                                 IXmlElementHelper<LibrarySpec> helper = XmlUtil.FindHelper(spec, LIBRARY_SPEC_HELPERS);
                                 if (helper == null)
                                     throw new InvalidOperationException(
-                                        Resources.
+                                        DocSettingsResources.
                                             PeptideLibraries_WriteXml_Attempt_to_serialize_list_containing_invalid_type);
                                 writer.WriteElement(helper.ElementNames[0], spec);
                             }
@@ -2675,7 +2742,7 @@ namespace pwiz.Skyline.Model.DocSettings
                             IXmlElementHelper<Library> helper = XmlUtil.FindHelper(item, LIBRARY_HELPERS);
                             if (helper == null)
                                 throw new InvalidOperationException(
-                                    Resources.
+                                    DocSettingsResources.
                                         PeptideLibraries_WriteXml_Attempt_to_serialize_list_containing_invalid_type);
                             writer.WriteElement(helper.ElementNames[0], item);
                         }
@@ -2687,6 +2754,50 @@ namespace pwiz.Skyline.Model.DocSettings
         #endregion
 
         #region object overrides
+
+        /// <summary>
+        /// Names the member that makes this unequal to <paramref name="other"/>. Kept beside
+        /// <see cref="Equals(PeptideLibraries)"/> because only that method knows what it compares -
+        /// note _rankIdName has no public accessor, so nothing outside this class can report it.
+        ///
+        /// <para>Library load state is included because it is the difference that actually shows up:
+        /// a document and its round-trip copy can hold the same library with only one of them
+        /// finished loading, which compared unequal in either direction and looked like an
+        /// unreproducible flake.</para>
+        /// </summary>
+        public string ExplainDiff(object other)
+        {
+            if (!(other is PeptideLibraries libraries))
+                return string.Format(@"other is {0}, not PeptideLibraries", other?.GetType().Name ?? @"null");
+            var differences = new List<string>();
+            if (!ArrayUtil.EqualsDeep(_librarySpecs, libraries._librarySpecs))
+            {
+                differences.Add(string.Format(@"LibrarySpecs [{0}] vs [{1}]",
+                    string.Join(@", ", _librarySpecs.Select(s => s == null ? @"(null)" : s.Name)),
+                    string.Join(@", ", libraries._librarySpecs.Select(s => s == null ? @"(null)" : s.Name))));
+            }
+            if (!ArrayUtil.EqualsDeep(_libraries, libraries._libraries))
+            {
+                differences.Add(string.Format(@"Libraries [{0}] vs [{1}] (unloadedSpecs {2} vs {3})",
+                    string.Join(@", ", _libraries.Select(ExplainLibrary)),
+                    string.Join(@", ", libraries._libraries.Select(ExplainLibrary)),
+                    LibrarySpecsUnloaded.Count(), libraries.LibrarySpecsUnloaded.Count()));
+            }
+            if (!Equals(_rankIdName, libraries._rankIdName))
+                differences.Add(string.Format(@"RankIdName {0} vs {1}", _rankIdName, libraries._rankIdName));
+            if (!Equals(Pick, libraries.Pick))
+                differences.Add(string.Format(@"Pick {0} vs {1}", Pick, libraries.Pick));
+            if (!Equals(RankId, libraries.RankId))
+                differences.Add(string.Format(@"RankId {0} vs {1}", RankId, libraries.RankId));
+            if (!Equals(PeptideCount, libraries.PeptideCount))
+                differences.Add(string.Format(@"PeptideCount {0} vs {1}", PeptideCount, libraries.PeptideCount));
+            return differences.Count == 0 ? null : TextUtil.LineSeparate(differences);
+        }
+
+        private static string ExplainLibrary(Library lib)
+        {
+            return lib == null ? @"(null)" : string.Format(@"{0}/loaded={1}", lib.Name, lib.IsLoaded);
+        }
 
         public bool Equals(PeptideLibraries obj)
         {
@@ -2723,6 +2834,11 @@ namespace pwiz.Skyline.Model.DocSettings
         }
 
         #endregion
+
+        public LibrarySpec FindLibrarySpec(Identity identity)
+        {
+            return _librarySpecs.FirstOrDefault(librarySpec => ReferenceEquals(librarySpec.Id, identity));
+        }
     }
 
 
@@ -2743,7 +2859,7 @@ namespace pwiz.Skyline.Model.DocSettings
         [TrackChildren]
         public PeakScoringModelSpec PeakScoringModel { get; private set; }
         public bool IsSerializable { get { return IsAutoTrain || PeakScoringModel.IsTrained; } }
-        public MProphetResultsHandler ResultsHandler { get; private set; }
+        public ReintegrateResultsHandler ResultsHandler { get; private set; }
 
         #region Property change methods
 
@@ -2760,12 +2876,12 @@ namespace pwiz.Skyline.Model.DocSettings
         /// <summary>
         /// Changing this starts a peak reintegration when it is set on the document.
         /// </summary>
-        public PeptideIntegration ChangeResultsHandler(MProphetResultsHandler prop)
+        public PeptideIntegration ChangeResultsHandler(ReintegrateResultsHandler prop)
         {
             return ChangeProp(ImClone(this), im =>
             {
                 if (prop != null)
-                    im.PeakScoringModel = prop.ScoringModel;
+                    im.PeakScoringModel = prop.MProphetResultsHandler.ScoringModel;
                 im.ResultsHandler = prop;
             });
         }
@@ -2835,7 +2951,7 @@ namespace pwiz.Skyline.Model.DocSettings
             {
                 var helper = XmlUtil.FindHelper(PeakScoringModel, PEAK_SCORING_MODEL_SPEC_HELPERS);
                 if (helper == null)
-                    throw new InvalidOperationException(Resources.PeptideLibraries_WriteXml_Attempt_to_serialize_list_containing_invalid_type);
+                    throw new InvalidOperationException(DocSettingsResources.PeptideLibraries_WriteXml_Attempt_to_serialize_list_containing_invalid_type);
                 writer.WriteElement(helper.ElementNames[0], PeakScoringModel);                            
             }
         }

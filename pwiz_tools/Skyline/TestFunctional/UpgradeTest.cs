@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -22,6 +22,7 @@ using System.Deployment.Application;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using pwiz.Common.GUI;
 using pwiz.Skyline;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Controls;
@@ -52,9 +53,8 @@ namespace pwiz.SkylineTestFunctional
         [TestMethod]
         public void UpgradeBasicFunctionalTest()
         {
-            _deployment = CreateDeployment();
-
-            RunFunctionalTest();
+            using (_deployment = CreateDeployment())
+                RunFunctionalTest();
         }
 
         protected override void InitializeSkylineSettings()
@@ -95,9 +95,8 @@ namespace pwiz.SkylineTestFunctional
         [TestMethod]
         public void UpgradeCancelFunctionalTest()
         {
-            _deployment = UpgradeBasicTest.CreateDeployment();
-
-            RunFunctionalTest();
+            using (_deployment = UpgradeBasicTest.CreateDeployment())
+                RunFunctionalTest();
         }
 
         protected override void InitializeSkylineSettings()
@@ -126,7 +125,7 @@ namespace pwiz.SkylineTestFunctional
             _deployment.UpdateVersion = new Version(3, 7, 1, 10173);
             upgradeDlg = ShowDialog<UpgradeDlg>(SkylineWindow.CheckForUpdate);
             Assert.IsTrue(upgradeDlg.UpdateFound);
-            Assert.AreEqual("3.7", upgradeDlg.VersionText);
+            Assert.AreEqual("3.7.1.10173", upgradeDlg.VersionText);
             OkDialog(upgradeDlg, upgradeDlg.AcceptButton.PerformClick);
             longWaitDlg = WaitForOpenForm<LongWaitDlg>();
             OkDialog(longWaitDlg, longWaitDlg.CancelDialog);
@@ -142,9 +141,8 @@ namespace pwiz.SkylineTestFunctional
         [TestMethod]
         public void UpgradeErrorsFunctionalTest()
         {
-            _deployment = UpgradeBasicTest.CreateDeployment();
-
-            RunFunctionalTest();
+            using (_deployment = UpgradeBasicTest.CreateDeployment())
+                RunFunctionalTest();
         }
 
         protected override void InitializeSkylineSettings()
@@ -175,7 +173,7 @@ namespace pwiz.SkylineTestFunctional
             _deployment.UpdateCheckError = new Exception(errorText);
             var errorDlg = ShowDialog<MessageDlg>(SkylineWindow.CheckForUpdate);
             Assert.AreEqual(Skyline.Properties.Resources.UpgradeManager_updateCheck_Complete_Failed_attempting_to_check_for_an_upgrade_, errorDlg.Message);
-            Assert.AreEqual(AlertDlg.FormatExceptionDetailMessage(_deployment.UpdateCheckError), errorDlg.DetailMessage);
+            Assert.AreEqual(CommonAlertDlg.FormatExceptionDetailMessage(_deployment.UpdateCheckError), errorDlg.DetailMessage);
             RunDlg<UpgradeDlg>(errorDlg.OkDialog, noUpdateDlg =>
             {
                 Assert.IsFalse(noUpdateDlg.UpdateFound);
@@ -191,7 +189,7 @@ namespace pwiz.SkylineTestFunctional
             RunDlg<MessageDlg>(upgradeDlg.AcceptButton.PerformClick, dlg =>
             {
                 Assert.AreEqual(Skyline.Properties.Resources.UpgradeManager_updateCheck_Complete_Failed_attempting_to_upgrade_, dlg.Message);
-                Assert.AreEqual(AlertDlg.FormatExceptionDetailMessage(_deployment.UpdateError), errorDlg.DetailMessage);
+                Assert.AreEqual(CommonAlertDlg.FormatExceptionDetailMessage(_deployment.UpdateError), errorDlg.DetailMessage);
                 dlg.OkDialog();
             });
             upgradeDlg = WaitForOpenForm<UpgradeDlg>();
@@ -206,7 +204,7 @@ namespace pwiz.SkylineTestFunctional
         }
     }
 
-    internal class TestDeployment : UpgradeManager.IDeployment
+    internal class TestDeployment : UpgradeManager.IDeployment, IDisposable
     {
         public const string INSTALL_LINK_TEXT = "Install link";
 
@@ -279,6 +277,12 @@ namespace pwiz.SkylineTestFunctional
         public void OpenInstallLink(Control parentWindow)
         {
             MessageDlg.Show(parentWindow, INSTALL_LINK_TEXT);
+        }
+
+        public void Dispose()
+        {
+            _progress = null;
+            _completed = null;
         }
     }
 }

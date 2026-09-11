@@ -49,6 +49,7 @@ ECHO
 #                           tarballs - useful after your initial build
 #
 #   --without-mz5           Build without mz5 support
+#   --without-mzmlb         Build without mzMLb support
 #   --without-agilent       Build without Agilent support
 #   --without-bruker        Build without Bruker support
 #   --without-sciex         Build without Sciex support
@@ -106,7 +107,7 @@ local default_libraries_path = "./libraries" ;
 local libraries_path = [ MATCH --libraries-path=(.*) : [ modules.peek : ARGV ] ] ;
 libraries_path ?= $(default_libraries_path) ; # set default path in absence of command-line path
 
-local default_boost_src = "$(libraries_path)/boost_1_76_0" ;
+local default_boost_src = "$(libraries_path)/boost_1_86_0" ;
 local boost_src = [ MATCH --boost-src=(.*) : [ modules.peek : ARGV ] ] ;
 boost_src ?= $(default_boost_src) ; # set default path in absence of command-line path
 
@@ -114,6 +115,9 @@ local default_zlib_src = "$(libraries_path)/zlib-1.2.3" ;
 local zlib_src = [ MATCH --zlib-src=(.*) : [ modules.peek : ARGV ] ] ;
 zlib_src ?= $(default_zlib_src) ; # set default path in absence of command-line path
 
+local default_zstd_src = "$(libraries_path)/zstd-1.5.7" ;
+local zstd_src = [ MATCH --zstd-src=(.*) : [ modules.peek : ARGV ] ] ;
+zstd_src ?= $(default_zstd_src) ; # set default path in absence of command-line path
 
 # TODO: get version from boost/version.hpp
 import regex ;
@@ -152,9 +156,16 @@ if ( "--without-binary-msdata" in  [ modules.peek : ARGV ] ) # support only text
 {
     echo "NOTICE: building without support for binary msdata formats as requested" ;
 }
-else if ( "--without-mz5" in  [ modules.peek : ARGV ] )
+else
 {
-    echo "NOTICE: building without mz5 support as requested" ;
+    if ( "--without-mz5" in  [ modules.peek : ARGV ] )
+    {
+        echo "NOTICE: building without mz5 support as requested" ;
+    }
+    if ( "--without-mzmlb" in  [ modules.peek : ARGV ] )
+    {
+        echo "NOTICE: building without mzMLb support as requested" ;
+    }
 }
 
 # do we want to skip mz5 support?
@@ -170,12 +181,25 @@ rule without-mz5 ( properties * )
    }
 }
 
+# do we want to skip mzMLb support?
+rule without-mzmlb ( properties * )
+{
+   if --without-mzmlb in [ modules.peek : ARGV ]
+   {
+       return <location-prefix>without-mzmlb <define>WITHOUT_MZMLB ;
+   }
+   else 
+   {
+       return [ without-binary-msdata $(properties) ] ;
+   }
+}
+
 # do we want to skip all binary file formats (vendors and mz5)?
 rule without-binary-msdata ( properties * )
 {
    if --without-binary-msdata in [ modules.peek : ARGV ]
    {
-       return <location-prefix>without-binary-msdata <define>WITHOUT_MZ5 <vendor-api-support>off ;
+       return <location-prefix>without-binary-msdata <define>WITHOUT_MZ5 <define>WITHOUT_MZMLB <vendor-api-support>off ;
    }
 }
 
@@ -259,6 +283,16 @@ rule mz5-build ( itemname )
 }
 
 
+# return the itemname if mzmlb build is on (the default)
+rule mzmlb-build ( itemname )  
+{
+    if ( ! [ without-mzmlb ] )
+    {
+        return $(itemname) ; # do build mzmlb
+    }
+}
+
+
 if ! [ modules.peek : NT ]
 {
     # make msbuild targets a no-op
@@ -296,7 +330,7 @@ project pwiz
         <toolset>msvc:<runtime-link>shared
 
         # avoid deprecation warnings
-        <define>BOOST_NO_AUTO_PTR
+        <toolset>gcc:<define>BOOST_NO_AUTO_PTR
         <define>BOOST_BIND_GLOBAL_PLACEHOLDERS
 
         <define>BOOST_REGEX_MATCH_EXTRA                 # enable access to all captures
@@ -307,26 +341,38 @@ project pwiz
         <toolset>msvc:<define>_SCL_SECURE_NO_DEPRECATE  # don't deprecate the standard library 
         <toolset>msvc:<define>_USE_MATH_DEFINES         # for M_PI in <cmath>
         <toolset>msvc:<define>BOOST_ALL_NO_LIB          # disable auto-link
+        <toolset>msvc:<cflags>/wd4100                  # warning: unreferenced formal parameter
         <toolset>msvc:<cxxflags>/wd4100                 # warning: unreferenced formal parameter
+        <toolset>msvc:<cflags>/wd4131                   # warning: uses old style declarator
         <toolset>msvc:<cxxflags>/wd4512                 # warning: assignment operator could not be generated
         <toolset>msvc:<cxxflags>/wd4127                 # warning: conditional expression is constant (boost::lexical_cast)
         <toolset>msvc:<cxxflags>/wd4701                 # warning: potentially uninitialized local variable 'result' used (boost::lexical_cast, debug)
+        <toolset>msvc:<cflags>/wd4206                   # warning: nonstandard extension used: translation unit is empty
         <toolset>msvc:<cxxflags>/wd4245                 # warning: conversion from 'type1' to 'type2', signed/unsigned mismatch (boost/filesystem/convenience.hpp)
         <toolset>msvc:<cxxflags>/wd4251                 # warning: class needs to have dll-interface to be used by clients of class
         <toolset>msvc:<cxxflags>/wd4267                 # warning: conversion from 'type1' to 'type2', possible loss of data (boost::lexical_cast)
+        <toolset>msvc:<cflags>/wd4244                   # warning: conversion from 'int' to 'unsigned short', possible loss of data (libraries\zlib-1.2.3\inflate.c)
         <toolset>msvc:<cxxflags>/wd4244                 # warning: conversion from 'int' to 'unsigned short', possible loss of data (boost/date_time/microsec_time_clock.hpp)
         <toolset>msvc:<cxxflags>/wd4275                 # warning: non dll-interface class 'base' used as base for dll-interface class 'derived'
         <toolset>msvc:<cxxflags>/wd4702                 # warning: unreachable code (boost::lexical_cast)
         <toolset>msvc:<cxxflags>/wd4714                 # warning: marked as __forceinline not inlined (boost::spirit::karma::sequence)
+        <toolset>msvc:<cflags>/wd4456                   # warning: declaration of 'type' hides previous local declaration
         <toolset>msvc:<cxxflags>/wd4456                 # warning: declaration of 'type' hides previous local declaration
         <toolset>msvc:<cxxflags>/wd4459                 # warning: declaration of 'type' hides global declaration
         <toolset>msvc:<cxxflags>/wd4458                 # warning: declaration of 'type' hides class member
+        <toolset>msvc:<cxxflags>/wd4634                 # warning: XML document comment: cannot be applied:  Discarding XML document comment for invalid target
+        <toolset>msvc:<cxxflags>/wd4828                 # warning: The file contains a character starting at offset xxxxx that is illegal in the current source character set (codepage 65001)
+        <toolset>msvc:<cflags>/wd4996                   # warning: 'xxxx': was declared deprecated
+        <toolset>msvc:<cxxflags>/wd4996                 # warning: 'xxxx': was declared deprecated
+        <toolset>msvc:<cxxflags>/wd5033                 # warning: 'register' is no longer a supported storage class
+        <toolset>msvc:<cxxflags>/utf-8                  # treat all files as UTF-8
         <toolset>msvc,<debug-symbols>off:<linkflags>"/OPT:REF,ICF"
         <toolset>msvc,<toolset-msvc:version>12.0:<define>_HAS_TR1
         <toolset>msvc,<toolset-msvc:version>14.0:<define>_HAS_TR1
         <toolset>msvc,<toolset-msvc:version>14.1:<define>_HAS_TR1
         <toolset>msvc,<toolset-msvc:version>14.2:<define>_HAS_TR1
         <toolset>msvc,<toolset-msvc:version>14.3:<define>_HAS_TR1
+        <toolset>msvc,<toolset-msvc:version>14.5:<define>_HAS_TR1
 
         # link-time optimization for release builds
         #<variant>release:<lto>on
@@ -343,13 +389,11 @@ project pwiz
         <toolset>gcc:<define>_DEFAULT_SOURCE
         <toolset>clang:<define>_DEFAULT_SOURCE
 
-        # msparser uses old libstd++ API, so with GCC 5+, the entire project has to use it as well
-        <toolset>gcc:<define>_GLIBCXX_USE_CXX11_ABI=0
-
-        # set standard to C++14
-        <toolset>gcc:<cxxflags>-std=c++14
-        <toolset>darwin:<cxxflags>-std=c++14
-        <toolset>clang:<cxxflags>-std=c++14
+        # set standard to C++14, 17 for MSVC (due to Arrow)
+        <toolset>msvc:<cxxflags>"/std:c++17"
+        <toolset>gcc:<cxxflags>-std=c++17
+        <toolset>darwin:<cxxflags>-std=c++17
+        <toolset>clang:<cxxflags>-std=c++17
 
         # prevent warning about _BSD_SOURCE deprecation
         <toolset>gcc:<define>_DEFAULT_SOURCE
@@ -494,11 +538,19 @@ rule day_of_year ( Y M D )
     }
 }
 
-# YMMDD in UTC where Y is number of years since 2016, optionally suffixed with HH (hour)
+# YMMDD where Y is number of years since 2016
+# Uses git commit date for reproducible versioning (not build machine date)
+# Falls back to JAMDATE if git command fails (e.g., old git version, shallow clone)
 rule MAKE_BUILD_TIMESTAMP ( )
 {
-    local utc = [ modules.peek : JAMDATE ] ;
-    local ymd = [ MATCH "([0-9][0-9][0-9][0-9])-([0-9][0-9])-([0-9][0-9])" : $(utc) ] ;
+    local git_date = [ SHELL "git log -1 --format=%cs HEAD" ] ;
+    local ymd = [ MATCH "([0-9][0-9][0-9][0-9])-([0-9][0-9])-([0-9][0-9])" : $(git_date) ] ;
+    if ! $(ymd)
+    {
+        # Fallback to build machine date if git date extraction fails
+        local utc = [ modules.peek : JAMDATE ] ;
+        ymd = [ MATCH "([0-9][0-9][0-9][0-9])-([0-9][0-9])-([0-9][0-9])" : $(utc) ] ;
+    }
     local d = [ MATCH "[0-9][0-9]([0-9][0-9])" : $(ymd[0]) ] [ day_of_year $(ymd) ] ;
     return $(d:J=) ;
 }
@@ -544,12 +596,14 @@ if ! [ without-mz5 ]
 
 path-constant BOOST_SOURCE : $(boost_src) ;
 path-constant ZLIB_SOURCE : $(zlib_src) ;
+path-constant ZSTD_SOURCE : $(zstd_src) ;
 path-constant GD_SOURCE : $(PWIZ_LIBRARIES_PATH)/libgd-2.1.0alpha ;
 path-constant PNG_SOURCE : $(PWIZ_LIBRARIES_PATH)/libpng-1.5.6 ;
-path-constant FREETYPE_SOURCE : $(PWIZ_LIBRARIES_PATH)/freetype-2.4.7 ;
+path-constant FREETYPE_SOURCE : $(PWIZ_LIBRARIES_PATH)/freetype-VER-2-13-3 ;
 path-constant EXPAT_SOURCE : $(PWIZ_LIBRARIES_PATH)/expat-2.0.1 ;
 
 using ext-boost : $(BOOST_VERSION:J=.) : $(BOOST_SOURCE) : <zlib-src-location>$(ZLIB_SOURCE) ;
+using ext-zstd : 1.5.7 : $(ZSTD_SOURCE) ;
 
 if [ modules.peek : NT ]
 {
@@ -564,12 +618,12 @@ if [ modules.peek : NT ]
             if ! --without-sciex in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_ABI.7z" ; }
             if ! --without-agilent in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_Agilent.7z" ; }
             if ! --without-bruker in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_Bruker.7z" ; }
-# Waiting for CCS<->DT support in .mbi reader #            if ! --without-mobilion in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_Mobilion.7z" ; }
+            if ! --without-mobilion in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_Mobilion.7z" ; }
             if ! --without-shimadzu in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_Shimadzu.7z" ; }
             if ! --without-thermo in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_Thermo.7z" ; }
             #if ! --without-unifi in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_UNIFI.7z" ; }
             if ! --without-waters in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility $(PWIZ_ROOT_PATH)\\pwiz_aux\\msrc\\utility\\vendor_api_Waters.7z" ; }
-            if ! --without-mascot in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_LIBRARIES_PATH) $(PWIZ_LIBRARIES_PATH)\\msparser_2_8_1_x86_win64.7z" ; }
+            if ! --without-mascot in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)\\7za.exe x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_LIBRARIES_PATH) $(PWIZ_LIBRARIES_PATH)\\msparser_3_1_0_x86_win64.7z" ; }
             RESCAN ;
         }
         else
@@ -578,14 +632,34 @@ if [ modules.peek : NT ]
         }
      }
 
+    # AI tooling is opt-in via --ai flag (initialize once, don't update on every build)
+    if --ai in $(args)
+    {
+        if ! [ path.exists $(PWIZ_ROOT_PATH)/ai ]
+        {
+            echo "Initializing AI tooling (--ai flag detected)..." ;
+            SHELL "git clone https://github.com/ProteoWizard/pwiz-ai.git ai && cmd /c mklink /J .claude ai\\claude" ;
+        }
+
+        # Create .claude junction if ai exists but junction doesn't (e.g., manual clone)
+        if [ path.exists $(PWIZ_ROOT_PATH)/ai/claude ]
+        {
+            if ! [ path.exists $(PWIZ_ROOT_PATH)/.claude ]
+            {
+                echo "Creating .claude junction to ai/claude..." ;
+                SHELL "cmd /c mklink /J .claude ai\\claude" ;
+            }
+        }
+    }
+
     # overwrite the original header files because of MSVC looking in the current header's path with #include "foo"
 
-    # HACK: bug in boost::interprocess (up to at least 1.55) requires a patch to support opening memory-mapped files with UTF-8 filenames
-    # Boost bug ticket: https://svn.boost.org/trac/boost/ticket/4335
-    #SHELL "@IF NOT EXIST $(BOOST_SOURCE)\\boost\\interprocess\\detail\\os_file_functions.hpp.bak rename $(BOOST_SOURCE)\\boost\\interprocess\\detail\\os_file_functions.hpp os_file_functions.hpp.bak" ;
-    #SHELL "@IF NOT EXIST $(BOOST_SOURCE)\\boost\\interprocess\\detail\\win32_api.hpp.bak rename $(BOOST_SOURCE)\\boost\\interprocess\\detail\\win32_api.hpp win32_api.hpp.bak" ;
-    #SHELL "@copy /Y $(PWIZ_LIBRARIES_PATH)\\boost_aux\\boost\\interprocess\\detail\\os_file_functions.hpp $(BOOST_SOURCE)\\boost\\interprocess\\detail" ;
-    #SHELL "@copy /Y $(PWIZ_LIBRARIES_PATH)\\boost_aux\\boost\\interprocess\\detail\\win32_api.hpp $(BOOST_SOURCE)\\boost\\interprocess\\detail" ;
+    # HACK: fix program_options implicit_value eating adjacent positional tokens
+    # Reapplying commit: https://github.com/boostorg/program_options/commit/88dea3c6fdea8c9ea894911897b1770599c383e4 (which was later reverted but was the proper behavior IMO)
+    SHELL "@IF NOT EXIST $(BOOST_SOURCE)\\boost\\program_options\\value_semantic.hpp.bak rename $(BOOST_SOURCE)\\boost\\program_options\\value_semantic.hpp value_semantic.hpp.bak" ;
+    SHELL "@IF NOT EXIST $(BOOST_SOURCE)\\libs\\program_options\\src\\cmdline.cpp.bak rename $(BOOST_SOURCE)\\libs\\program_options\\src\\cmdline.cpp cmdline.cpp.bak" ;
+    SHELL "@copy /Y $(PWIZ_LIBRARIES_PATH)\\boost_aux\\boost\\program_options\\value_semantic.hpp $(BOOST_SOURCE)\\boost\\program_options" ;
+    SHELL "@copy /Y $(PWIZ_LIBRARIES_PATH)\\boost_aux\\libs\\program_options\\src\\cmdline.cpp $(BOOST_SOURCE)\\libs\\program_options\\src" ;
 }
 else
 {
@@ -597,7 +671,7 @@ else
         if --i-agree-to-the-vendor-licenses in $(args)
         {
             echo "Extracting vendor APIs..." ;
-            if ! --without-mascot in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)/7zz x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_LIBRARIES_PATH) $(PWIZ_LIBRARIES_PATH)/msparser_2_8_1_x86_linux64.7z" ; }
+            if ! --without-mascot in $(args) { SHELL "$(PWIZ_LIBRARIES_PATH)/7zz x -aoa -pi-agree-to-the-vendor-licenses -o$(PWIZ_LIBRARIES_PATH) $(PWIZ_LIBRARIES_PATH)/msparser_3_1_0_x86_linux64.7z" ; }
             RESCAN ;
         }
         else
@@ -715,7 +789,7 @@ rule install-location ( properties * )
 
 rule install-type ( properties * )
 {
-    local result = <install-type>EXE ;
+    local result = <install-type>EXE <install-type>CONFIG ;
     if <link>shared in $(properties)
     {
         result += <install-dependencies>on <install-type>SHARED_LIB <install-type>MANIFEST ;
@@ -724,6 +798,31 @@ rule install-type ( properties * )
 }
 
 import string ;
+rule install-vendor-api-dependencies-to-locations ( locations + : properties * )
+{
+    local dependencies ;
+    if <toolset>msvc in $(properties) && <link>static in $(properties) && ! [ without-binary-msdata ]
+    {
+        for loc in $(locations)
+        {
+            local location = <location>$(loc) ;
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/ABI ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/ABI//install_pwiz_vendor_api_abi_dlls/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/ABI ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/ABI//install_pwiz_vendor_api_abi_sqlite/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/ABI/T2D ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/ABI/T2D//install_pwiz_vendor_api_abi_t2d/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/Agilent ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Agilent//install_pwiz_vendor_api_agilent/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/Bruker ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Bruker//install_pwiz_vendor_api_bruker/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/Mobilion ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Mobilion//install_pwiz_vendor_api_mbi/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/Shimadzu ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Shimadzu//install_pwiz_vendor_api_shimadzu/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/thermo ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/thermo//install_pwiz_vendor_api_thermo/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/UIMF ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/UIMF//install_pwiz_vendor_api_uimf/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/UNIFI ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/UNIFI//install_pwiz_vendor_api_unifi/$(location) ; }
+            if [ path.exists pwiz_aux/msrc/utility/vendor_api/Waters ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Waters//install_pwiz_vendor_api_waters/$(location) ; }
+            if <vendor-api-support>on in $(properties) { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_tools/prototype//ThermoRawMetaDumpInstall/$(location) ; }
+        }
+    }
+    return $(dependencies) ;
+}
+
 rule install-vendor-api-dependencies ( properties * )
 {
     properties = $(properties) [ vendor-api-support $(properties) ] ;
@@ -731,23 +830,7 @@ rule install-vendor-api-dependencies ( properties * )
     if $(location) { location = [ string.join <location> [ path.make $(location[1]) ] ] ; }
     location ?= [ install-location $(properties) ] ;
 
-    local dependencies ;
-    if <toolset>msvc in $(properties) && <link>static in $(properties) && ! [ without-binary-msdata ]
-    {
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/ABI ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/ABI//install_pwiz_vendor_api_abi_dlls/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/ABI ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/ABI//install_pwiz_vendor_api_abi_sqlite/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/ABI/T2D ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/ABI/T2D//install_pwiz_vendor_api_abi_t2d/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/Agilent ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Agilent//install_pwiz_vendor_api_agilent/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/Bruker ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Bruker//install_pwiz_vendor_api_bruker/$(location) ; }
-# wait for CCS<->DT support in Mobllion #         if [ path.exists pwiz_aux/msrc/utility/vendor_api/Mobilion ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Mobilion//install_pwiz_vendor_api_mbi/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/Shimadzu ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Shimadzu//install_pwiz_vendor_api_shimadzu/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/thermo ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/thermo//install_pwiz_vendor_api_thermo/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/UIMF ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/UIMF//install_pwiz_vendor_api_uimf/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/UNIFI ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/UNIFI//install_pwiz_vendor_api_unifi/$(location) ; }
-        if [ path.exists pwiz_aux/msrc/utility/vendor_api/Waters ] { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_aux/msrc/utility/vendor_api/Waters//install_pwiz_vendor_api_waters/$(location) ; }
-        if <vendor-api-support>on in $(properties) { dependencies += <dependency>$(PWIZ_ROOT_PATH)/pwiz_tools/prototype//ThermoRawMetaDumpInstall/$(location) ; }
-    }
-    return $(dependencies) ;
+    return [ install-vendor-api-dependencies-to-locations $(location) : $(properties) ] ;
 }
 
 rule install-identdata-dependencies ( properties * )
@@ -868,6 +951,14 @@ else
     .installer-vendor-files-location = $(PWIZ_BUILD_PATH)/without-cxt/$(PLATFORM) ;
 }
 
+# Assemblies that every installer already declares for itself. They reach the <assembly>
+# enumeration below because a vendor API references them, but listing them here as well would
+# declare the same file twice and fail the WiX link with LGHT0091 (duplicate symbol).
+# pwiz.CommonUtil.dll is ours rather than a vendor redistributable, and is named directly by
+# scripts/wix/pwiz-setup.wxs.template, pwiz_tools/Bumbershoot/idpicker/Deploy/Deploy.wxs.template
+# and pwiz_tools/Skyline/Executables/Installer/FileList64-template.txt.
+.installer-vendor-files-exclusions = pwiz.CommonUtil.dll ;
+
 rule make_INSTALLER_VENDOR_FILES ( targets * : sources * : properties * )
 {
     # enumerate .NET assemblies and their native DLL dependencies
@@ -878,7 +969,8 @@ rule make_INSTALLER_VENDOR_FILES ( targets * : sources * : properties * )
         for local assembly in $(assemblies)
         {
             local assembly-path = [ path.basename [ $(assembly).name ] ] ;
-            if ! $(assembly-path:L) in $(.unique-vendor-files:L)
+            if ! $(assembly-path:L) in $(.unique-vendor-files:L) &&
+               ! $(assembly-path:L) in $(.installer-vendor-files-exclusions:L)
             {
                 .unique-vendor-files += $(assembly-path) ;
             }
@@ -962,7 +1054,8 @@ rule secure-scl-throws ( properties * )
        ! ( <toolset-msvc:version>14.0 in $(properties) ) &&
        ! ( <toolset-msvc:version>14.1 in $(properties) ) &&
        ! ( <toolset-msvc:version>14.2 in $(properties) ) &&
-       ! ( <toolset-msvc:version>14.3 in $(properties) )
+       ! ( <toolset-msvc:version>14.3 in $(properties) ) &&
+       ! ( <toolset-msvc:version>14.5 in $(properties) )
     {
         return <define>_SILENCE_DEPRECATION_OF_SECURE_SCL_THROWS
                <define>_SECURE_SCL_THROWS=1 ;
@@ -1003,7 +1096,7 @@ rule msvc-has-current-dotnet ( properties * )
 {
     # require VS 2017 or higher because of .NET Framework version
     if <toolset>msvc in $(properties) && 
-       [ feature.get-values <toolset-msvc:version> : $(properties) ] in "14.1" "14.2" "14.3"
+       [ feature.get-values <toolset-msvc:version> : $(properties) ] in "14.1" "14.2" "14.3" "14.5"
     {
         return 1 ;
     }
@@ -1079,7 +1172,7 @@ rule mbi-dll-location ( api-path : properties * )
 {
     local result = $(api-path) ;
     if --i-agree-to-the-vendor-licenses in [ modules.peek : ARGV ] &&
-       [ path.exists $(api-path)\\MBICore.dll ]
+       [ path.exists $(api-path)\\MBI_SDK.dll ]
     {
         return $(result) ;
     }
@@ -1184,9 +1277,19 @@ rule msparser-path ( properties * )
     }
     else if <toolset>msvc in $(properties)
     {
-        if [ feature.get-values <toolset-msvc:version> : $(properties) ] in "14.0" "14.1" "14.2" "14.3"
+        if <address-model>32 in $(properties)
         {
-            lib-location = "$(PWIZ_LIBRARIES_PATH)\\msparser_2_8_1_x86_win64\\vs2017" ;
+            # Only a 64-bit Mascot Parser library is bundled, so disable Mascot support in 32-bit builds.
+            if ! $(.warn-once-mascot32)
+            {
+                .warn-once-mascot32 = true ;
+                echo "Note: Not using Mascot Parser in 32-bit builds (only a 64-bit msparser library is bundled)." ;
+            }
+            lib-location = "" ;
+        }
+        else if [ feature.get-values <toolset-msvc:version> : $(properties) ] in "14.0" "14.1" "14.2" "14.3" "14.5"
+        {
+            lib-location = "$(PWIZ_LIBRARIES_PATH)\\msparser_3_1_0_x86_win64\\vs2015" ;
         }
         else
         {
@@ -1200,9 +1303,9 @@ rule msparser-path ( properties * )
     } 
     else if <toolset>gcc in $(properties)
     {
-        lib-location = "$(PWIZ_LIBRARIES_PATH)/msparser_2_8_1_x86_linux64/gnu" ;
+        lib-location = "$(PWIZ_LIBRARIES_PATH)/msparser_3_1_0_x86_linux64/gnu" ;
     }
-    else
+    else  if <toolset>* in $(properties)
     {
         if ! $(.warn-once)
         {
@@ -1223,25 +1326,25 @@ rule msparser-path ( properties * )
     # Check for msparser existence.
     else if <toolset>msvc in $(properties) && [ path.exists $(lib-location)/lib/msparser.lib ]
     {
-        if ! $(.warn-once)
+        if ! $(.warn-once-msvc)
         {
-            .warn-once = true ;
+            .warn-once-msvc = true ;
             echo "Using Mascot Parser in $(lib-location)" ;
         }
         return $(lib-location) ;
     }
     else if <toolset>gcc in $(properties) && [ path.exists $(lib-location)/lib/libmsparser.a ]
     {
-        if ! $(.warn-once)
+        if ! $(.warn-once-gcc)
         {
-            .warn-once = true ;
+            .warn-once-gcc = true ;
             echo "Using Mascot Parser in $(lib-location)" ;
         }
         return $(lib-location) ;
     }
-    else if ! $(.warn-once)
+    else if <toolset>gcc in $(properties) && ! $(.warn-once-gcc)
     {
-        .warn-once = true ;
+        .warn-once-gcc = true ;
         
         if $(lib-location)
         {
@@ -1251,7 +1354,21 @@ rule msparser-path ( properties * )
         {
             echo "Warning: No Mascot Parser found." ;
         }
-        echo "         Mascot support will be disabled." ;
+        echo "         Mascot support will be disabled in gcc builds, if any." ;
+    }
+	else if <toolset>msvc in $(properties) && ! $(.warn-once-msvc)
+    {
+        .warn-once-msvc = true ;
+        
+        if $(lib-location)
+        {
+            echo "Warning: No Mascot Parser found at $(lib-location)." ;
+        }
+        else
+        {
+            echo "Warning: No Mascot Parser found." ;
+        }
+        echo "         Mascot support will be disabled in MSVC builds, if any." ;
     }
 }
 
@@ -1651,7 +1768,7 @@ tar.create boost_$(BOOST_VERSION:J=_).tar.bz2
     "exclude:pwiz_tools/Shared/BiblioSpec"
     "exclude:pwiz_tools/Shared/Crawdad"
     "exclude:pwiz_tools/Shared/ProteomeDb"
-    "exclude:pwiz_tools/Shared/ProteowizardWrapper"
+    # ProteowizardWrapper is needed by MSConvertGUI.sln (shared remote dialog refactor)
     "exclude:pwiz_tools/Shared/Lib/Microsoft.Diagnostics.Runtime"
     "exclude:pwiz_tools/Shared/Lib/MSAmanda"
     "exclude:pwiz_tools/Shared/Lib/DotNetZip"
@@ -1681,7 +1798,6 @@ constant .common-sources :
     $(.common-src-exclusions)
     
     $(PWIZ_ROOT_PATH)/Jamroot.jam
-    $(PWIZ_ROOT_PATH)/NOTICE
     $(PWIZ_ROOT_PATH)/LICENSE
     $(PWIZ_ROOT_PATH)/quickbuild.bat
     $(PWIZ_ROOT_PATH)/quickbuild.sh
@@ -1711,7 +1827,7 @@ constant .common-sources :
     $(PWIZ_LIBRARIES_PATH)/SQLite
     $(PWIZ_LIBRARIES_PATH)/Eigen
     $(PWIZ_LIBRARIES_PATH)/CSpline
-    [ path.glob $(PWIZ_LIBRARIES_PATH) : *.bat *.sh *.h *.jam *.dll *.lib *.exe *.cpp libgd*.tar.bz2 libpng*.tar.bz2 freetype*.tar.bz2 zlib*.tar.bz2 hdf5*.tar.bz2 msparser*.7z ]
+    [ path.glob $(PWIZ_LIBRARIES_PATH) : *.bat *.sh *.h *.jam *.dll *.lib *.exe *.cpp libgd*.tar.bz2 libpng*.tar.bz2 freetype*.tar.bz2 zlib*.tar.bz2 zstd*.tar.bz2 hdf5*.tar.bz2 msparser*.7z ]
 
     # include the bcp'd boost tarball as if it was really located at "libraries/boost_*.tar.bz2"
     "path-anchor:$(BOOST_SUBSET_PATH)"

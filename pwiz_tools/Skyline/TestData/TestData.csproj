@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -34,7 +34,8 @@
     <BootstrapperEnabled>true</BootstrapperEnabled>
     <ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>None</ResolveAssemblyWarnOrErrorOnTargetArchitectureMismatch>
     <TargetFrameworkProfile />
-    <AutoGenerateBindingRedirects>false</AutoGenerateBindingRedirects>
+    <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    <GenerateBindingRedirectsOutputType>true</GenerateBindingRedirectsOutputType>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -122,13 +123,17 @@
     </Reference>
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Newtonsoft.Json, Version=11.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+    <Reference Include="Newtonsoft.Json, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\Newtonsoft.Json.dll</HintPath>
     </Reference>
     <Reference Include="NHibernate">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\NHibernate\NHibernate.dll</HintPath>
+    </Reference>
+    <Reference Include="ParquetNet">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\Shared\Lib\Parquet\ParquetNet.dll</HintPath>
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
@@ -151,20 +156,28 @@
     <Compile Include="..\Executables\SkylineRunner\ErrorChecker.cs">
       <Link>ErrorChecker.cs</Link>
     </Compile>
+    <Compile Include="CommandLineEiTest.cs" />
     <Compile Include="CommandLineMetadataRuleTest.cs" />
     <Compile Include="CommandLineNoJoinTest.cs" />
     <Compile Include="CommandLineRefineTest.cs" />
+    <Compile Include="CommandLineReportTest.cs" />
     <Compile Include="CommandLineTest.cs" />
     <Compile Include="CommandLineImportTest.cs" />
     <Compile Include="CommandLineWiffTest.cs" />
+    <Compile Include="ConsoleAddAnnotationsTest.cs" />
+    <Compile Include="ConsoleVerboseExceptionsTest.cs" />
+    <Compile Include="DataFileMemoryLeakTest.cs" />
     <Compile Include="ExportMethodShimadzuTest.cs" />
     <Compile Include="FullScanAcquisitionMethodTest.cs" />
     <Compile Include="InstrumentInfoUtilTest.cs" />
+    <Compile Include="LocalizedResourcesTest.cs" />
+    <Compile Include="OptimizationSpacingTest.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="PwizFileInfoTest.cs" />
     <Compile Include="RefineTest.cs">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="ResourcesTest.cs" />
     <Compile Include="Results\AgilentCEOptTest.cs" />
     <Compile Include="Results\AgilentMixTest.cs" />
     <Compile Include="Results\AgilentMseTest.cs" />
@@ -185,6 +198,7 @@
     <Compile Include="Results\ResultFileMetaDataTest.cs" />
     <Compile Include="Results\ResultsUtilTest.cs" />
     <Compile Include="Results\DocumentRetentionTimesTest.cs" />
+    <Compile Include="Results\ShimadzuSrmDuplicateQ1Test.cs" />
     <Compile Include="Results\ShimadzuSrmTest.cs" />
     <Compile Include="Results\SmallWiffTest.cs" />
     <Compile Include="Results\StructSerializerTest.cs" />
@@ -200,6 +214,14 @@
       <Project>{32CC9B1A-9442-4B56-AF34-FB47595278A1}</Project>
       <Name>BiblioSpec</Name>
     </ProjectReference>
+    <ProjectReference Include="..\..\Shared\CommonFileDialogs\CommonFileDialogs.csproj">
+      <Project>{B8E3F4A1-7C2D-4E5F-9A1B-3C6D8E0F2A4B}</Project>
+      <Name>CommonFileDialogs</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Shared\CommonMsData\CommonMsData.csproj">
+      <Project>{86f8e7f5-a3ed-4519-9ad9-bf9abd6dd69f}</Project>
+      <Name>CommonMsData</Name>
+    </ProjectReference>
     <ProjectReference Include="..\..\Shared\Common\Common.csproj">
       <Project>{A5527BE9-4A62-458F-AE47-F0F9204A5CF9}</Project>
       <Name>Common</Name>
@@ -207,6 +229,10 @@
     <ProjectReference Include="..\..\Shared\CommonUtil\CommonUtil.csproj">
       <Project>{13BF2FFB-50A1-4AB1-83A4-5733E36905CE}</Project>
       <Name>CommonUtil</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Shared\PortableUtil\PortableUtil.csproj">
+      <Project>{97ECF0B4-0AAA-4593-ADE0-9E8740973AC2}</Project>
+      <Name>PortableUtil</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\Shared\MSGraph\MSGraph.csproj">
       <Project>{26CFD1FF-F4F7-4F66-B5B4-E686BDB9B34E}</Project>
@@ -234,18 +260,27 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <None Include="App.config" />
+    <None Include="CommandLineEiTest.zip" />
     <None Include="CommandLineImportTest.zip" />
     <None Include="CommandLineNoJoinTest.zip" />
     <None Include="CommandLineRefine.zip" />
     <None Include="CommandLineRefineGroupComparisonTest.zip" />
+    <None Include="CommandLineReportTest.zip" />
     <None Include="CommandLineTest.zip" />
     <None Include="CommandLineWiffTest.zip" />
+    <None Include="ConsoleAddAnnotationsTest.zip" />
+    <None Include="ConsoleAnnotationsExportToImportTest.zip" />
+    <None Include="ConsoleExportAnnotationsTest.zip" />
+    <None Include="ConsoleExportMProphetTest.zip" />
+    <None Include="ConsoleExportSpecLibTest.zip" />
     <None Include="ImportAllCmdLineTest.zip" />
     <None Include="ImportAllCmdLineTestMzml.zip" />
     <None Include="ImportCommandLineSameName.zip" />
     <None Include="PressureTracesTest.zip" />
     <None Include="PwizFileInfoTest.zip" />
     <None Include="Refine.zip" />
+    <None Include="UnsortedMzArraysMzml.zip" />
     <None Include="Results\AgilentCEOpt.zip" />
     <None Include="Results\AgilentMix.zip" />
     <None Include="Results\AgilentMse.zip" />
@@ -261,6 +296,7 @@
     <EmbeddedResource Include="Results\PeptideQuantifierTest.sky" />
     <None Include="Results\MultiplePeptidesSameMz.zip" />
     <None Include="Results\ShimadzuSrm.zip" />
+    <None Include="Results\ShimadzuSrmDuplicateQ1.zip" />
     <None Include="Results\SmallWiff.zip" />
     <None Include="Results\ThermoQuant.zip" />
     <None Include="Results\WatersCalcurve.zip" />

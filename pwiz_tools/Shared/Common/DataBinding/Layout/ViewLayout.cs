@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -105,6 +105,10 @@ namespace pwiz.Common.DataBinding.Layout
                 {
                     writer.WriteAttributeString("width", columnFormat.Item2.Width.ToString());
                 }
+                if (columnFormat.Item2.Frozen.HasValue)
+                {
+                    writer.WriteAttributeString("frozen", columnFormat.Item2.Frozen.ToString());
+                }
                 if (!string.IsNullOrEmpty(columnFormat.Item2.Format))
                 {
                     writer.WriteAttributeString("format", columnFormat.Item2.Format);
@@ -158,6 +162,11 @@ namespace pwiz.Common.DataBinding.Layout
                     {
                         columnFormat = columnFormat.ChangeWidth(int.Parse(strWidth));
                     }
+                    var strFrozen = reader.GetAttribute("frozen");
+                    if (strFrozen != null)
+                    {
+                        columnFormat = columnFormat.ChangeFrozen(bool.Parse(strFrozen));
+                    }
                     columnFormat = columnFormat.ChangeFormat(reader.GetAttribute("format"));
                     columnFormats.Add(Tuple.Create(ColumnId.ParsePersistedString(reader.GetAttribute("column")), columnFormat));
                     if (reader.IsEmptyElement)
@@ -198,5 +207,12 @@ namespace pwiz.Common.DataBinding.Layout
         }
         // ReSharper restore LocalizableElement
 
+        public void ApplyFormats(ColumnFormats columnFormats)
+        {
+            foreach (var format in ColumnFormats)
+            {
+                columnFormats.SetFormat(format.Item1, format.Item2);
+            }
+        }
     }
 }

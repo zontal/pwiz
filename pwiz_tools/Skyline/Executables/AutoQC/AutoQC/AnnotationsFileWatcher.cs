@@ -1,0 +1,84 @@
+using System;
+using System.IO;
+using SharedBatch;
+
+namespace AutoQC
+{
+
+    public class AnnotationsFileWatcher : IDisposable
+    {
+        private readonly Logger _logger;
+        private readonly ConfigRunner _configRunner;
+
+        private readonly FileSystemWatcher _fileWatcher;
+        private bool _cancelled;
+
+        public AnnotationsFileWatcher(Logger logger, ConfigRunner configRunner)
+        {
+            _fileWatcher = InitFileSystemWatcher();
+
+            _logger = logger;
+            _configRunner = configRunner;
+        }
+
+        private FileSystemWatcher InitFileSystemWatcher()
+        {
+            var fileWatcher = new FileSystemWatcher();
+            fileWatcher.Changed += (s, e) => FileChanged();
+            fileWatcher.Error += (s, e) => OnFileWatcherError(e);
+            return fileWatcher;
+        }
+
+        public void Init(AutoQcConfig config)
+        {
+            var mainSettings = config.MainSettings;
+
+            _fileWatcher.EnableRaisingEvents = false;
+
+            _fileWatcher.NotifyFilter = NotifyFilters.CreationTime | NotifyFilters.LastWrite;
+
+            // ConfigRunner only creates this watcher when MainSettings.HasAnnotationsFile(), so
+            // the path is set and both of these are non-null. The coalesce is for the analyser,
+            // which cannot see that invariant from here.
+            var annotationsFilePath = mainSettings.AnnotationsFilePath;
+
+            _fileWatcher.Filter = Path.GetFileName(annotationsFilePath) ?? string.Empty;
+
+            _fileWatcher.Path = Path.GetDirectoryName(annotationsFilePath) ?? string.Empty;
+        }
+
+        public void StartWatching()
+        {
+            _fileWatcher.EnableRaisingEvents = true;
+        }
+
+        public void Stop()
+        {
+            _cancelled = true;
+            _fileWatcher.EnableRaisingEvents = false;
+        }
+
+        private void FileChanged()
+        {
+            if (_cancelled)
+                return;
+
+            _logger.Log("Annotations file was updated.");
+            _configRunner.AnnotationsFileUpdated = true;
+        }
+
+        private void OnFileWatcherError(ErrorEventArgs e)
+        {
+            if (_cancelled)
+                return;
+
+            _logger.LogError(string.Format("There was an error watching the annotations file {0}.", _fileWatcher.Filter), e.GetException().ToString());
+        }
+
+        public void Dispose()
+        {
+            Stop();
+            _fileWatcher?.Dispose();
+        }
+    }
+}

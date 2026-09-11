@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Tobias Rohde <tobiasr .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -23,6 +23,9 @@ using System.ComponentModel;
 using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
+using pwiz.Common.DataBinding.Controls.Editor;
+using pwiz.Skyline.Controls.Graphs;
+using pwiz.Skyline.Model;
 using pwiz.Skyline.Model.GroupComparison;
 using pwiz.Skyline.Model.Proteome;
 using pwiz.Skyline.Properties;
@@ -33,8 +36,8 @@ namespace pwiz.Skyline.Controls.GroupComparison
 {
     public partial class VolcanoPlotFormattingDlg : FormEx, ColorGrid<MatchRgbHexColor>.IColorGridOwner
     {
-        private readonly FoldChangeBindingSource.FoldChangeRow[] _foldChangeRows;
-        private readonly Action<List<MatchRgbHexColor>> _updateGraph;
+        private readonly object[] _foldChangeRows;
+        private readonly Action<IEnumerable<MatchRgbHexColor>> _updateGraph;
         private readonly BindingList<MatchRgbHexColor> _bindingList;
 
         private readonly int _expressionIndex;
@@ -42,17 +45,36 @@ namespace pwiz.Skyline.Controls.GroupComparison
 
         private readonly DataGridViewComboBoxColumn _symbolCombo;
         private readonly DataGridViewComboBoxColumn _pointSizeCombo;
+        private readonly Font _symbolDropdownFont = new Font(SystemFonts.DefaultFont.FontFamily, 16f);
 
         public VolcanoPlotFormattingDlg(FoldChangeVolcanoPlot volcanoPlot, IList<MatchRgbHexColor> colorRows,
-            FoldChangeBindingSource.FoldChangeRow[] foldChangeRows, Action<List<MatchRgbHexColor>> updateGraph)
+            FoldChangeRow[] foldChangeRows, Action<IEnumerable<MatchRgbHexColor>> updateGraph) : 
+            this(true, colorRows, foldChangeRows, updateGraph, 
+                volcanoPlot.PerProtein, volcanoPlot.Document)
+        {
+        }
+
+        public VolcanoPlotFormattingDlg(SummaryRelativeAbundanceGraphPane relativeAbundanceGraph,
+            IEnumerable<MatchRgbHexColor> colorRows, object[] proteinAbundances, Action<IEnumerable<MatchRgbHexColor>> updateGraph) : 
+            this(false, colorRows, proteinAbundances, updateGraph, 
+                Settings.Default.AreaProteinTargets, relativeAbundanceGraph.GraphSummary.DocumentUIContainer.DocumentUI)
+        {
+        }
+
+        private VolcanoPlotFormattingDlg(bool hasFoldChangeResults, IEnumerable<MatchRgbHexColor> colorRows,
+            object[] foldChangeRows, Action<IEnumerable<MatchRgbHexColor>> updateGraph, bool perProtein, SrmDocument document)
         {
             InitializeComponent();
+            HasFoldChangeResults = hasFoldChangeResults;
+            AnyMolecules = document.HasSmallMolecules;
+            AnyProteomic = document.IsEmptyOrHasPeptides;
+            PerProtein = perProtein;
+            Document = document;
 
-            VolcanoPlot = volcanoPlot;
             _foldChangeRows = foldChangeRows;
             _updateGraph = updateGraph;
 
-            _bindingList = new BindingList<MatchRgbHexColor>(colorRows);
+            _bindingList = new BindingList<MatchRgbHexColor>(colorRows.Select(row=>row.Clone()).ToList());
             _bindingList.ListChanged += _bindingList_ListChanged;
 
             regexColorRowGrid1.AllowUserToOrderColumns = true;
@@ -85,6 +107,8 @@ namespace pwiz.Skyline.Controls.GroupComparison
             _symbolCombo.DisplayMember = @"DisplayString";
             _symbolCombo.ValueMember = @"PointSymbol";
             _symbolCombo.Items.AddRange(
+                new PointSymbolStringPair(null,
+                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_None),
                 new PointSymbolStringPair(PointSymbol.Circle,
                     GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Circle),
                 new PointSymbolStringPair(PointSymbol.Square,
@@ -100,7 +124,17 @@ namespace pwiz.Skyline.Controls.GroupComparison
                 new PointSymbolStringPair(PointSymbol.Plus,
                     GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Plus),
                 new PointSymbolStringPair(PointSymbol.Star,
-                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Star)
+                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Star),
+                new PointSymbolStringPair(PointSymbol.OutlineCircle,
+                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_OutlineCircle),
+                new PointSymbolStringPair(PointSymbol.OutlineSquare,
+                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_OutlineSquare),
+                new PointSymbolStringPair(PointSymbol.OutlineTriangle,
+                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_OutlineTriangle),
+                new PointSymbolStringPair(PointSymbol.OutlineTriangleDown,
+                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_OutlineTriangleDown),
+                new PointSymbolStringPair(PointSymbol.OutlineDiamond,
+                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_OutlineDiamond)
             );
             regexColorRowGrid1.Columns.Insert(6, _symbolCombo);
 
@@ -111,6 +145,8 @@ namespace pwiz.Skyline.Controls.GroupComparison
             _pointSizeCombo.DisplayMember = @"DisplayString";
             _pointSizeCombo.ValueMember = @"PointSize";
             _pointSizeCombo.Items.AddRange(
+                new PointSizeStringPair(null,
+                    GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_None),
                 new PointSizeStringPair(PointSize.x_small,
                     GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_X_Small),
                 new PointSizeStringPair(PointSize.small,
@@ -133,14 +169,30 @@ namespace pwiz.Skyline.Controls.GroupComparison
             advancedCheckBox.Checked = Settings.Default.ShowAdvancedVolcanoPlotFormatting;
             UpdateAdvancedColumns();
 
+            regexColorRowGrid1.AddUseColorColumn(GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Color);
             regexColorRowGrid1.Owner = this;
-
+            regexColorRowGrid1.DataGridView.EditingControlShowing += DataGridView_EditingControlShowing;
+            if (!hasFoldChangeResults)
+            {
+                Text = GroupComparisonResources.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Protein_Expression_Formatting;
+            }
             SetExpressionMinimumWidth();
+            layoutLabelsBox.Checked = Settings.Default.GroupComparisonAvoidLabelOverlap;
+
+            // Tooltips/accessible names for the delete/reorder toolbar (image-only buttons).
+            btnDeleteRule.Text = GroupComparisonStrings.VolcanoPlotFormattingDlg_Delete_rule;
+            btnMoveRuleUp.Text = GroupComparisonStrings.VolcanoPlotFormattingDlg_Move_rule_up;
+            btnMoveRuleDown.Text = GroupComparisonStrings.VolcanoPlotFormattingDlg_Move_rule_down;
+
+            var grid = regexColorRowGrid1.DataGridView;
+            grid.SelectionChanged += regexColorRowGrid1_SelectionChanged;
+            grid.CurrentCellChanged += regexColorRowGrid1_SelectionChanged;
+            UpdateRuleButtons();
         }
 
         public class PointSizeStringPair
         {
-            public PointSizeStringPair(PointSize pointSize, string displayString)
+            public PointSizeStringPair(PointSize? pointSize, string displayString)
             {
                 PointSize = pointSize;
                 DisplayString = displayString;
@@ -148,7 +200,7 @@ namespace pwiz.Skyline.Controls.GroupComparison
 
             // These are actually used by the combo box
             // ReSharper disable once MemberCanBePrivate.Local
-            public PointSize PointSize { get; set; }
+            public PointSize? PointSize { get; set; }
 
             // ReSharper disable once UnusedAutoPropertyAccessor.Local
             // ReSharper disable once MemberCanBePrivate.Local
@@ -157,7 +209,7 @@ namespace pwiz.Skyline.Controls.GroupComparison
 
         public class PointSymbolStringPair
         {
-            public PointSymbolStringPair(PointSymbol pointSymbol, string displayString)
+            public PointSymbolStringPair(PointSymbol? pointSymbol, string displayString)
             {
                 PointSymbol = pointSymbol;
                 DisplayString = displayString;
@@ -165,7 +217,7 @@ namespace pwiz.Skyline.Controls.GroupComparison
 
             // These are actually used by the combo box
             // ReSharper disable once MemberCanBePrivate.Local
-            public PointSymbol PointSymbol { get; set; }
+            public PointSymbol? PointSymbol { get; set; }
 
             // ReSharper disable once UnusedAutoPropertyAccessor.Local
             // ReSharper disable once MemberCanBePrivate.Local
@@ -175,11 +227,118 @@ namespace pwiz.Skyline.Controls.GroupComparison
         protected override void OnHandleDestroyed(EventArgs e)
         {
             _bindingList.ListChanged -= _bindingList_ListChanged;
-
+            _symbolDropdownFont.Dispose();
             base.OnHandleDestroyed(e);
         }
 
+        private void DataGridView_EditingControlShowing(object sender, DataGridViewEditingControlShowingEventArgs e)
+        {
+            if (!(e.Control is ComboBox cb))
+                return;
+
+            cb.DrawItem -= SymbolCombo_DrawItem;
+            cb.SelectedIndexChanged -= SymbolCombo_SelectedIndexChanged;
+            cb.DrawMode = DrawMode.Normal;
+            cb.ItemHeight = cb.Font.Height;
+            cb.AccessibleName = null;
+
+            if (((DataGridView) sender).CurrentCell?.ColumnIndex != _symbolCombo.Index)
+                return;
+
+            cb.DrawMode = DrawMode.OwnerDrawFixed;
+            cb.ItemHeight = _symbolDropdownFont.Height + 4;
+            cb.DrawItem += SymbolCombo_DrawItem;
+            // The dropdown shows glyphs, which screen readers cannot announce meaningfully.
+            // Mirror the selected glyph with a readable accessible name and keep it in sync.
+            cb.SelectedIndexChanged += SymbolCombo_SelectedIndexChanged;
+            UpdateSymbolAccessibleName(cb);
+        }
+
+        private void SymbolCombo_DrawItem(object sender, DrawItemEventArgs e)
+        {
+            if (e.Index < 0)
+                return;
+            e.DrawBackground();
+            var cb = (ComboBox)sender;
+            var text = cb.GetItemText(cb.Items[e.Index]);
+            // Use normal font for the closed-state display (edit portion); large font for dropdown items.
+            var isEditPortion = (e.State & DrawItemState.ComboBoxEdit) != 0;
+            var font = isEditPortion ? cb.Font : _symbolDropdownFont;
+            TextRenderer.DrawText(e.Graphics, text, font, e.Bounds, e.ForeColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter);
+            e.DrawFocusRectangle();
+        }
+
+        private void SymbolCombo_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            UpdateSymbolAccessibleName((ComboBox)sender);
+        }
+
+        private static void UpdateSymbolAccessibleName(ComboBox cb)
+        {
+            cb.AccessibleName = GetSymbolAccessibleName(GetSelectedSymbol(cb));
+        }
+
+        private static PointSymbol? GetSelectedSymbol(ComboBox cb)
+        {
+            if (cb.SelectedItem is PointSymbolStringPair pair)
+                return pair.PointSymbol;
+            if (cb.SelectedValue is PointSymbol symbol)
+                return symbol;
+            return null;
+        }
+
+        private static string GetSymbolAccessibleName(PointSymbol? symbol)
+        {
+            if (symbol == null)
+                return GroupComparisonStrings.VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_None;
+
+            switch (symbol.Value)
+            {
+                case PointSymbol.Circle:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_Circle;
+                case PointSymbol.Square:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_Square;
+                case PointSymbol.Triangle:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_Triangle;
+                case PointSymbol.TriangleDown:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_TriangleDown;
+                case PointSymbol.Diamond:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_Diamond;
+                case PointSymbol.XCross:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_XCross;
+                case PointSymbol.Plus:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_Plus;
+                case PointSymbol.Star:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_Star;
+                case PointSymbol.OutlineCircle:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_OutlineCircle;
+                case PointSymbol.OutlineSquare:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_OutlineSquare;
+                case PointSymbol.OutlineTriangle:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_OutlineTriangle;
+                case PointSymbol.OutlineTriangleDown:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_OutlineTriangleDown;
+                case PointSymbol.OutlineDiamond:
+                    return GroupComparisonStrings.VolcanoPlotFormattingDlg_SymbolName_OutlineDiamond;
+                default:
+                    return string.Empty;
+            }
+        }
+
+        public void Select(IdentityPath identityPath)
+        {
+            DotPlotUtil.Select(Program.MainWindow, identityPath);
+        }
         public FoldChangeVolcanoPlot VolcanoPlot { get; private set; }
+
+        public SummaryRelativeAbundanceGraphPane RelativeAbundanceGraph { get; private set; }
+
+        public bool AnyProteomic { get; set; }
+        public bool AnyMolecules { get; set; }
+        public bool PerProtein { get; set; }
+        public bool HasFoldChangeResults { get; set; }
+        public SrmDocument Document { get; set; }
 
         private void SetExpressionMinimumWidth()
         {
@@ -209,6 +368,131 @@ namespace pwiz.Skyline.Controls.GroupComparison
             }
 
             _updateGraph(ResultList);
+            UpdateRuleButtons();
+        }
+
+        private void regexColorRowGrid1_SelectionChanged(object sender, EventArgs e)
+        {
+            UpdateRuleButtons();
+        }
+
+        /// <summary>
+        /// Row indexes of the rules that are currently selected in the grid, excluding the
+        /// trailing "new row" placeholder (which is not backed by an entry in <see cref="_bindingList"/>).
+        /// </summary>
+        private IEnumerable<int> GetSelectedRuleRowIndexes()
+        {
+            var grid = regexColorRowGrid1.DataGridView;
+            var ruleCount = _bindingList.Count;
+            return grid.SelectedCells.Cast<DataGridViewCell>().Select(cell => cell.RowIndex)
+                .Where(rowIndex => rowIndex >= 0 && rowIndex < ruleCount)
+                .Distinct()
+                .OrderBy(rowIndex => rowIndex)
+                .ToList();
+        }
+
+        private void UpdateRuleButtons()
+        {
+            var selectedIndexes = GetSelectedRuleRowIndexes().ToList();
+            btnDeleteRule.Enabled = selectedIndexes.Count > 0;
+            btnMoveRuleUp.Enabled = ListViewHelper.IsMoveEnabled(_bindingList.Count, selectedIndexes, true);
+            btnMoveRuleDown.Enabled = ListViewHelper.IsMoveEnabled(_bindingList.Count, selectedIndexes, false);
+        }
+
+        private void btnDeleteRule_Click(object sender, EventArgs e)
+        {
+            var selectedIndexes = GetSelectedRuleRowIndexes().ToHashSet();
+            if (selectedIndexes.Count == 0)
+                return;
+
+            CommitCellChanges();
+            var remaining = _bindingList.Where((row, index) => !selectedIndexes.Contains(index)).ToList();
+            ReplaceRules(remaining);
+
+            // Keep a sensible selection on the row that now occupies the first deleted slot.
+            var firstDeleted = selectedIndexes.Min();
+            SelectRule(Math.Min(firstDeleted, _bindingList.Count - 1));
+        }
+
+        private void btnMoveRuleUp_Click(object sender, EventArgs e)
+        {
+            MoveSelectedRules(true);
+        }
+
+        private void btnMoveRuleDown_Click(object sender, EventArgs e)
+        {
+            MoveSelectedRules(false);
+        }
+
+        private void MoveSelectedRules(bool upwards)
+        {
+            var selectedIndexes = GetSelectedRuleRowIndexes().ToList();
+            if (!ListViewHelper.IsMoveEnabled(_bindingList.Count, selectedIndexes, upwards))
+                return;
+
+            CommitCellChanges();
+            var reordered = ListViewHelper.MoveItems(_bindingList.ToList(), selectedIndexes, upwards);
+            ReplaceRules(reordered);
+
+            var newSelection = ListViewHelper.MoveSelectedIndexes(_bindingList.Count, selectedIndexes, upwards).ToList();
+            SelectRules(newSelection);
+        }
+
+        /// <summary>
+        /// Replaces the contents of <see cref="_bindingList"/> in place, raising a single reset so the
+        /// grid and the live preview (<see cref="_bindingList_ListChanged"/> -&gt; <see cref="_updateGraph"/>)
+        /// refresh once.
+        /// </summary>
+        private void ReplaceRules(IList<MatchRgbHexColor> rules)
+        {
+            regexColorRowGrid1.DataGridView.CancelEdit();
+            _bindingList.RaiseListChangedEvents = false;
+            try
+            {
+                _bindingList.Clear();
+                foreach (var rule in rules)
+                    _bindingList.Add(rule);
+            }
+            finally
+            {
+                _bindingList.RaiseListChangedEvents = true;
+            }
+            _bindingList.ResetBindings();
+        }
+
+        private void SelectRule(int rowIndex)
+        {
+            SelectRules(new[] { rowIndex });
+        }
+
+        private void SelectRules(IEnumerable<int> rowIndexes)
+        {
+            var grid = regexColorRowGrid1.DataGridView;
+            grid.ClearSelection();
+            var columnIndex = FirstVisibleColumnIndex(grid);
+            var currentSet = false;
+            foreach (var rowIndex in rowIndexes)
+            {
+                if (rowIndex < 0 || rowIndex >= grid.RowCount)
+                    continue;
+                foreach (DataGridViewCell cell in grid.Rows[rowIndex].Cells)
+                {
+                    if (cell.Visible)
+                        cell.Selected = true;
+                }
+                if (!currentSet && columnIndex >= 0)
+                {
+                    grid.CurrentCell = grid.Rows[rowIndex].Cells[columnIndex];
+                    currentSet = true;
+                }
+            }
+            UpdateRuleButtons();
+        }
+
+        private static int FirstVisibleColumnIndex(DataGridView grid)
+        {
+            var column = grid.Columns.GetFirstColumn(DataGridViewElementStates.Visible);
+            return column?.Index ?? -1;
         }
 
         private void regexColorRowGrid1_OnCellClick(object sender, DataGridViewCellEventArgs e)
@@ -282,24 +566,24 @@ namespace pwiz.Skyline.Controls.GroupComparison
         public MatchExpression GetDefaultMatchExpression(string regex)
         {
             MatchOption? matchOption = null;
-            if (VolcanoPlot.PerProtein)
+            if (PerProtein)
             {
-                if (VolcanoPlot.AnyProteomic)
+                if (AnyProteomic)
                 {
                     matchOption = DisplayModeToMatchOption(SequenceTree.ProteinsDisplayMode);
                 }
-                else if (VolcanoPlot.AnyMolecules)
+                else if (AnyMolecules)
                 {
                     matchOption = MatchOption.MoleculeGroupName;
                 }
             }
             else
             {
-                if (VolcanoPlot.AnyProteomic)
+                if (AnyProteomic)
                 {
                     matchOption = MatchOption.PeptideSequence;
                 }
-                else if (VolcanoPlot.AnyMolecules)
+                else if (AnyMolecules)
                 {
                     matchOption = MatchOption.MoleculeName;
                 }
@@ -354,7 +638,80 @@ namespace pwiz.Skyline.Controls.GroupComparison
             return column;
         }
 
-        public BindingList<MatchRgbHexColor> GetCurrentBindingList()
+        public MatchRgbHexColor AddRow(MatchRgbHexColor match = null)
+        {
+            if (IsLastRowEmpty)
+            {
+                // Testing for screenshots needs to be able to activate
+                // the form which puts to focus on the grid and adds an
+                // empty row to the binding list. This was causing tests
+                // to fail when they tried to change the binding list
+                // with a dirty row. Silently removing the row below fixes
+                // the issue.
+                _bindingList.RaiseListChangedEvents = false;
+                try
+                {
+                    regexColorRowGrid1.DataGridView.CancelEdit();
+                    _bindingList.RemoveAt(_bindingList.Count - 1);
+                }
+                finally
+                {
+                    _bindingList.RaiseListChangedEvents = true;
+                }
+            }
+
+            if (match == null)
+                return _bindingList.AddNew();
+
+            _bindingList.Add(match);
+            return match;
+        }
+
+        private bool IsLastRowEmpty => Equals(_bindingList.LastOrDefault(), MatchRgbHexColor.EMPTY);
+
+        #region Functional test support for the delete/reorder toolbar
+
+        public void SelectRuleRow(int rowIndex)
+        {
+            SelectRule(rowIndex);
+        }
+
+        public void ClickDeleteRule()
+        {
+            btnDeleteRule.PerformClick();
+        }
+
+        public void ClickMoveRuleUp()
+        {
+            btnMoveRuleUp.PerformClick();
+        }
+
+        public void ClickMoveRuleDown()
+        {
+            btnMoveRuleDown.PerformClick();
+        }
+
+        public bool DeleteRuleEnabled => btnDeleteRule.Enabled;
+        public bool MoveRuleUpEnabled => btnMoveRuleUp.Enabled;
+        public bool MoveRuleDownEnabled => btnMoveRuleDown.Enabled;
+
+        #endregion
+
+        public PointSymbol? GetRowPointSymbol(int rowIndex)
+        {
+            return _bindingList[rowIndex].PointSymbol;
+        }
+
+        public void SetRowPointSymbol(int rowIndex, PointSymbol? pointSymbol)
+        {
+            _bindingList[rowIndex].PointSymbol = pointSymbol;
+        }
+
+        /// <summary>
+        /// Used by the <see cref="ColorGrid{T}"/> but not for general use.
+        /// Extend the testing interface if you need more.
+        /// </summary>
+        BindingList<MatchRgbHexColor> ColorGrid<MatchRgbHexColor>.IColorGridOwner.GetCurrentBindingList()
         {
             return _bindingList;
         }
@@ -368,6 +725,11 @@ namespace pwiz.Skyline.Controls.GroupComparison
         private void advancedCheckBox_CheckedChanged(object sender, EventArgs e)
         {
             UpdateAdvancedColumns();
+        }
+        private void layoutLabelsBox_CheckedChanged(object sender, EventArgs e)
+        {
+            Settings.Default.GroupComparisonAvoidLabelOverlap = layoutLabelsBox.Checked;
+            _updateGraph(ResultList);
         }
     }
 }

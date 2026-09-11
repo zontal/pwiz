@@ -1,6 +1,7 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
+ * AI assistance: Claude Code (Claude Fable 5) <noreply .at. anthropic.com>
  *
  * Copyright 2009 University of Washington - Seattle, WA
  * 
@@ -23,13 +24,15 @@ using System.Drawing;
 using System.Globalization;
 using System.IO;
 using System.IO.Pipes;
+using System.Linq;
 using System.Net;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using Microsoft.Win32;
+using pwiz.Common;
+using pwiz.ProteowizardWrapper;
 using pwiz.Common.Collections;
 using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Alerts;
@@ -45,6 +48,8 @@ using pwiz.Skyline.Util.Extensions;
 // Once-per-assembly initialization to perform logging with log4net.
 [assembly: log4net.Config.XmlConfigurator(ConfigFile = "SkylineLog4Net.config", Watch = true)]
 [assembly: InternalsVisibleTo("Test")]
+[assembly: InternalsVisibleTo("TestFunctional")]
+[assembly: InternalsVisibleTo("TestTutorial")]
 
 namespace pwiz.Skyline
 {
@@ -65,30 +70,79 @@ namespace pwiz.Skyline
         public const int EXIT_CODE_FAILURE_TO_START = 1;
         public const int EXIT_CODE_RAN_WITH_ERRORS = 2;
         public const string OPEN_DOCUMENT_ARG = "--opendoc";
+        public const string START_PAGE_ARG = "--start-page";
+
+        // Set by --start-page=true|false on the command line. Null when the flag
+        // was not specified. When set, overrides Settings.Default.ShowStartupForm and
+        // (when true) can also surface the StartPage modally after --opendoc.
+        public static bool? StartPageOverride { get; private set; }
 
         public static string MainToolServiceName { get; private set; }
-        
+
         // Parameters for testing.
         public static bool StressTest { get; set; }                 // Set true when doing stress testing (i.e. TestRunner).
         public static bool UnitTest { get; set; }                   // Set to true by AbstractUnitTest and AbstractFunctionalTest
-        public static bool FunctionalTest { get; set; }             // Set to true by AbstractFunctionalTest
+        public static bool FunctionalTest
+        {
+            get { return CommonApplicationSettings.FunctionalTest;}
+            set
+            {
+                CommonApplicationSettings.FunctionalTest = value;
+            }
+        }
+
+        // TODO(nicksh): Remove this once intermittent failures in these tests are fixed
+        public static bool IsVerboseLogging(string name)
+        {
+            return FunctionalTest && new[]
+            {
+                @"ShareDocumentTest", @"InternationalFilenamesTest"
+            }.Any(folder => name.IndexOf(folder, StringComparison.Ordinal) >= 0);
+        }
         public static string TestName { get; set; }                 // Set during unit and functional tests
+        public static bool DoNotTestUnicodeHandling { get; set; }   // Set true to skip unicode handling tests, either because the platform doesn't support it or test attribute forbids it
+        public static bool ClosingForms { get; set; }               // Set to true during AbstractFunctionalTest.CloseOpenForm (all forms should check this before cancelling a Close request)
         public static string DefaultUiMode { get; set; }            // Set to avoid seeing NoModeUiDlg at the start of a test
-        public static bool SkylineOffscreen { get; set; }           // Set true to move Skyline windows offscreen.
+        public static bool IsPaused => FormUtil.OpenForms.Any(form => form.GetType().Name == @"PauseAndContinueForm");
+
+        public static bool SkylineOffscreen
+        {
+            get
+            {
+                return CommonApplicationSettings.Offscreen;
+            }
+            set
+            {
+                CommonApplicationSettings.Offscreen = value;
+            }
+        } // Set true to move Skyline windows offscreen.
+
         public static bool DemoMode { get; set; }                   // Set to true in demo mode (main window is full screen and pauses at screenshots)
         public static bool NoVendorReaders { get; set; }            // Set true to avoid calling vendor readers.
         public static bool UseOriginalURLs { get; set; }            // Set true to use original URLs for downloading tools instead of our S3 copies
         public static bool IsPassZero { get { return NoVendorReaders; } }   // Currently the only time NoVendorReaders gets set is pass0
         public static bool NoSaveSettings { get; set; }             // Set true to use separate settings file.
         public static bool ShowFormNames { get; set; }              // Set true to show each Form name in title.
-        public static bool ShowMatchingPages { get; set; }          // Set true to show tutorial pages automatically when pausing for moust click
         public static int UnitTestTimeoutMultiplier { get; set; }   // Set to positive multiplier for multi-process stress runs.
-        public static int PauseSeconds { get; set; }                // Positive to pause when displaying dialogs for unit test, <0 to pause for mouse click
-        public static int PauseStartingPage { get; set; }           // First page to pause at during pause for screenshots
+
+        public static int PauseSeconds
+        {
+            get
+            {
+                return CommonApplicationSettings.PauseSeconds;
+            }
+            set
+            {
+                CommonApplicationSettings.PauseSeconds = value;
+            }
+        } // Positive to pause when displaying dialogs for unit test, <0 to pause for mouse click
+
+        public static int PauseStartingScreenshot { get; set; }     // First screenshot to pause at during pause for screenshots
         public static IList<string> PauseForms { get; set; }        // List of forms to pause after displaying.
         public static string ExtraRawFileSearchFolder { get; set; } // Perf test support for avoiding extra copying of large raw files
         public static List<Exception> TestExceptions { get; set; }  // To avoid showing unexpected exception UI during tests and instead log them as failures
         public static Action<string> Log { get; set; }              // Function to allow Skyline to write to the test log. Needs to be thread-safe
+        public static IGarbageCollectionTracker GcTracker { get; set; } // WeakReference tracker for verifying primary objects are GC'd after tests
 
         // Command-line results import support
         public static bool DisableJoining { get; set; }
@@ -113,23 +167,37 @@ namespace pwiz.Skyline
             if (Install.Is64Bit && !Environment.Is64BitProcess)
             {
                 string installUrl = Install.Url32;
-                string installLabel = (installUrl == string.Empty) ? string.Empty : string.Format(Resources.Program_Main_Install_32_bit__0__, Name);
+                string installLabel = (installUrl == string.Empty) ? string.Empty : string.Format(SkylineResources.Program_Main_Install_32_bit__0__, Name);
                 AlertLinkDlg.Show(null,
-                    string.Format(Resources.Program_Main_You_are_attempting_to_run_a_64_bit_version_of__0__on_a_32_bit_OS_Please_install_the_32_bit_version, Name),
+                    string.Format(SkylineResources.Program_Main_You_are_attempting_to_run_a_64_bit_version_of__0__on_a_32_bit_OS_Please_install_the_32_bit_version, Name),
                     installLabel,
                     installUrl);
                 return 1;
             }
 
+            CommonApplicationSettings.ProgramName = Name;
+            CommonApplicationSettings.ProgramNameAndVersion = Install.ProgramNameAndVersion;
+            CommonActionUtil.ExceptionReporter = ReportException;
+            SkylineRemoteAccountServices.Initialize();
             SecurityProtocolInitializer.Initialize(); // Enable highest available security level for HTTPS connections
 
-            CommonFormEx.TestMode = FunctionalTest;
-            CommonFormEx.Offscreen = SkylineOffscreen;
-            CommonFormEx.ShowFormNames = FormEx.ShowFormNames = ShowFormNames;
-
-            // For testing and debugging Skyline command-line interface
-            bool openDoc = args != null && args.Length > 0 && args[0] == OPEN_DOCUMENT_ARG;
-            if (args != null && args.Length > 0 && !openDoc) 
+            // For testing and debugging Skyline command-line interface.
+            // Scan every arg, not just args[0], so --opendoc composes order-independently
+            // with --start-page (and any future GUI-launch flag).
+            bool openDoc = args != null && args.Any(a =>
+                a == OPEN_DOCUMENT_ARG || a.StartsWith(OPEN_DOCUMENT_ARG + @"="));
+            try
+            {
+                StartPageOverride = ParseStartPageArg(args);
+            }
+            catch (ArgumentException ex)
+            {
+                Common.SystemUtil.PInvoke.Kernel32.AttachConsoleToParentProcess();
+                Console.Error.WriteLine(ex.Message);
+                return EXIT_CODE_FAILURE_TO_START;
+            }
+            bool isGuiLaunch = openDoc || StartPageOverride.HasValue;
+            if (args != null && args.Length > 0 && !isGuiLaunch)
             {
                 if (!CommandLineRunner.HasCommandPrefix(args[0]))
                 {
@@ -140,7 +208,7 @@ namespace pwiz.Skyline
                     }
                     else
                     {
-                        AttachConsole(-1);
+                        Common.SystemUtil.PInvoke.Kernel32.AttachConsoleToParentProcess();
                         textWriter = Console.Out;
                     }
                     var writer = new CommandStatusWriter(textWriter);
@@ -193,6 +261,9 @@ namespace pwiz.Skyline
                 }
                 LocalizationHelper.InitThread(Thread.CurrentThread);
 
+                if (!FunctionalTest && !CheckNativeLibraries())
+                    return EXIT_CODE_FAILURE_TO_START;
+
                 // Make sure the user has agreed to the current license version
                 // or one more recent.
                 int licenseVersion = Settings.Default.LicenseVersionAccepted;
@@ -235,7 +306,7 @@ namespace pwiz.Skyline
                         using (var longWaitDlg = new LongWaitDlg())
                         {
                             longWaitDlg.Text = Name;
-                            longWaitDlg.Message = Resources.Program_Main_Copying_external_tools_from_a_previous_installation;
+                            longWaitDlg.Message = SkylineResources.Program_Main_Copying_external_tools_from_a_previous_installation;
                             longWaitDlg.ProgressValue = 0;
                             longWaitDlg.PerformWork(null, 1000*3, broker => CopyOldTools(toolsDirectory, broker));
                         }
@@ -255,17 +326,35 @@ namespace pwiz.Skyline
                     }
                 }
                 SystemEvents.DisplaySettingsChanged += SystemEventsOnDisplaySettingsChanged;
+
+                // Start the tool service before the main window is created, so the JSON/MCP server can
+                // introspect and drive the StartPage too (the main window does not exist while the
+                // StartPage is showing). UI-thread marshaling goes through InvokeOnUiThread /
+                // BeginInvokeOnUiThread, which target whichever of those windows is currently up. Only the JSON
+                // server actually comes up here: with no main window yet there is nothing for the legacy
+                // ToolService to bind to, and nothing needs it until an external tool is run.
+                MainToolServiceName = Guid.NewGuid().ToString();
+                if (Settings.Default.EnableMcpAutoConnect)
+                {
+                    StartToolService();
+                    MainJsonToolServer.WriteConnectionInfo();
+                }
+
                 // Careful, a throw out of the SkylineWindow constructor without this
                 // catch causes Skyline just to appear to silently never start.  Makes for
                 // some difficult debugging.
                 try
                 {
                     var activationArgs = AppDomain.CurrentDomain.SetupInformation.ActivationArguments;
-                    if ((activationArgs != null &&
-                        activationArgs.ActivationData != null &&
-                        activationArgs.ActivationData.Length != 0) ||
-                        openDoc ||
-                        !Settings.Default.ShowStartupForm)
+                    bool activationDataPresent = activationArgs != null &&
+                                                 activationArgs.ActivationData != null &&
+                                                 activationArgs.ActivationData.Length != 0;
+                    // Activation data and --opendoc always go straight to MainWindow.
+                    // Otherwise, --start-page=true|false overrides the user preference,
+                    // and without the flag the existing ShowStartupForm setting wins.
+                    bool showStartPage = !activationDataPresent && !openDoc &&
+                                         (StartPageOverride ?? Settings.Default.ShowStartupForm);
+                    if (!showStartPage)
                     {
                         MainWindow = new SkylineWindow(args);
                     }
@@ -302,9 +391,11 @@ namespace pwiz.Skyline
                 if (!UnitTest)  // Covers Unit and Functional tests
                     SendAnalyticsHitAsync();
 
-                MainToolServiceName = Guid.NewGuid().ToString();
+                // NOTE: Nothing after Application.Run() reliably executes.
+                // SkylineWindow.OnHandleDestroyed calls Process.Kill() to avoid native
+                // vendor DLL errors. All shutdown cleanup must happen before that point.
                 Application.Run(MainWindow);
-                StopToolService();
+                // Do not add code here. It will never run.
             }
             catch (Exception x)
             {
@@ -318,16 +409,52 @@ namespace pwiz.Skyline
             return EXIT_CODE_SUCCESS;
         }
 
+        // Returns null when --start-page is absent, true/false for --start-page=true|false.
+        // Throws ArgumentException for --start-page with no value or an unparseable value.
+        internal static bool? ParseStartPageArg(string[] args)
+        {
+            if (args == null)
+                return null;
+            bool? result = null;
+            foreach (var a in args)
+            {
+                if (a.Equals(START_PAGE_ARG, StringComparison.OrdinalIgnoreCase) ||
+                    a.StartsWith(START_PAGE_ARG + @"=", StringComparison.OrdinalIgnoreCase))
+                {
+                    var eq = a.IndexOf('=');
+                    var val = eq >= 0 ? a.Substring(eq + 1) : string.Empty;
+                    if (val.Equals(@"true", StringComparison.OrdinalIgnoreCase))
+                        result = true;
+                    else if (val.Equals(@"false", StringComparison.OrdinalIgnoreCase))
+                        result = false;
+                    else
+                        throw new ArgumentException(string.Format(
+                            SkylineResources.Program_ParseStartPageArg_Invalid_argument__0___Use__start_page_true_or__start_page_false,
+                            a));
+                }
+            }
+            return result;
+        }
+
         private static void SystemEventsOnDisplaySettingsChanged(object sender, EventArgs eventArgs)
         {
             foreach (Form form in FormUtil.OpenForms)
             {
-                Rectangle rcForm = form.Bounds;
-                var screen = Screen.FromControl(form);
-                if (!rcForm.IntersectsWith(screen.WorkingArea))
-                {
-                    FormEx.ForceOnScreen(form);
-                }
+                // Just in case a form has been created on a different thread
+                if (form.InvokeRequired)
+                    form.Invoke((Action)(() => ForceFormOnScreen(form)));
+                else
+                    ForceFormOnScreen(form);
+            }
+        }
+
+        private static void ForceFormOnScreen(Form form)
+        {
+            var rcForm = form.Bounds;
+            var screen = Screen.FromControl(form);
+            if (!rcForm.IntersectsWith(screen.WorkingArea))
+            {
+                FormEx.ForceOnScreen(form);
             }
         }
 
@@ -346,7 +473,7 @@ namespace pwiz.Skyline
                     }
                     catch (Exception ex)
                     {
-                        Trace.TraceWarning(@"Exception sending analytics hit {0}", ex);
+                        Messages.WriteAsyncDebugMessage(@"Exception sending analytics hit {0}", ex);
                     }
                 });
             }
@@ -446,21 +573,43 @@ namespace pwiz.Skyline
             return SendGa4AnalyticsHit(out _, useDebugUrl);
         }
 
+        /// <summary>
+        /// Starts the JSON tool server -- the connector / MCP surface -- and, when there is a main window, the
+        /// legacy BinaryFormatter <see cref="ToolService"/> alongside it. The two are independent: the JSON server
+        /// needs nothing from the legacy one, so it can run BEFORE the main window exists (while the StartPage is
+        /// showing), which is what lets the MCP introspect and drive the StartPage.
+        ///
+        /// <para>The legacy service, by contrast, is inseparable from the main window -- it pushes that window's
+        /// document-change notifications -- so it starts if and only if the window is there to subscribe to. That
+        /// is no restriction in practice: the only thing that needs it is an external tool with a
+        /// $(SkylineConnection) argument (see ToolDescriptionRunUI), which is run from the main window.</para>
+        /// </summary>
         public static void StartToolService()
         {
-            if (MainToolService == null)
+            if (MainJsonToolServer == null)
+            {
+                MainJsonToolServer = new JsonToolServer(MainToolServiceName);
+                MainJsonToolServer.Start();
+            }
+            if (MainWindow != null && MainToolService == null)
             {
                 MainToolService = new ToolService(MainToolServiceName, MainWindow);
-                MainWindow.DocumentChangedEvent += DocumentChangedEventHandler;
                 MainToolService.RunAsync();
+                MainWindow.DocumentChangedEvent += DocumentChangedEventHandler;
             }
         }
 
         public static void StopToolService()
         {
+            if (MainJsonToolServer != null)
+            {
+                MainJsonToolServer.Dispose();
+                MainJsonToolServer = null;
+            }
             if (MainToolService != null)
             {
-                MainWindow.DocumentChangedEvent -= DocumentChangedEventHandler;
+                if (MainWindow != null)
+                    MainWindow.DocumentChangedEvent -= DocumentChangedEventHandler;
                 MainToolService.Stop();
                 MainToolService = null;
             }
@@ -480,19 +629,27 @@ namespace pwiz.Skyline
                 DirectoryEx.SafeDelete(tempOuterToolsFolderPath);
                 // Not sure this is necessay, but just to be safe
                 if (Directory.Exists(tempOuterToolsFolderPath))
-                    throw new Exception(Resources.Program_CopyOldTools_Error_copying_external_tools_from_previous_installation);
+                    throw new Exception(SkylineResources.Program_CopyOldTools_Error_copying_external_tools_from_previous_installation);
             }
-
+            
             // Must create the tools directory to avoid ending up here again next time
             Directory.CreateDirectory(tempOuterToolsFolderPath);
 
-            ToolList toolList = Settings.Default.ToolList;
-            int numTools = toolList.Count;
+            int numTools = Settings.Default.ToolList.Count + Settings.Default.SearchToolList.Count;
             const int endValue = 100;
             int progressValue = 0;
             // ReSharper disable once UselessBinaryOperation (in case we decide to start at progress>0 for display purposes)
-            int increment = (endValue - progressValue)/(numTools +1);
-
+            int increment = (endValue - progressValue) / (numTools + 1);
+            
+            CopyOldExternalTools(outerToolsFolderPath, tempOuterToolsFolderPath, broker, increment);
+            CopyOldSearchTools(outerToolsFolderPath, tempOuterToolsFolderPath, broker, increment);
+            
+            Directory.Move(tempOuterToolsFolderPath, outerToolsFolderPath);
+        }
+        
+        private static void CopyOldExternalTools(string outerToolsFolderPath, string tempOuterToolsFolderPath, ILongWaitBroker broker, int increment)
+        {
+            ToolList toolList = Settings.Default.ToolList;
             foreach (var tool in toolList)
             {
                 string toolDirPath = tool.ToolDirPath;
@@ -513,11 +670,38 @@ namespace pwiz.Skyline
                     return;
                 }
 
-                progressValue += increment;
-                broker.ProgressValue = progressValue;                
+                broker.ProgressValue += increment;
             }
-            Directory.Move(tempOuterToolsFolderPath, outerToolsFolderPath);
             Settings.Default.ToolList = ToolList.CopyTools(toolList);
+        }
+        
+        private static void CopyOldSearchTools(string outerToolsFolderPath, string tempOuterToolsFolderPath, ILongWaitBroker broker, int increment)
+        {
+            var toolList = Settings.Default.SearchToolList;
+            foreach (var tool in toolList)
+            {
+                string toolDirPath = tool.InstallPath; // old path like: C:\path\to\old\Skyline\Tools\searchTool
+                // if tool was AutoInstalled, copy it to new path like C:\path\to\new\Skyline\Tools\
+                if (!string.IsNullOrEmpty(toolDirPath) && tool.AutoInstalled && Directory.Exists(toolDirPath))
+                {
+                    string foldername = Path.GetFileName(toolDirPath);
+                    string newDir = Path.Combine(outerToolsFolderPath, foldername);
+                    string tempNewDir = Path.Combine(tempOuterToolsFolderPath, foldername);
+                    if (!Directory.Exists(tempNewDir))
+                        DirectoryEx.DirectoryCopy(toolDirPath, tempNewDir, true);
+                    tool.InstallPath = newDir; // Update the tool to point to its new directory.
+                    tool.Path = tool.Path.Replace(toolDirPath, newDir);
+                }
+                if (broker.IsCanceled)
+                {
+                    // Don't leave around a corrupted directory
+                    DirectoryEx.SafeDelete(tempOuterToolsFolderPath);
+                    return;
+                }
+
+                broker.ProgressValue += increment;
+            }
+            Settings.Default.SearchToolList = SearchToolList.CopyTools(toolList);
         }
 
         public static void Init()
@@ -525,6 +709,7 @@ namespace pwiz.Skyline
             if (!_initialized)
             {
                 _initialized = true;
+                CommonActionUtil.ExceptionReporter = ReportException;
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
@@ -539,11 +724,60 @@ namespace pwiz.Skyline
                     Settings.Default.SettingsUpgradeRequired = false;
                     Settings.Default.Save();
                 }
+
+                // Seed ShowHeatmapFullScan from the pre-3-button SumScansFullScan on
+                // first run so existing users who had stick-only (SumScansFullScan=true)
+                // don't get a jarring 4-pane default.
+                if (!Settings.Default.ShowHeatmapFullScanSeeded)
+                {
+                    Settings.Default.ShowHeatmapFullScan = !Settings.Default.SumScansFullScan;
+                    Settings.Default.ShowHeatmapFullScanSeeded = true;
+                    Settings.Default.Save();
+                }
             }
+        }
+
+        /// <summary>
+        /// Verifies that native libraries (pwiz_data_cli.dll) can load. When Windows
+        /// Application Control (WDAC/AppLocker) blocks the DLL, a load exception
+        /// can occur at JIT time. NoInlining ensures the JIT-triggering reference in
+        /// TryLoadNativeLibraries remains isolated so this method can catch and report
+        /// the failure.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static bool CheckNativeLibraries()
+        {
+            try
+            {
+                TryLoadNativeLibraries();
+                return true;
+            }
+            catch (Exception x)
+            {
+                AlertLinkDlg.Show(null,
+                    string.Format(SkylineResources.Program_CheckNativeLibraries_Failed_to_load_required_native_libraries,
+                        x.Message),
+                    SkylineResources.Program_CheckNativeLibraries_Troubleshooting,
+                    @"https://skyline.ms/home/software/Skyline/wiki-page.view?name=tip_recover_install");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Separate method to isolate the JIT trigger for pwiz_data_cli.dll.
+        /// NoInlining prevents the CLR from inlining this into CheckNativeLibraries,
+        /// which would cause the FileLoadException at the caller's JIT boundary.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void TryLoadNativeLibraries()
+        {
+            // Accessing InstalledVersion forces pwiz_data_cli.dll to load
+            var unused = MsDataFileImpl.InstalledVersion;
         }
 
         private static readonly object _unhandledExceptionLock = new object();
         public static ToolService MainToolService;
+        public static JsonToolServer MainJsonToolServer;
 
         private static void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
@@ -587,7 +821,6 @@ namespace pwiz.Skyline
                 return;
             }
 
-            Trace.TraceError(@"Unhandled exception: {0}", exception);
             var stackTrace = new StackTrace(1, true);
             var mainWindow = MainWindow;
             try
@@ -599,7 +832,7 @@ namespace pwiz.Skyline
             }
             catch (Exception exception2)
             {
-                Trace.TraceError(@"Exception in ReportException: {0}", exception2);
+                Messages.WriteAsyncDebugMessage(@"Exception in ReportException: {0}", exception2);
             }
         }
 
@@ -611,7 +844,7 @@ namespace pwiz.Skyline
                 return;
             }
 
-            Trace.TraceError(@"Unhandled exception on UI thread: {0}", e.Exception);
+            Messages.WriteAsyncDebugMessage(@"Unhandled exception on UI thread: {0}", e.Exception);
             var stackTrace = new StackTrace(1, true);
             ReportExceptionUI(e.Exception, stackTrace);
         }
@@ -643,6 +876,9 @@ namespace pwiz.Skyline
 
         public static SkylineWindow MainWindow { get; private set; }
         public static StartPage StartWindow { get; private set; }
+
+        // The UI-thread marshaling primitives (UiThreadWindow, InvokeOnUiThread, BeginInvokeOnUiThread) moved
+        // to pwiz.Skyline.ToolsUI.JsonUiService, which now owns the connector's UI-thread machinery.
         public static SrmDocument ActiveDocument { get { return MainWindow != null ? MainWindow.Document : null; } }
         public static SrmDocument ActiveDocumentUI { get { return MainWindow != null ? MainWindow.DocumentUI : null; } }
         
@@ -724,9 +960,6 @@ namespace pwiz.Skyline
                 Trace.WriteLine(value);
             }
         }
-
-        [DllImport("kernel32", SetLastError = true)]
-        private static extern bool AttachConsole(int dwProcessId);
     }
 
     public class CommandLineRunner
@@ -802,5 +1035,15 @@ namespace pwiz.Skyline
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Interface for tracking objects via WeakReferences to verify they become
+    /// eligible for garbage collection after test cleanup. Set on
+    /// <see cref="Program.GcTracker"/> during tests; null in production.
+    /// </summary>
+    public interface IGarbageCollectionTracker
+    {
+        void Register<T>(T target);
     }
 }

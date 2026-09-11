@@ -26,9 +26,6 @@
  *
  * $ BlibBuild,v 1.0 2009/01/07 15:53:52 Ning Zhang Exp $
  */
-#ifdef _WIN23
-#define _MATRIX_USE_STATIC_LIB
-#endif
 
 #include "pwiz/utility/misc/Filesystem.hpp"
 #include "CommandLine.h"
@@ -199,7 +196,7 @@ int main(int argc, char* argv[])
                     reader = std::make_shared<ProxlXmlReader>(builder, result_file.c_str(), progress_cptr);
                 } else if (has_extension(result_file, ".mlb")) {
                     reader = std::make_shared<ShimadzuMLBReader>(builder, result_file.c_str(), progress_cptr);
-                } else if (has_extension(result_file, ".speclib")) {
+                } else if (has_extension(result_file, ".speclib") || has_extension(result_file, ".parquet")) {
                     reader = std::make_shared<DiaNNSpecLibReader>(builder, result_file.c_str(), progress_cptr);
                 } else if (has_extension(result_file, ".tsv")) {
                     reader = TSVReader::create(builder, result_file.c_str(), progress_cptr);
@@ -207,6 +204,8 @@ int main(int argc, char* argv[])
                     reader = std::make_shared<OSWReader>(builder, result_file.c_str(), progress_cptr);
                 } else if (has_extension(result_file, ".mzTab") || has_extension(result_file, "mztab.txt")) {
                     reader = std::make_shared<mzTabReader>(builder, result_file.c_str(), progress_cptr);
+                } else if (has_extension(result_file, ".hk.bs.kro")) {
+                    reader = std::make_shared <HardklorReader>(builder, result_file.c_str(), progress_cptr);
                 } else {
                     // shouldn't get to here b/c cmd line parsing checks, but...
                     Verbosity::error("Unknown input file type '%s'.", result_file.c_str());

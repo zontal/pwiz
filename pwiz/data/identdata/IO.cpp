@@ -67,8 +67,8 @@ namespace {
     struct name##_attribute \
     { \
         name##_attribute() : v1_0_(v1_0_name), v1_1_(v1_1_name) {} \
-        const string& operator() (int version) const {return version == (int) SchemaVersion_1_0 ? v1_0_ : v1_1_;} \
-        private: const string v1_0_, v1_1_; \
+        const char* operator() (int version) const {return version == (int) SchemaVersion_1_0 ? v1_0_ : v1_1_;} \
+        private: const char* v1_0_, *v1_1_; \
     }; \
     name##_attribute name;
 
@@ -1083,7 +1083,7 @@ struct HandlerPeptideEvidence : public HandlerIdentifiableParamContainer
             value.clear();
             getAttribute(attributes, "isDecoy", value);
             if (!value.empty())
-                pep->isDecoy = (value=="true" ? true : false);
+                pep->isDecoy = lexical_cast<bool>(value);
 
             HandlerIdentifiableParamContainer::id = pep;
         }

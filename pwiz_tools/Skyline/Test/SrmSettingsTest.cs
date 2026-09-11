@@ -23,6 +23,7 @@ using System.Linq;
 using System.Xml.Serialization;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using pwiz.Common.Chemistry;
+using pwiz.Common.Collections;
 using pwiz.Common.SystemUtil;
 using pwiz.ProteomeDatabase.API;
 using pwiz.Skyline.Model;
@@ -31,6 +32,7 @@ using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.IonMobility;
 using pwiz.Skyline.Model.Lib;
 using pwiz.Skyline.Model.Proteome;
+using pwiz.Skyline.Model.Results;
 using pwiz.Skyline.Model.Serialization;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
@@ -56,6 +58,27 @@ namespace pwiz.SkylineTest
         public void SettingsSerializeDefaultsTest()
         {
             AssertEx.Serializable(SrmSettingsList.GetDefault(), AssertEx.SettingsCloned);
+        }
+
+        [TestMethod]
+        public void ReplicateOrderSettingsDiffTest()
+        {
+            var replicateOne = new ChromatogramSet("One", new[] { "same.raw" });
+            var replicateTwo = new ChromatogramSet("Two", new[] { "same.raw" });
+            var settings = SrmSettingsList.GetDefault();
+            var oldResults = new MeasuredResults(new[] { replicateOne, replicateTwo });
+            var oldSettings = settings.ChangeMeasuredResults(oldResults);
+
+            var reorderedResults = oldResults.ChangeChromatograms(new[] { replicateTwo, replicateOne });
+            Assert.IsTrue(new SrmSettingsDiff(oldSettings,
+                settings.ChangeMeasuredResults(reorderedResults)).DiffResults);
+
+            var renamedResults = oldResults.ChangeChromatograms(new[]
+            {
+                (ChromatogramSet) replicateOne.ChangeName("Renamed"), replicateTwo
+            });
+            Assert.IsFalse(new SrmSettingsDiff(oldSettings,
+                settings.ChangeMeasuredResults(renamedResults)).DiffResults);
         }
 
         /// <summary>
@@ -940,6 +963,12 @@ namespace pwiz.SkylineTest
             // Isotope enrichments
             AssertEx.DeserializeNoError<TransitionFullScan>("<transition_full_scan precursor_mass_analyzer=\"" + FullScanMassAnalyzerType.tof + "\" " +
                 "precursor_res=\"" + validHiRes + "\">" + VALID_ISOTOPE_ENRICHMENT_XML + "</transition_full_scan>");
+            // M-1 precursor isotope
+            var fullScanMinusOne = AssertEx.Deserialize<TransitionFullScan>("<transition_full_scan precursor_isotopes=\"" +
+                FullScanPrecursorIsotopes.Count + "\" precursor_isotope_filter=\"3\" include_minus_one_precursor=\"true\" precursor_mass_analyzer=\"" +
+                FullScanMassAnalyzerType.tof + "\" precursor_res=\"" + validHiRes + "\"/>");
+            Assert.IsTrue(fullScanMinusOne.IncludeMinusOnePrecursor);
+            AssertEx.Serializable(fullScanMinusOne, (expected, actual) => Assert.AreEqual(expected, actual));
 
             // Errors
             string overMaxMulti = ToXml(TransitionFullScan.MAX_PRECURSOR_MULTI_FILTER * 2);
@@ -958,6 +987,10 @@ namespace pwiz.SkylineTest
                 "product_resolution=\"" + validLoRes + "\"/>");
             AssertEx.DeserializeError<TransitionFullScan>("<transition_full_scan acquisition_method=\"" +
                 FullScanAcquisitionMethod.Targeted + "\" ignore_sim_scans=\"true\"/>");
+            // The M-1 precursor isotope requires a high resolution mass analyzer
+            AssertEx.DeserializeError<TransitionFullScan>("<transition_full_scan precursor_isotopes=\"" +
+                FullScanPrecursorIsotopes.Count + "\" precursor_isotope_filter=\"1\" include_minus_one_precursor=\"true\" precursor_mass_analyzer=\"" +
+                FullScanMassAnalyzerType.qit + "\" precursor_res=\"" + validLoRes + "\"/>");
             AssertEx.DeserializeError<TransitionFullScan>("<transition_full_scan acquisition_method=\"" +
                 "Unknown" + "\" product_mass_analyzer=\"" +
                 FullScanMassAnalyzerType.qit + "\" product_resoltion=\"" + validLoRes + "\"/>");
@@ -1150,18 +1183,20 @@ namespace pwiz.SkylineTest
                                                         "    <peptide_settings>\n" +
                                                         "      <protein_association min_peptides_per_protein=\"0\" " +
                                                         "group_proteins=\"true\" " +
+                                                        "gene_level_parsimony=\"true\" " +
                                                         "find_minimal_protein_list=\"true\" " +
                                                         "remove_subset_proteins=\"true\" " +
                                                         "shared_peptides=\"AssignedToBestProtein\" />\n" +
                                                         "    </peptide_settings>\n" +
                                                         "  </settings_summary>\n" +
                                                         "</srm_settings>";
-            AssertEx.DeserializeNoError<SrmDocument>(proteinAssociationSerialized, DocumentFormat.PROTEIN_GROUPS);
+            AssertEx.DeserializeNoError<SrmDocument>(proteinAssociationSerialized, DocumentFormat.CURRENT);
 
             var doc = AssertEx.Deserialize<SrmDocument>(proteinAssociationSerialized);
             var parsimonySettings = doc.Settings.PeptideSettings.ProteinAssociationSettings;
             Assert.AreEqual(0, parsimonySettings.MinPeptidesPerProtein);
             Assert.AreEqual(true, parsimonySettings.GroupProteins);
+            Assert.AreEqual(true, parsimonySettings.GeneLevelParsimony);
             Assert.AreEqual(true, parsimonySettings.FindMinimalProteinList);
             Assert.AreEqual(true, parsimonySettings.RemoveSubsetProteins);
             Assert.AreEqual(ProteinAssociation.SharedPeptides.AssignedToBestProtein, parsimonySettings.SharedPeptides);
@@ -1268,8 +1303,7 @@ namespace pwiz.SkylineTest
             // Test ability to roundtrip to older doc formats
             var xml = SETTINGS_V19.Replace("</peptide_prediction>", predictor3 + "\n</peptide_prediction>");
             var settings = AssertEx.Deserialize<SrmSettings>(xml);
-            var save = AuditLogList.IgnoreTestChecks;
-            AuditLogList.IgnoreTestChecks = true;
+            using var ignore = new AuditLogList.IgnoreTestChecksScope();
             var tmpFile19 = TestContext.GetTestResultsPath("V19_1.sky");
             var tmpFileCurrent = TestContext.GetTestResultsPath("V20_13.sky");
             var oldDoc = new SrmDocument(settings.ChangeDataSettings(settings.DataSettings.ChangeAuditLogging(false)));
@@ -1286,12 +1320,11 @@ namespace pwiz.SkylineTest
             Assert.IsTrue(!currentDocXML.Contains(DriftTimePredictor.EL.predict_drift_time.ToString()));
             var newDoc = AssertEx.Deserialize<SrmDocument>(oldDocXML);
             var currentDoc = AssertEx.Deserialize<SrmDocument>(currentDocXML);
-            var diff = SrmDocument.EqualsVerbose(oldDoc, newDoc);
+            var diff = DocumentComparer.CompareDocuments(oldDoc, newDoc);
             if (diff != null)
                 Assert.Fail(diff);
             Assert.AreEqual(newDoc.Settings.TransitionSettings.IonMobilityFiltering.IonMobilityLibrary.Name, "test");
             Assert.AreEqual(currentDoc.Settings.TransitionSettings.IonMobilityFiltering.IonMobilityLibrary.Name, "test");
-            AuditLogList.IgnoreTestChecks = save;
         }
 
         private const string VALID_ISOTOPE_ENRICHMENT_XML =

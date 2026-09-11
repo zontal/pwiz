@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -24,7 +24,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Reflection;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using pwiz.Common.SystemUtil;
 
@@ -128,8 +128,8 @@ namespace SharedBatchTest
         /// <returns>True if the two IEnumerables enumerate over equal objects</returns>
         public static bool Equals<TItem>(IEnumerable<TItem> e1, IEnumerable<TItem> e2)
         {
-            IEnumerator<TItem> enum1 = e1.GetEnumerator();
-            IEnumerator<TItem> enum2 = e2.GetEnumerator();
+            using var enum1 = e1.GetEnumerator();
+            using var enum2 = e2.GetEnumerator();
             bool b1, b2;
             while (MoveNext(enum1, out b1, enum2, out b2))
             {
@@ -570,21 +570,13 @@ namespace SharedBatchTest
             action();
         }
 
+        /// <summary>
+        /// Rethrows an exception which was caught on another thread (or otherwise stored for
+        /// later) without losing its type or its original stack trace.
+        /// </summary>
         public static void WrapAndThrowException(Exception x)
         {
-            // The thrown exception needs to be preserved to preserve
-            // the original stack trace from which it was thrown.  In some cases,
-            // its type must also be preserved, because existing code handles certain
-            // exception types.  If this case threw only TargetInvocationException,
-            // then more frequently the code would just have to have a blanket catch
-            // of the base exception type, which could hide coding errors.
-            if (x is InvalidDataException)
-                throw new InvalidDataException(x.Message, x);
-            if (x is IOException)
-                throw new IOException(x.Message, x);
-            if (x is OperationCanceledException)
-                throw new OperationCanceledException(x.Message, x);
-            throw new TargetInvocationException(x.Message, x);
+            ExceptionDispatchInfo.Capture(x).Throw();
         }
 
         public static double? ParseNullableDouble(string s)

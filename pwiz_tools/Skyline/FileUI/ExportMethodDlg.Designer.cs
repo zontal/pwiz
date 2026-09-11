@@ -1,4 +1,6 @@
-﻿namespace pwiz.Skyline.FileUI
+using System.Windows.Forms;
+
+namespace pwiz.Skyline.FileUI
 {
     sealed partial class ExportMethodDlg
     {
@@ -33,6 +35,7 @@
             this.radioSingle = new System.Windows.Forms.RadioButton();
             this.radioProtein = new System.Windows.Forms.RadioButton();
             this.radioBuckets = new System.Windows.Forms.RadioButton();
+            this.wcDecideBuckets = new System.Windows.Forms.RadioButton();
             this.textMaxTransitions = new System.Windows.Forms.TextBox();
             this.labelMaxTransitions = new System.Windows.Forms.Label();
             this.btnCancel = new System.Windows.Forms.Button();
@@ -63,6 +66,7 @@
             this.textPrimaryCount = new System.Windows.Forms.TextBox();
             this.textMs1RepetitionTime = new System.Windows.Forms.TextBox();
             this.textIntensityThresholdMin = new System.Windows.Forms.TextBox();
+            this.cbExportSciexOSQuantMethod = new System.Windows.Forms.CheckBox();
             this.textIntensityThreshold = new System.Windows.Forms.TextBox();
             this.comboOptimizing = new System.Windows.Forms.ComboBox();
             this.labelOptimizing = new System.Windows.Forms.Label();
@@ -88,6 +92,9 @@
             this.lblIntensityThresholdType = new System.Windows.Forms.Label();
             this.label7 = new System.Windows.Forms.Label();
             this.textAccumulationTime = new System.Windows.Forms.TextBox();
+            this.panelAbiSciexOS = new System.Windows.Forms.Panel();
+            this.labelXICWidth = new System.Windows.Forms.Label();
+            this.textXICWidth = new System.Windows.Forms.TextBox();
             this.panelThermoColumns.SuspendLayout();
             this.panelAbSciexTOF.SuspendLayout();
             this.panelTriggered.SuspendLayout();
@@ -97,6 +104,7 @@
             this.panelTuneColumns.SuspendLayout();
             this.panelBrukerTimsTof.SuspendLayout();
             this.panelSureQuant.SuspendLayout();
+            this.panelAbiSciexOS.SuspendLayout();
             this.SuspendLayout();
             // 
             // radioSingle
@@ -125,6 +133,15 @@
             this.helpTip.SetToolTip(this.radioBuckets, resources.GetString("radioBuckets.ToolTip"));
             this.radioBuckets.UseVisualStyleBackColor = true;
             this.radioBuckets.CheckedChanged += new System.EventHandler(this.radioBuckets_CheckedChanged);
+            // 
+            // wcDecideBuckets
+            // 
+            resources.ApplyResources(this.wcDecideBuckets, "wcDecideBuckets");
+            this.wcDecideBuckets.Name = "wcDecideBuckets";
+            this.wcDecideBuckets.TabStop = true;
+            this.helpTip.SetToolTip(this.wcDecideBuckets, resources.GetString("wcDecideBuckets.ToolTip"));
+            this.wcDecideBuckets.UseVisualStyleBackColor = true;
+            this.wcDecideBuckets.CheckedChanged += new System.EventHandler(this.wcDecideBuckets_CheckedChanged);
             // 
             // textMaxTransitions
             // 
@@ -338,6 +355,14 @@
             this.textIntensityThresholdMin.Name = "textIntensityThresholdMin";
             this.helpTip.SetToolTip(this.textIntensityThresholdMin, resources.GetString("textIntensityThresholdMin.ToolTip"));
             // 
+            // cbExportSciexOSQuantMethod
+            // 
+            resources.ApplyResources(this.cbExportSciexOSQuantMethod, "cbExportSciexOSQuantMethod");
+            this.cbExportSciexOSQuantMethod.Name = "cbExportSciexOSQuantMethod";
+            this.helpTip.SetToolTip(this.cbExportSciexOSQuantMethod, resources.GetString("cbExportSciexOSQuantMethod.ToolTip"));
+            this.cbExportSciexOSQuantMethod.UseVisualStyleBackColor = true;
+            this.cbExportSciexOSQuantMethod.CheckedChanged += new System.EventHandler(this.cbExportSciexOSQuantMethod_CheckedChanged);
+            // 
             // textIntensityThreshold
             // 
             resources.ApplyResources(this.textIntensityThreshold, "textIntensityThreshold");
@@ -489,12 +514,32 @@
             resources.ApplyResources(this.textAccumulationTime, "textAccumulationTime");
             this.textAccumulationTime.Name = "textAccumulationTime";
             // 
+            // panelAbiSciexOS
+            // 
+            this.panelAbiSciexOS.BorderStyle = System.Windows.Forms.BorderStyle.FixedSingle;
+            this.panelAbiSciexOS.Controls.Add(this.cbExportSciexOSQuantMethod);
+            this.panelAbiSciexOS.Controls.Add(this.labelXICWidth);
+            this.panelAbiSciexOS.Controls.Add(this.textXICWidth);
+            resources.ApplyResources(this.panelAbiSciexOS, "panelAbiSciexOS");
+            this.panelAbiSciexOS.Name = "panelAbiSciexOS";
+            // 
+            // labelXICWidth
+            // 
+            resources.ApplyResources(this.labelXICWidth, "labelXICWidth");
+            this.labelXICWidth.Name = "labelXICWidth";
+            // 
+            // textXICWidth
+            // 
+            resources.ApplyResources(this.textXICWidth, "textXICWidth");
+            this.textXICWidth.Name = "textXICWidth";
+            // 
             // ExportMethodDlg
             // 
             this.AcceptButton = this.btnOk;
             resources.ApplyResources(this, "$this");
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.CancelButton = this.btnCancel;
+            this.Controls.Add(this.panelAbiSciexOS);
             this.Controls.Add(this.textAccumulationTime);
             this.Controls.Add(this.panelSureQuant);
             this.Controls.Add(this.panelBrukerTimsTof);
@@ -527,6 +572,7 @@
             this.Controls.Add(this.btnOk);
             this.Controls.Add(this.textMaxTransitions);
             this.Controls.Add(this.radioBuckets);
+            this.Controls.Add(this.wcDecideBuckets);
             this.Controls.Add(this.radioProtein);
             this.Controls.Add(this.radioSingle);
             this.Controls.Add(this.panelAbSciexTOF);
@@ -557,6 +603,8 @@
             this.panelBrukerTimsTof.PerformLayout();
             this.panelSureQuant.ResumeLayout(false);
             this.panelSureQuant.PerformLayout();
+            this.panelAbiSciexOS.ResumeLayout(false);
+            this.panelAbiSciexOS.PerformLayout();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -567,6 +615,7 @@
         private System.Windows.Forms.RadioButton radioSingle;
         private System.Windows.Forms.RadioButton radioProtein;
         private System.Windows.Forms.RadioButton radioBuckets;
+        private System.Windows.Forms.RadioButton wcDecideBuckets;
         private System.Windows.Forms.TextBox textMaxTransitions;
         private System.Windows.Forms.Label labelMaxTransitions;
         private System.Windows.Forms.Button btnCancel;
@@ -622,5 +671,9 @@
         private System.Windows.Forms.TextBox textIntensityThresholdMin;
         private System.Windows.Forms.Label lblIntensityThresholdMin;
         private System.Windows.Forms.TextBox textAccumulationTime;
+        private System.Windows.Forms.Panel panelAbiSciexOS;
+        private System.Windows.Forms.CheckBox cbExportSciexOSQuantMethod;
+        private System.Windows.Forms.TextBox textXICWidth;
+        private System.Windows.Forms.Label labelXICWidth;
     }
 }

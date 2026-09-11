@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Kaipo Tamura <kaipot .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -23,16 +23,16 @@ using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Windows.Forms;
 using pwiz.BiblioSpec;
 using pwiz.Common.Collections;
 using pwiz.Common.DataBinding;
 using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Controls;
 using pwiz.Skyline.Model.Lib;
-using pwiz.Skyline.Model.Results;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util.Extensions;
 
 namespace pwiz.Skyline.FileUI.PeptideSearch
@@ -49,7 +49,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
         private readonly DataGridViewColumn _colFile = new DataGridViewTextBoxColumn
         {
             DataPropertyName = @"FilePath",
-            HeaderText = Resources.BuildLibraryGridView__colFile_File,
+            HeaderText = PeptideSearchResources.BuildLibraryGridView__colFile_File,
             ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill
         };
@@ -57,7 +57,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
         private readonly DataGridViewColumn _colScoreType = new DataGridViewTextBoxColumn
         {
             DataPropertyName = @"ScoreType",
-            HeaderText = Resources.BuildLibraryGridView__colScoreType_Score_Type,
+            HeaderText = PeptideSearchResources.BuildLibraryGridView__colScoreType_Score_Type,
             ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.DisplayedCells
         };
@@ -65,7 +65,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
         private readonly DataGridViewColumn _colThreshold = new DataGridViewTextBoxColumn
         {
             DataPropertyName = @"ScoreThreshold",
-            HeaderText = Resources.BuildLibraryGridView__colThreshold_Score_Threshold,
+            HeaderText = PeptideSearchResources.BuildLibraryGridView__colThreshold_Score_Threshold,
             ReadOnly = true,
             AutoSizeMode = DataGridViewAutoSizeColumnMode.DisplayedCells
         };
@@ -144,14 +144,20 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
 
                 if (valueSet.Any() && !IsFileOnly)
                 {
-                    var bw = new BackgroundWorker();
-                    bw.DoWork += (sender, e) =>
+                    // Cancel and join any detection already running before starting a new one, so at most one
+                    // runs at a time and none is left orphaned. The detection runs on a tracked thread (rather
+                    // than a fire-and-forget BackgroundWorker) so the grid's teardown can stop and join it --
+                    // see CancelScoreTypeDetection.
+                    CancelScoreTypeDetection();
+                    _scoreTypesCts = new CancellationTokenSource();
+                    var token = _scoreTypesCts.Token;
+                    _scoreTypesThread = new Thread(() =>
                     {
                         Dictionary<string, ScoreTypesResult> scoreTypes;
                         Exception getScoreTypesException = null;
                         try
                         {
-                            scoreTypes = GetScoreTypes(valueSet);
+                            scoreTypes = GetScoreTypes(valueSet, token);
                         }
                         catch (Exception x)
                         {
@@ -159,9 +165,28 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                             getScoreTypesException = x;
                         }
 
-                        Invoke(new MethodInvoker(() => GridUpdateScoreInfo(scoreTypes, getScoreTypesException)));
+                        // Cancelled means the grid is being torn down -- do not touch it. BeginInvoke (not
+                        // Invoke) keeps this off the UI thread's back so a join from there cannot deadlock.
+                        if (token.IsCancellationRequested)
+                            return;
+                        try
+                        {
+                            BeginInvoke(new MethodInvoker(() =>
+                            {
+                                if (!token.IsCancellationRequested)
+                                    GridUpdateScoreInfo(scoreTypes, getScoreTypesException);
+                            }));
+                        }
+                        catch (InvalidOperationException)
+                        {
+                            // The grid's handle was destroyed after the check above -- nothing to update.
+                        }
+                    })
+                    {
+                        IsBackground = true,
+                        Name = @"Build library score-type detection"
                     };
-                    bw.RunWorkerAsync();
+                    _scoreTypesThread.Start();
                 }
             }
         }
@@ -188,7 +213,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
         public bool Validate(IWin32Window parent, CancelEventArgs e, bool showWarnings, out Dictionary<string, double> thresholdsByFile)
         {
             if (!ScoreTypesLoaded)
-                throw new Exception(Resources.BuildLibraryGridView_GetThresholds_Score_types_not_loaded_);
+                throw new Exception(PeptideSearchResources.BuildLibraryGridView_GetThresholds_Score_types_not_loaded_);
 
             var thresholdsByScoreType = new Dictionary<ScoreType, double>();
             thresholdsByFile = new Dictionary<string, double>();
@@ -237,19 +262,19 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                     if ((probCorrect && thresholdIsMax) || (probIncorrect && thresholdIsMin))
                     {
                         warning = string.Format(
-                            Resources.BuildLibraryGridView_GetThresholds_Score_threshold__0__for__1__will_only_include_identifications_with_perfect_scores_,
+                            PeptideSearchResources.BuildLibraryGridView_GetThresholds_Score_threshold__0__for__1__will_only_include_identifications_with_perfect_scores_,
                             threshold, scoreType);
                     }
                     else if ((probCorrect && thresholdIsMin) || (probIncorrect && thresholdIsMax))
                     {
                         warning = string.Format(
-                            Resources.BuildLibraryGridView_GetThresholds_Score_threshold__0__for__1__will_include_all_identifications_,
+                            PeptideSearchResources.BuildLibraryGridView_GetThresholds_Score_threshold__0__for__1__will_include_all_identifications_,
                             threshold, scoreType);
                     }
                     else if (threshold < scoreType.SuggestedRange.Min || threshold > scoreType.SuggestedRange.Max)
                     {
                         warning = string.Format(
-                            Resources.BuildLibraryGridView_GetThresholds_Score_threshold__0__for__1__is_unusually_permissive_,
+                            PeptideSearchResources.BuildLibraryGridView_GetThresholds_Score_threshold__0__for__1__is_unusually_permissive_,
                             threshold, scoreType);
                     }
 
@@ -257,19 +282,19 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                     {
                         if (probCorrect)
                             warning = TextUtil.SpaceSeparate(warning, string.Format(
-                                Resources.BuildLibraryGridView_GetThresholds__0__scores_indicate_the_probability_that_an_identification_is__1__,
-                                scoreType, Resources.BuildLibraryGridView_GetThresholds_correct));
+                                PeptideSearchResources.BuildLibraryGridView_GetThresholds__0__scores_indicate_the_probability_that_an_identification_is__1__,
+                                scoreType, PeptideSearchResources.BuildLibraryGridView_GetThresholds_correct));
                         else if (probIncorrect)
                             warning = TextUtil.SpaceSeparate(warning, string.Format(
-                                Resources.BuildLibraryGridView_GetThresholds__0__scores_indicate_the_probability_that_an_identification_is__1__,
-                                scoreType, Resources.BuildLibraryGridView_GetThresholds_incorrect));
+                                PeptideSearchResources.BuildLibraryGridView_GetThresholds__0__scores_indicate_the_probability_that_an_identification_is__1__,
+                                scoreType, PeptideSearchResources.BuildLibraryGridView_GetThresholds_incorrect));
                         warnings.Add(warning);
                     }
                 }
 
                 if (warnings.Any())
                 {
-                    warnings.AddRange(new[] { string.Empty, Resources.BuildLibraryGridView_Validate_Are_you_sure_you_want_to_continue_ });
+                    warnings.AddRange(new[] { string.Empty, PeptideSearchResources.BuildLibraryGridView_Validate_Are_you_sure_you_want_to_continue_ });
                     if (MultiButtonMsgDlg.Show(parent, TextUtil.LineSeparate(warnings), MessageBoxButtons.OKCancel) == DialogResult.Cancel)
                     {
                         if (e != null)
@@ -286,11 +311,15 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             return true;
         }
 
-        private Dictionary<string, ScoreTypesResult> GetScoreTypes(ICollection<string> files)
+        private Dictionary<string, ScoreTypesResult> GetScoreTypes(ICollection<string> files, CancellationToken cancellationToken)
         {
             var blibBuild = new BlibBuild(null, files.ToArray());
             IProgressStatus status = new ProgressStatus();
-            var results = blibBuild.GetScoreTypes(new SilentProgressMonitor(), ref status, out _);
+            // A cancelable progress monitor lets teardown kill the BlibBuild subprocess (ProcessRunner honors
+            // IsCanceled), so its stdin temp file is cleaned up (BlibBuild.GetScoreTypes deletes it in a finally).
+            var results = blibBuild.GetScoreTypes(new SilentProgressMonitor(cancellationToken), ref status, out _);
+            if (results == null)
+                return null;   // canceled, or BlibBuild produced no score types
 
             // Match input/output files
             var filesByLength = files.OrderByDescending(s => s.Length).ToArray();
@@ -300,6 +329,40 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
             results = resultsTmp;
 
             return results;
+        }
+
+        // The background score-type detection the FilePaths setter starts when files are added. Tracked so the
+        // grid's teardown can stop it -- canceling kills the BlibBuild subprocess (which then cleans up its temp
+        // file) -- and join it, so no background work outlives the grid or the wizard hosting it.
+        private Thread _scoreTypesThread;
+        private CancellationTokenSource _scoreTypesCts;
+
+        /// <summary>
+        /// Cancels the background score-type detection, if any, and waits for its thread to finish. Called when
+        /// the grid is disposed, when the hosting wizard closes (ImportPeptideSearchDlg.OnFormClosing), and
+        /// before starting a new detection. Safe on the UI thread: the detection marshals back with BeginInvoke,
+        /// so it never blocks waiting for the UI thread and this join cannot deadlock.
+        /// </summary>
+        public void CancelScoreTypeDetection()
+        {
+            var cts = _scoreTypesCts;
+            var thread = _scoreTypesThread;
+            _scoreTypesCts = null;
+            _scoreTypesThread = null;
+            if (cts != null)
+            {
+                try { cts.Cancel(); }
+                catch (ObjectDisposedException) { }
+            }
+            thread?.Join();
+            cts?.Dispose();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                CancelScoreTypeDetection();
+            base.Dispose(disposing);
         }
 
         private void GridUpdateScoreInfo(IReadOnlyDictionary<string, ScoreTypesResult> scoreTypes, Exception exception)
@@ -319,7 +382,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                 }
                 else if (scoreTypes == null || !scoreTypes.TryGetValue(file.FilePath, out scoreTypesThis))
                 {
-                    file.ScoreTypeError = Resources.BuildLibraryGridView_GridUpdateScoreInfo_Score_type_not_found_;
+                    file.ScoreTypeError = PeptideSearchResources.BuildLibraryGridView_GridUpdateScoreInfo_Score_type_not_found_;
                 }
                 else if (scoreTypesThis.HasError)
                 {
@@ -435,7 +498,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
 
             row.ErrorText = !file.HasScoreTypeError
                 ? null
-                : TextUtil.LineSeparate(Resources.BuildLibraryGridView_OnRowPrepaint_Error_getting_score_type_for_this_file_,
+                : TextUtil.LineSeparate(PeptideSearchResources.BuildLibraryGridView_OnRowPrepaint_Error_getting_score_type_for_this_file_,
                     string.Empty,
                     file.ScoreTypeError);
         }
@@ -458,7 +521,7 @@ namespace pwiz.Skyline.FileUI.PeptideSearch
                 cell.ErrorText = scoreType == null || (threshold.HasValue && scoreType.ValidRange.Min <= threshold && threshold <= scoreType.ValidRange.Max)
                     ? null
                     : string.Format(
-                        Resources.BuildLibraryGridView_OnCellPainting_Score_threshold___0___is_invalid__must_be_a_decimal_value_between__1__and__2___,
+                        PeptideSearchResources.BuildLibraryGridView_OnCellPainting_Score_threshold___0___is_invalid__must_be_a_decimal_value_between__1__and__2___,
                         threshold.ToString(), scoreType.ValidRange.Min, scoreType.ValidRange.Max);
                 cell.ToolTipText = scoreType?.ThresholdDescription;
             }

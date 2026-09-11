@@ -12,23 +12,27 @@ on:
     - 'pwiz_tools/MSConvertGUI/**'
     - 'pwiz_tools/SeeMS/**'
     - 'pwiz_tools/Shared/**'
+    - 'pwiz_tools/Osprey/**'
     - 'pwiz_tools/Skyline/**'
     - 'pwiz_tools/Topograph/**'
     - 'scripts/Topograph/**'
     - 'doc/**'
     - 'clean.*'
-    - '.github/workflows/cherrypick-to-release.yml'
+    - '.github/workflows/cherrypick*release.yml'
+    - '.github/workflows/*on_demand.yml'
   pull_request:
     branches: [ master ]
     paths-ignore:
     - 'pwiz_tools/MSConvertGUI/**'
     - 'pwiz_tools/SeeMS/**'
     - 'pwiz_tools/Shared/**'
+    - 'pwiz_tools/Osprey/**'
     - 'pwiz_tools/Skyline/**'
     - 'pwiz_tools/Topograph/**'
     - 'doc/**'
     - 'clean.*'
-    - '.github/workflows/cherrypick-to-release.yml'
+    - '.github/workflows/cherrypick*release.yml'
+    - '.github/workflows/*on_demand.yml'
  
 # There is a single job here called "build" (The word "build" is NOT a keyword, you can use anything there)
 jobs:
@@ -57,19 +61,19 @@ jobs:
 #            compiler: g++-9,
 #            toolset: 'toolset=gcc'
 #          }
-        - {
-            name: "macOS Latest Clang",
-            os: macos-latest,
-            compiler: 'latest clang',
-            toolset: 'toolset=darwin'
-          }
+#        - {
+#            name: "macOS Latest Clang",
+#            os:	macos-12,
+#            compiler: 'latest clang',
+#            toolset: 'toolset=darwin'
+#          }
  
     # Using the value from the matrix above we select the platform (operating system) to run on
     runs-on: ${{ matrix.config.os }}
 
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
       - name: Get number of CPU cores
         id: cpu-count
@@ -112,4 +116,5 @@ jobs:
         shell: bash
         run: |
           unset JAVA_HOME
-          ./quickbuild.sh --abbreviate-paths --i-agree-to-the-vendor-licenses -j${{ steps.cpu-count.outputs.count }} address-model=64 pwiz pwiz_tools/BiblioSpec executables ${{ matrix.config.toolset }}
+          ./quickbuild.sh --abbreviate-paths --i-agree-to-the-vendor-licenses -j${{ steps.cpu-count.outputs.count }} address-model=64 pwiz executables ${{ matrix.config.toolset }}
+          ./quickbuild.sh --abbreviate-paths --i-agree-to-the-vendor-licenses -j${{ steps.cpu-count.outputs.count }} address-model=64 pwiz_tools/BiblioSpec ${{ matrix.config.toolset }}

@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
+using SharedBatch;
 using SkylineBatch;
 using SharedBatchTest;
 using SkylineBatch.Properties;
@@ -10,9 +11,22 @@ namespace SkylineBatchTest
 {
     /// <summary>
     /// All functional tests MUST derive from this base class.
+    /// Inherits from AbstractSkylineBatchUnitTest to provide TestContext and helper methods.
     /// </summary>
     public abstract class AbstractSkylineBatchFunctionalTest : AbstractBaseFunctionalTest
     {
+        // Helper: test-specific results path (uses TestUtils for backward compatibility)
+        protected string GetTestResultsPath(string relativePath = null)
+        {
+            return TestUtils.GetTestResultsPath(TestContext, relativePath);
+        }
+
+        // Helper: logger rooted in TestResults (returns SkylineBatch Logger instance)
+        protected Logger GetTestLogger(string logSubfolder = "")
+        {
+            return TestUtils.GetTestLogger(TestContext, logSubfolder);
+        }
+
         public const string SKYLINE_BATCH_FOLDER = @"Executables\SkylineBatch\";
 
 
@@ -43,6 +57,14 @@ namespace SkylineBatchTest
         protected override void ResetSettings()
         {
             Settings.Default.Reset();
+
+            // SkylineBatch's Settings.Reset() also resets SharedBatch's, which wipes the Skyline
+            // installation paths FindSkyline() discovered - SkylineLocalCommandPath,
+            // SkylineAdminCmdPath, SkylineRunnerPath. Nothing re-discovers them, so an imported
+            // configuration is typed from its XML instead of being retyped Local, and validates
+            // against a CmdPath of null: "Could not find a Skyline installation on this computer".
+            // Re-running discovery restores the state the application has after its own startup.
+            SkylineInstallations.FindSkyline();
         }
 
         protected override void InitProgram()

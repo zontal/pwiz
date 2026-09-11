@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Shannon Joyner <sjoyner .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -65,6 +65,10 @@ namespace pwiz.Skyline.Alerts
         {
         }
 
+        /// <summary>The exception message shown in the dialog (what went wrong) -- e.g. so the AI connector's
+        /// form gate can report this "Unexpected Error" dialog the way it reports a CommonAlertDlg.</summary>
+        public override string DetailedMessage => _exceptionMessage;
+
         public ReportErrorDlg(Exception e, StackTrace stackTraceExceptionCaughtAt)
         {
             Init(e.GetType().Name, e.Message, ExceptionUtil.GetExceptionText(e, stackTraceExceptionCaughtAt));
@@ -84,8 +88,8 @@ namespace pwiz.Skyline.Alerts
                 AcceptButton = btnCancel;
 
                 SetIntroText(
-                    Resources.ReportErrorDlg_ReportErrorDlg_An_unexpected_error_has_occurred_as_shown_below,
-                    Resources.ReportErrorDlg_ReportErrorDlg_An_error_report_will_be_posted);
+                    AlertsResources.ReportErrorDlg_ReportErrorDlg_An_unexpected_error_has_occurred_as_shown_below,
+                    AlertsResources.ReportErrorDlg_ReportErrorDlg_An_error_report_will_be_posted);
             }
         }
 

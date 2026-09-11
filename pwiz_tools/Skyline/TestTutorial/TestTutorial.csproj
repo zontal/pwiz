@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -107,7 +107,7 @@
       <HintPath>..\..\Shared\Lib\log4net.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
-    <Reference Include="Newtonsoft.Json, Version=11.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+    <Reference Include="Newtonsoft.Json, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\Newtonsoft.Json.dll</HintPath>
     </Reference>
@@ -122,6 +122,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AuditLogTutorialTest.cs" />
+    <Compile Include="LiveReportsTutorialTest.cs" />
     <Compile Include="SmallMolMethodDevCEOptTutorial.cs" />
     <Compile Include="SmallMoleculesQuantificationTutorial.cs" />
     <Compile Include="SmallMoleculesTutorial.cs" />
@@ -148,6 +149,14 @@
     <ProjectReference Include="..\..\Shared\BiblioSpec\BiblioSpec.csproj">
       <Project>{32CC9B1A-9442-4B56-AF34-FB47595278A1}</Project>
       <Name>BiblioSpec</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Shared\CommonFileDialogs\CommonFileDialogs.csproj">
+      <Project>{B8E3F4A1-7C2D-4E5F-9A1B-3C6D8E0F2A4B}</Project>
+      <Name>CommonFileDialogs</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Shared\CommonMsData\CommonMsData.csproj">
+      <Project>{86f8e7f5-a3ed-4519-9ad9-bf9abd6dd69f}</Project>
+      <Name>CommonMsData</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\Shared\Common\Common.csproj">
       <Project>{A5527BE9-4A62-458F-AE47-F0F9204A5CF9}</Project>
@@ -212,22 +221,15 @@
     <None Include="AbsoluteQuantViews.zip" />
     <None Include="AuditLogViews.zip" />
     <None Include="CEOptimizationViews.zip" />
-    <None Include="CustomReportsViews.zip" />
     <None Include="DiaViews.zip" />
-    <None Include="ExistingExperimentsViews.zip" />
-    <None Include="GroupedStudies1Views.zip" />
     <None Include="IrtViews.zip" />
     <None Include="LibraryExplorerViews.zip" />
     <None Include="MethodEditCSVs.zip" />
-    <None Include="MethodEditViews.zip" />
-    <None Include="MethodRefinementViews.zip" />
-    <None Include="Ms1FullScanFilteringViews.zip" />
     <None Include="PeakPickingViews.zip" />
     <None Include="SmallMolMethodDevCEOptViews.zip" />
     <None Include="SmallMoleculesQuantificationViews.zip" />
     <None Include="SmallMoleculeViews.zip" />
     <None Include="SRMViews.zip" />
-    <None Include="TargetedMSMSViews.zip" />
     <None Include="GroupedStudiesViews.zip" />
   </ItemGroup>
   <ItemGroup>

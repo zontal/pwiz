@@ -52,7 +52,7 @@ PWIZ_API_DECL size_t ChromatogramList_Shimadzu::size() const
 PWIZ_API_DECL const ChromatogramIdentity& ChromatogramList_Shimadzu::chromatogramIdentity(size_t index) const
 {
     boost::call_once(indexInitialized_.flag, boost::bind(&ChromatogramList_Shimadzu::createIndex, this));
-    if (index>size())
+    if (index>=size())
         throw runtime_error(("[ChromatogramList_Shimadzu::chromatogramIdentity()] Bad index: " 
                             + lexical_cast<string>(index)).c_str());
     return reinterpret_cast<const ChromatogramIdentity&>(index_[index]);
@@ -79,7 +79,7 @@ PWIZ_API_DECL ChromatogramPtr ChromatogramList_Shimadzu::chromatogram(size_t ind
 PWIZ_API_DECL ChromatogramPtr ChromatogramList_Shimadzu::chromatogram(size_t index, DetailLevel detailLevel) const
 {
     boost::call_once(indexInitialized_.flag, boost::bind(&ChromatogramList_Shimadzu::createIndex, this));
-    if (index>size())
+    if (index>=size())
         throw runtime_error(("[ChromatogramList_Shimadzu::chromatogram()] Bad index: " 
                             + lexical_cast<string>(index)).c_str());
 
@@ -171,6 +171,9 @@ PWIZ_API_DECL void ChromatogramList_Shimadzu::createIndex() const
     {
         // It appears that some LabSolutions versions don't provide TIC, if that's not the issue then presumably the MS_SRM_chromatogram entries will also fail so let this pass quietly
     }
+
+    if (config_.srmAsSpectra)
+        return;
 
     for (const SRMTransition& transition : transitions)
     {

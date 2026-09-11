@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Daniel Broudy <daniel.broudy .at. gmail.com>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -26,9 +26,9 @@ using System.Threading;
 using System.Xml;
 using System.Xml.Schema;
 using System.Xml.Serialization;
+using pwiz.Common.Collections;
 using pwiz.Common.DataBinding;
 using pwiz.Common.SystemUtil;
-using pwiz.Skyline.Controls.Databinding;
 using pwiz.Skyline.Model.Databinding;
 using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Properties;
@@ -259,9 +259,9 @@ namespace pwiz.Skyline.Model.Tools
         private void Validate()
         {
             if (string.IsNullOrEmpty(Title))
-                throw new InvalidDataException(Resources.ToolDescription_Validate_Tools_must_have_a_title);
+                throw new InvalidDataException(ToolsResources.ToolDescription_Validate_Tools_must_have_a_title);
             if (string.IsNullOrEmpty(Command))
-                throw new InvalidDataException(Resources.ToolDescription_Validate_Tools_must_have_a_command_line);
+                throw new InvalidDataException(ToolsResources.ToolDescription_Validate_Tools_must_have_a_command_line);
         }
 
         public XmlSchema GetSchema()
@@ -383,13 +383,13 @@ namespace pwiz.Skyline.Model.Tools
     /// <summary>
     /// An exception to be thrown when a WebTool fails to open.
     /// </summary>
-    public class WebToolException : Exception
+    public class WebToolException : UserMessageException
     {
         /// <summary>
         /// Returns an instance of WebToolException.
         /// An exception to be thrown when a WebTool fails to open.
         /// </summary>
-        public WebToolException (string errorMessage, string link)
+        public WebToolException (string errorMessage, string link) : base(errorMessage)
         {
             _link = link;
             _errorMessage = errorMessage;
@@ -409,14 +409,14 @@ namespace pwiz.Skyline.Model.Tools
         }
     }
 
-    public class ToolExecutionException : Exception
+    public class ToolExecutionException : UserMessageException
     {
         public ToolExecutionException(string message) : base(message){}
 
         public ToolExecutionException(string message, Exception innerException) : base(message, innerException){}
     }
 
-    public class ToolDeprecatedException : Exception
+    public class ToolDeprecatedException : UserMessageException
     {
         public ToolDeprecatedException(string message) : base(message) { }
 
@@ -440,35 +440,28 @@ namespace pwiz.Skyline.Model.Tools
             var container = new MemoryDocumentContainer();
             container.SetDocument(doc, container.Document);
             var dataSchema = new SkylineDataSchema(container, DataSchemaLocalizer.INVARIANT);
-            var viewContext = new DocumentGridViewContext(dataSchema);
-            ViewInfo viewInfo = viewContext.GetViewInfo(PersistedViews.ExternalToolsGroup.Id.ViewName(reportTitle));
-            if (null == viewInfo)
-            {
-                throw new ToolExecutionException(
-                    string.Format(
-                        Resources.ToolDescriptionHelpers_GetReport_Error_0_requires_a_report_titled_1_which_no_longer_exists__Please_select_a_new_report_or_import_the_report_format,
-                        toolTitle, reportTitle));
-            }
+            var rowFactories = RowFactories.GetRowFactories(CancellationToken.None, dataSchema);
             IProgressStatus status =
                 new ProgressStatus(string.Format(Resources.ReportSpec_ReportToCsvString_Exporting__0__report,
                     reportTitle));
             progressMonitor.UpdateProgress(status);
-            if (!viewContext.Export(CancellationToken.None, progressMonitor, ref status, viewInfo, writer,
-                    TextUtil.SEPARATOR_CSV))
-            {
-                throw new OperationCanceledException();
-            }
+            using var memoryStream = new MemoryStream();
+            var rowItemExporter =
+                ReportExporters.ForSeparator(DataSchemaLocalizer.INVARIANT, TextUtil.SEPARATOR_CSV);
+            rowFactories.ExportReport(memoryStream, PersistedViews.ExternalToolsGroup.Id.ViewName(reportTitle), rowItemExporter, progressMonitor, ref status);
+            using var reader = new StreamReader(new MemoryStream(memoryStream.ToArray()));
+            writer.Write(reader.ReadToEnd());
         }
 
 
-        // Long test names make for long Tools directory names, which can make for long command lines - maybe too long. So limit that directory name length by
-        // shortening to acronym and original length (e.g. "Foo7WithBar" => "F7WB10", "Foo7WithoutBar" => "F7WB13"))
         private static string LimitDirectoryNameLength()
         {
-            var testName = Program.TestName.Length > 10 // Arbitrary cutoff, but too little is likely to lead to ambiguous names
-                ? string.Concat(Program.TestName.Replace(@"Test", string.Empty).Where(c => char.IsUpper(c) || char.IsDigit(c))) + Program.TestName.Length
-                : Program.TestName;
-            return $@"{testName}_{Thread.CurrentThread.CurrentCulture.Name}";
+            // N.B. this is only unique per test and culture, not per parallel test client, and not even
+            // per test: shortening means different tests can land in one directory. So the parallel work
+            // queue checks a test out against the directory names it will use rather than against the
+            // test itself, and hands out no two tests that would meet in one of them. See
+            // QueuedTestInfo.RequiredToolsDirectories in TestRunner (issue 4447).
+            return PathEx.GetTestDirectoryName(Program.TestName, Thread.CurrentThread.CurrentCulture.Name);
         }
 
         /// <summary>
@@ -477,10 +470,15 @@ namespace pwiz.Skyline.Model.Tools
         public static string GetToolsDirectory()
         {
             var skylineDirPath = GetSkylineInstallationPath();
-
             // Use a unique tools path when running tests to allow tests to run in parallel
             // ReSharper disable once AssignNullToNotNullAttribute
-            return Path.Combine(skylineDirPath, Program.UnitTest ? $@"Tools_{LimitDirectoryNameLength()}" : @"Tools");
+            var tools = GetToolsDirectoryBasis(); // Helps catch Unicode path issues on Windows
+            return Path.Combine(skylineDirPath, Program.UnitTest ? $@"{tools}_{LimitDirectoryNameLength()}" : $@"{tools}");
+        }
+
+        public static string GetToolsDirectoryBasis()
+        {
+            return (Program.UnitTest && !Program.DoNotTestUnicodeHandling) ? @"Tööls" : @"Tools"; // Helps catch Unicode path issues on Windows
         }
 
         /// <summary>

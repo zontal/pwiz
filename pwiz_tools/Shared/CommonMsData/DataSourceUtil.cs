@@ -1,0 +1,576 @@
+/*
+ * Original author: Vagisha Sharma <vsharma .at. u.washington.edu>,
+ *                  MacCoss Lab, Department of Genome Sciences, UW
+ *
+ * Copyright 2011 University of Washington - Seattle, WA
+ * 
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Xml;
+using pwiz.Common.SystemUtil;
+using pwiz.ProteowizardWrapper;
+
+namespace pwiz.CommonMsData
+{
+    public static class DataSourceUtil
+    {
+        // ReSharper disable LocalizableElement
+        public const string EXT_THERMO_RAW = ".raw";
+        public const string EXT_WIFF = ".wiff";
+        public const string EXT_WIFF2 = ".wiff2";
+        public const string EXT_WIFF_SCAN = ".wiff.scan";
+        public const string EXT_SHIMADZU_RAW = ".lcd";
+        public const string EXT_MZXML =  ".mzxml";
+        public const string EXT_MZDATA = ".mzdata";
+        public const string EXT_MZML = ".mzml";
+        public const string EXT_MZ5 = ".mz5";
+        public const string EXT_MZMLB = ".mzmlb";
+        public const string EXT_XML = ".xml";
+        public const string EXT_UIMF = ".uimf";
+        public const string EXT_WATERS_RAW = ".raw";    // Folder
+        public const string EXT_AGILENT_BRUKER_D = ".d";  // Folder
+        public const string EXT_MOBILION_MBI = ".mbi";
+
+        public static readonly string[] EXT_FASTA = {".fasta", ".fa", ".faa"};
+
+        public const string TYPE_WIFF = "Sciex WIFF";
+        public const string TYPE_WIFF2 = "Sciex WIFF2";
+        public const string TYPE_AGILENT = "Agilent MassHunter";
+        public const string TYPE_BRUKER = "Bruker BAF/TDF/TSF";
+        public const string TYPE_SHIMADZU = "Shimadzu LCD";
+        public const string TYPE_THERMO_RAW = "Thermo RAW";
+        public const string TYPE_WATERS_RAW = "Waters RAW";
+        public const string TYPE_MZML = "mzML";
+        public const string TYPE_MZXML = "mzXML";
+        public const string TYPE_MZ5 = "mz5";
+        public const string TYPE_MZMLB = "mzMLb";
+        public const string TYPE_MZDATA = "mzData";
+        public const string TYPE_UIMF = "Unified Ion Mobility Frame";
+        public const string TYPE_MBI = "Mobilion MBI";
+        public const string TYPE_CHORUSRESPONSE = "Chorus Response";
+        public const string FOLDER_TYPE = "File Folder";
+        public const string SAMPLE_SET_TYPE = "Sample Set";
+        public const string UNKNOWN_TYPE = "unknown";
+        public const string EDIT_ACCOUNT = "edit account";
+        public const string TYPE_WATERS_ACQUISITION_METHOD = "Waters Acquisition Method";
+
+        /// <summary>
+        /// What the reader is allowed to make a data source of, and the type each of its answers
+        /// becomes: it names each Bruker format separately where <see cref="TYPE_BRUKER"/> lumps
+        /// them together. An answer outside this set is not taken - see
+        /// <see cref="GetSourceTypeFromReader"/> - so this is the whole list of formats reached
+        /// by looking inside a directory rather than by its name. Types are matched by equality,
+        /// to filter what the open dialogs list and to decide vendor specific behavior, so a name
+        /// that reached a caller untranslated would read as neither a known type nor a folder.
+        /// </summary>
+        private static readonly IDictionary<string, string> READER_TYPES_TO_TYPES = new Dictionary<string, string>
+        {
+            { "Bruker FID", TYPE_BRUKER },
+            { "Bruker YEP", TYPE_BRUKER },
+            { "Bruker BAF", TYPE_BRUKER },
+            { "Bruker U2", TYPE_BRUKER },
+            { "Bruker TDF", TYPE_BRUKER },
+            { "Bruker TSF", TYPE_BRUKER }
+        };
+
+        /// <summary>
+        /// The one reader answer taken for a directory whose name says nothing. The reader decides
+        /// it by what lies below rather than by a file sitting in the directory, so a copy of an
+        /// acquisition's files under some other name cannot be mistaken for it - which is what
+        /// <see cref="EXT_AGILENT_BRUKER_D"/> guards against for the rest.
+        /// </summary>
+        private const string READER_TYPE_BRUKER_FID = "Bruker FID";
+
+        private const string EXT_BRUKER_U2 = ".u2"; // A file inside the directory, named for it
+        private const string AGILENT_ACQUISITION_DIRECTORY = "AcqData";
+
+        /// <summary>
+        /// What an Agilent or Bruker ".d" directory holds when it is Bruker rather than Agilent.
+        /// Matched without regard to case, which is how the filesystem and the reader match them.
+        /// </summary>
+        private static readonly ICollection<string> BRUKER_ANALYSIS_FILES = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "analysis.baf", "analysis.tdf", "analysis.tsf" // tdf and tsf are TIMS ion mobility data
+        };
+
+        /// <summary>
+        /// The file names that can make a directory a data source without the directory name
+        /// saying so. A directory holding none of them, and no subdirectories either, is an
+        /// ordinary folder whatever the reader would say, so it can be answered without asking.
+        /// That matters because the question is asked of every directory a file open dialog
+        /// lists, and answering it costs the reader a scan of the directory.
+        /// </summary>
+        private static readonly ICollection<string> READER_DIRECTORY_FILES = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "fid", "analysis.baf", "analysis.yep", "analysis.tdf", "analysis.tsf"
+        };
+        // ReSharper restore LocalizableElement
+
+        public static bool IsDataSource(string path)
+        {
+            return IsDataSource(new FileInfo(path)) || IsDataSource(new DirectoryInfo(path));
+        }
+
+        public static bool IsDataSource(DirectoryInfo dirInfo)
+        {
+            if (File.Exists(dirInfo.FullName))
+            {
+                return false; // It's a file, not a directory.
+            }
+            return !Equals(GetSourceType(dirInfo), FOLDER_TYPE);
+        }
+
+        public static string GetSourceType(string path)
+        {
+            if (File.Exists(path))
+                return GetSourceType(new FileInfo(path));
+            if (Directory.Exists(path))
+                return GetSourceType(new DirectoryInfo(path));
+            return UNKNOWN_TYPE;
+        }
+
+        public static string GetSourceType(DirectoryInfo dirInfo)
+        {
+            try
+            {
+                var directoryPath = dirInfo.FullName;
+                // Only these two directory extensions are decided from a listing, so only they
+                // are worth listing a directory for. Every other directory - which is most of
+                // what a file open dialog shows - is answered by the probes below, each of
+                // which is a single question where a listing is one per entry in the directory.
+                if (PathEx.HasExtension(directoryPath, EXT_WATERS_RAW) ||
+                    PathEx.HasExtension(directoryPath, EXT_AGILENT_BRUKER_D))
+                {
+                    var sourceType = GetSourceType(directoryPath,
+                        dirInfo.GetFiles().Select(f => f.Name).ToArray(),
+                        dirInfo.GetDirectories().Select(d => d.Name).ToArray());
+                    if (!Equals(sourceType, FOLDER_TYPE))
+                        return sourceType;
+                }
+                // Directory formats with no distinguishing extension, Bruker FID among them,
+                // can only be told apart by looking inside, which is what the reader does.
+                return CouldBeReaderDirectorySource(dirInfo) ? GetSourceTypeFromReader(directoryPath) : FOLDER_TYPE;
+            }
+            catch (Exception) // Probably dirInfo was constructed with a file path rather than an actual directory
+            {
+                // TODO: Folder without access type
+                return FOLDER_TYPE; // It might actually be a file, or nonexistent. But callers expect FOLDER_TYPE return value for "not a data source"
+            }
+        }
+
+        /// <summary>
+        /// Decides a directory's type from names alone, for callers holding a listing rather
+        /// than a directory to look in - <see cref="GetSourceType(DirectoryInfo)"/> for one,
+        /// and sharing a document, where the names come from a zip archive.
+        /// </summary>
+        public static string GetSourceType(string directoryName, string[] fileNames, string[] subdirectoryNames)
+        {
+            if (PathEx.HasExtension(directoryName, EXT_WATERS_RAW) &&
+                fileNames.Any(fn => fn.StartsWith(@"_FUNC", StringComparison.InvariantCultureIgnoreCase) &&
+                                    fn.EndsWith(@".DAT", StringComparison.InvariantCultureIgnoreCase) &&
+                                    fn.Count(ch => ch == '.') == 1))
+                return TYPE_WATERS_RAW;
+            if (PathEx.HasExtension(directoryName, EXT_AGILENT_BRUKER_D))
+            {
+                // Compared without regard to case, as the filesystem these names come from
+                // compares them, and as the reader looks for them
+                if (subdirectoryNames.Contains(AGILENT_ACQUISITION_DIRECTORY, StringComparer.OrdinalIgnoreCase))
+                    return TYPE_AGILENT;
+                if (fileNames.Any(BRUKER_ANALYSIS_FILES.Contains))
+                    return TYPE_BRUKER;
+            }
+            return FOLDER_TYPE;
+        }
+
+        public static bool IsDataSource(FileInfo fileInfo)
+        {
+            if (Directory.Exists(fileInfo.FullName))
+            {
+                return false; // It's a directory, not a file.
+            }
+            return !Equals(GetSourceType(fileInfo), UNKNOWN_TYPE);
+        }
+
+        public static string GetSourceType(FileInfo fileInfo)
+        {
+            switch (fileInfo.Extension.ToLowerInvariant())
+            {
+                case EXT_THERMO_RAW: return TYPE_THERMO_RAW;
+                case EXT_WIFF: return TYPE_WIFF;
+                case EXT_WIFF2: return TYPE_WIFF2;
+                case EXT_SHIMADZU_RAW: return TYPE_SHIMADZU;
+                //case ".mgf": return "Mascot Generic";
+                //case ".dta": return "Sequest DTA";
+                //case ".yep": return "Bruker YEP";
+                //case ".baf": return "Bruker BAF";
+                //case ".ms2": return "MS2";
+                case EXT_MZXML: return TYPE_MZXML;
+                case EXT_MZDATA: return TYPE_MZDATA;
+                case EXT_MZML: return TYPE_MZML;
+                case EXT_MZ5: return TYPE_MZ5;
+                case EXT_MZMLB: return TYPE_MZMLB;
+                case EXT_XML: return GetSourceTypeFromXML(fileInfo.FullName);
+                case EXT_UIMF: return TYPE_UIMF;
+                case EXT_MOBILION_MBI: return TYPE_MBI;
+                default: return UNKNOWN_TYPE;
+            }
+        }
+
+        public static bool IsWiffFile(MsDataFileUri fileName)
+        {
+            MsDataFilePath msDataFilePath = fileName as MsDataFilePath;
+            return null != msDataFilePath && IsWiffFile(msDataFilePath.FilePath);
+        }
+
+        public static bool IsWiffFile(string filePath)
+        {
+            return IsWiffOrWiff2File(filePath);
+        }
+
+        public static bool IsWiffOrWiff2File(string filePath)
+        {
+            return PathEx.HasExtension(filePath, EXT_WIFF) || PathEx.HasExtension(filePath, EXT_WIFF2);
+        }
+
+        /// <summary>
+        /// Returns all files necessary to complete the mass spec data path.
+        /// Currently only .wiff and .wiff2 files also require .wiff.scan when on exists.
+        /// </summary>
+        public static IEnumerable<string> GetCompanionFiles(string filePath)
+        {
+            yield return filePath;
+            if (IsWiffOrWiff2File(filePath))
+            {
+                string wiffScanPath = Path.ChangeExtension(filePath, EXT_WIFF_SCAN);
+                if (File.Exists(wiffScanPath))
+                    yield return wiffScanPath;
+            }
+        }
+
+        public static bool IsFolderType(string type)
+        {
+            return Equals(type, FOLDER_TYPE);
+        }
+
+        public static bool IsEditAccount(string type)
+        {
+            return Equals(type, EDIT_ACCOUNT);
+        }
+
+        public static bool IsSampleSetType(string type)
+        {
+            return Equals(type, SAMPLE_SET_TYPE);
+        }
+
+        public static bool IsUnknownType(string type)
+        {
+            return Equals(type, UNKNOWN_TYPE);
+        }
+
+        /// <summary>
+        /// Whether a directory holds anything the reader could make a data source of. The
+        /// files it looks for are named in <see cref="READER_DIRECTORY_FILES"/>, and it also
+        /// looks a level or two down: a MALDI FID acquisition keeps its fid files under one
+        /// subdirectory per spot, so a directory with subdirectories has to be asked about.
+        /// One walk of the directory answers all of that, and stops at the first entry that
+        /// settles it. This runs for every directory a file open dialog shows, and on a network
+        /// share a walk is what costs, so the point is to make one do.
+        /// </summary>
+        private static bool CouldBeReaderDirectorySource(DirectoryInfo dirInfo)
+        {
+            // The U2 file is named for the directory holding it
+            var u2FileName = Path.ChangeExtension(dirInfo.Name, EXT_BRUKER_U2);
+            return dirInfo.EnumerateFileSystemInfos().Any(entry => entry is DirectoryInfo ||
+                                                                   READER_DIRECTORY_FILES.Contains(entry.Name) ||
+                                                                   string.Equals(u2FileName, entry.Name, StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>
+        /// Asks the reader what it makes of a directory, for the formats that cannot be
+        /// recognized from names alone. Returns <see cref="FOLDER_TYPE"/> when it makes
+        /// nothing of it, which is what callers expect for "not a data source".
+        /// Only the answers in <see cref="READER_TYPES_TO_TYPES"/> are taken. The reader is
+        /// asked here about the Bruker directory formats and nothing else - every other
+        /// directory format is named for what it is, and decided before this is reached - so
+        /// an answer outside that set is a directory resembling a format rather than being
+        /// one. Taking it would leave a folder that cannot be navigated into and whose type
+        /// matches nothing the dialogs filter by.
+        /// </summary>
+        private static string GetSourceTypeFromReader(string directoryPath)
+        {
+            try
+            {
+                var readerType = MsDataFileImpl.IdentifyReaderType(directoryPath);
+                if (string.IsNullOrEmpty(readerType))
+                    return FOLDER_TYPE;
+                if (!READER_TYPES_TO_TYPES.TryGetValue(readerType, out var sourceType))
+                    return FOLDER_TYPE;
+                // The reader answers by what a directory holds, which a copy of an acquisition's
+                // files holds too, so its answer is taken only where the name agrees. FID is the
+                // exception this is all for: its directories carry no extension, and the reader
+                // reaches it by descending rather than by a file lying in the directory.
+                if (!Equals(readerType, READER_TYPE_BRUKER_FID) &&
+                    !PathEx.HasExtension(directoryPath, EXT_AGILENT_BRUKER_D))
+                    return FOLDER_TYPE;
+                return sourceType;
+            }
+            catch (Exception)
+            {
+                return FOLDER_TYPE; // Reader could not make sense of the path
+            }
+        }
+
+        private static string GetSourceTypeFromXML(string filepath)
+        {
+            XmlReaderSettings settings = new XmlReaderSettings
+            {
+                ValidationType = ValidationType.None,
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null
+            };
+            using (var stream = new StreamReader(filepath, true))
+            using (var reader = XmlReader.Create(stream, settings))
+            {
+                try
+                {
+                    while (reader.Read())
+                    {
+                        if (reader.NodeType == XmlNodeType.Element)
+                        {
+                            // ReSharper disable LocalizableElement
+                            switch (reader.Name.ToLowerInvariant())
+                            {
+                                case "mzml":
+                                case "indexmzml":
+                                    return "mzML";
+                                case "mzxml":
+                                case "msrun":
+                                    return "mzXML";
+                                //case "mzdata":
+                                //    return "mzData";
+                                case "root":
+                                    return "Bruker Data Exchange";
+                                default:
+                                    return UNKNOWN_TYPE;
+                            }
+                            // ReSharper restore LocalizableElement
+                        }
+                    }
+                }
+                catch (XmlException)
+                {
+                    return UNKNOWN_TYPE;
+                }
+            }
+            return UNKNOWN_TYPE;
+        }
+
+        // This method can throw an IOException if there is an error reading .wiff files in 
+        // the given directory.
+        public static IEnumerable<KeyValuePair<string, MsDataFileUri[]>> GetDataSources(string dirRoot, bool addSourcesInSubDirs = true)
+        {
+            return GetDataSources(dirRoot, true, addSourcesInSubDirs);
+        }
+
+        public static IEnumerable<KeyValuePair<string, MsDataFileUri[]>> GetDataSourcesInSubdirs(string dirRoot)
+        {
+            return GetDataSources(dirRoot, false, true);
+        }
+
+        private static IEnumerable<KeyValuePair<string, MsDataFileUri[]>> GetDataSources(string dirRoot, bool addSourcesInRootDir,
+            bool addSourcesInSubDirs)
+        {
+            var listNamedPaths = new List<KeyValuePair<string, MsDataFileUri[]>>();
+
+            if (addSourcesInSubDirs)
+            {
+                var dirRootInfo = new DirectoryInfo(dirRoot);
+                foreach (var subDirInfo in GetDirectories(dirRootInfo))
+                {
+                    var listDataPaths = new List<MsDataFileUri>();
+                    foreach (var dataDirInfo in GetDirectories(subDirInfo))
+                    {
+                        if (IsDataSource(dataDirInfo))
+                            listDataPaths.Add(new MsDataFilePath(dataDirInfo.FullName));
+                    }
+                    foreach (var dataFileInfo in GetFiles(subDirInfo))
+                    {
+                        if (IsDataSource(dataFileInfo))
+                            listDataPaths.Add(new MsDataFilePath(dataFileInfo.FullName));
+                    }
+                    if (listDataPaths.Count == 0)
+                        continue;
+
+                    listDataPaths.Sort();
+                    listNamedPaths.Add(new KeyValuePair<string, MsDataFileUri[]>(
+                                           subDirInfo.Name, listDataPaths.ToArray()));
+                }
+            }
+
+            if (addSourcesInRootDir)
+            {
+                // get a list of all valid files in this directory
+                var dirInfo = new DirectoryInfo(dirRoot);
+
+                // This if for WATERS(.raw) and AGILENT(.d) data directories
+                foreach (var dataDirInfo in GetDirectories(dirInfo))
+                {
+                    if (IsDataSource(dataDirInfo))
+                    {
+                        string dataSource = dataDirInfo.FullName;
+                        listNamedPaths.Add(new KeyValuePair<string, MsDataFileUri[]>(
+                                       Path.GetFileNameWithoutExtension(dataSource), new MsDataFileUri[] { new MsDataFilePath(dataSource),  }));
+                    }
+                }
+
+                foreach (var dataFileInfo in GetFiles(dirInfo))
+                {
+                    if (IsDataSource(dataFileInfo))
+                    {
+                        string dataSource = dataFileInfo.FullName;
+                        // Only .wiff files currently support multiple samples per file.
+                        // Keep from doing the extra work on other types.
+                        if (IsWiffFile(dataSource))
+                        {
+                            MsDataFilePath[] paths = GetWiffSubPaths(dataSource);
+                            if (paths == null)
+                                return null;    // An error occurred
+                            // Multiple paths then add as samples
+                            if (paths.Length > 1 ||
+                                // If just one, make sure it has a sample part.  Otherwise,
+                                // drop through to add the entire file.
+                                (paths.Length == 1 && paths[0].SampleName != null))
+                            {
+                                foreach (var path in paths)
+                                {
+                                    listNamedPaths.Add(new KeyValuePair<string, MsDataFileUri[]>(
+                                                           path.SampleName, new MsDataFileUri[]{ path }));
+                                }
+                                continue;
+                            }
+                        }
+
+                        listNamedPaths.Add(new KeyValuePair<string, MsDataFileUri[]>(
+                                       Path.GetFileNameWithoutExtension(dataSource), new MsDataFileUri[] { new MsDataFilePath(dataSource) }));
+                    }
+                }
+            }
+
+            listNamedPaths.Sort((p1, p2) => Comparer<string>.Default.Compare(p1.Key, p2.Key));
+            return listNamedPaths;
+        }
+
+        private static IEnumerable<DirectoryInfo> GetDirectories(DirectoryInfo dirInfo)
+        {
+            try
+            {
+                return dirInfo.GetDirectories();
+            }
+            catch (Exception)
+            {
+                // Just ignore directories that throw exceptions
+                return new DirectoryInfo[0];
+            }
+        }
+
+        private static IEnumerable<FileInfo> GetFiles(DirectoryInfo dirInfo)
+        {
+            try
+            {
+                return dirInfo.GetFiles();
+            }
+            catch (Exception)
+            {
+                // Just ignore directories that throw exceptions
+                return new FileInfo[0];
+            }
+        }
+
+        private static MsDataFilePath[] GetWiffSubPaths(string filePath)
+        {
+            string[] dataIds;
+            try
+            {
+                dataIds = MsDataFileImpl.ReadIds(filePath);
+            }
+            catch (Exception x)
+            {
+                var message = CommonTextUtil.LineSeparate(
+                    string.Format(CommonMsDataResources.DataSourceUtil_GetWiffSubPaths_An_error_occurred_attempting_to_read_sample_information_from_the_file__0__,filePath),
+                    CommonMsDataResources.DataSourceUtil_GetWiffSubPaths_The_file_may_be_corrupted_missing_or_the_correct_libraries_may_not_be_installed,
+                                    x.Message);
+                throw new IOException(message);
+            }
+
+            return GetWiffSubPaths(filePath, dataIds, null);
+        }
+
+        public static MsDataFilePath[] GetWiffSubPaths(string filePath, string[] dataIds, Func<string, string[], IEnumerable<int>> sampleChooser)
+        {
+            if (dataIds == null)
+                return null;
+            // WIFF without at least 2 samples just use its file name.
+            if (dataIds.Length < 2)
+                return new[] { new MsDataFilePath(filePath, null, -1),  };
+
+            // Escape all the sample ID names, so that they may be used in file names.
+            for (int i = 0; i < dataIds.Length; i++)
+                dataIds[i] = SampleHelp.EscapeSampleId(dataIds[i]);
+
+
+            IEnumerable<int> sampleIndices;
+
+            if (sampleChooser != null)
+            {
+                // Allow the user to choose from the list
+                sampleIndices = sampleChooser(filePath, dataIds);
+                if (sampleIndices == null)
+                    return null;
+            }
+            else
+            {
+                int[] indexes = new int[dataIds.Length];
+                for (int i = 0; i < dataIds.Length; i++)
+                    indexes[i] = i;
+                sampleIndices = indexes;
+            }
+
+            // Encode sub-paths
+            var listPaths = new List<MsDataFilePath>();
+            foreach (int sampleIndex in sampleIndices)
+                listPaths.Add(new MsDataFilePath(filePath, dataIds[sampleIndex], sampleIndex));
+
+            if (listPaths.Count == 0)
+                return null;
+            return listPaths.ToArray();
+        }
+
+        /// <summary>
+        /// If the passed in MsDataFileUri is a multi-sample wiff file, then return a list of
+        /// MsDataFileUri's representing the samples, otherwise, return the MsDataFileUri itself.
+        /// </summary>
+        public static IEnumerable<MsDataFileUri> ListSubPaths(MsDataFileUri msDataFileUri)
+        {
+            var msDataFilePath = msDataFileUri as MsDataFilePath;
+            if (msDataFilePath == null || !IsWiffFile(msDataFilePath.FilePath))
+            {
+                return new[] {msDataFileUri};
+            }
+            return GetWiffSubPaths(msDataFilePath.FilePath);
+        }
+    }
+}

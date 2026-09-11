@@ -89,6 +89,7 @@ PWIZ_API_DECL enum InstrumentModel
     TripleQuad7500,
     X500QTOF,
     ZenoTOF7600,
+    ZenoTOF8600,
     GenericQTrap,
     InstrumentModel_Count
 };
@@ -125,6 +126,57 @@ PWIZ_API_DECL enum Polarity
     Undefined = 2
 };
 
+enum PWIZ_API_DECL FragmentationMode 
+{
+    FragmentationMode_CID,
+    FragmentationMode_EAD
+};
+
+
+/// One "encoded bin" of a Sciex ZT Scan quadrupole sweep.
+///
+/// ZT Scan (ZenoTOF 8600) scans Q1 continuously across the precursor range instead of stepping it.
+/// The whole sweep is a single acquisition - the method stores one MS/MS experiment whose
+/// accumulation time is the entire sweep (e.g. 0.86 s) - and the instrument ramps the collision
+/// energy in hardware from one end of the precursor range to the other as the quadrupole moves.
+/// The sweep is then digitized into hundreds of narrow bins, and both SDKs surface each bin as its
+/// own experiment.
+///
+/// Neither SDK records a per-bin collision energy: both report the ramp MIDPOINT on every bin
+/// (30 eV for an 18 -> 43 eV ramp), which is off by roughly half the ramp at either end. This
+/// carries the endpoints so the per-bin value can be reconstructed.
+///
+/// Interpolation is on the bin ORDINAL rather than the bin's quadrupole m/z. The quadrupole scans
+/// at a constant Da/s, so the two axes are equivalent, but the ordinal needs no extra method
+/// parameters - the precursor start/stop masses are exposed by only one of the two APIs - and it
+/// lands exactly on the stated endpoints at the first and last bin.
+///
+/// NOTE: that the hardware ramp is LINEAR is an assumption. The files state only the endpoints,
+/// never the shape. If Sciex confirms a different profile, collisionEnergy() is the only place
+/// that needs to change.
+struct PWIZ_API_DECL ZtScanBin
+{
+    double ceRampStart; // collision energy at the low-m/z end of the sweep (eV)
+    double ceRampEnd;   // collision energy at the high-m/z end of the sweep (eV)
+    int binIndex;       // 0-based ordinal of this bin within the sweep; -1 when not a ZT Scan bin
+    int binCount;       // total bins in the sweep
+
+    ZtScanBin() : ceRampStart(0), ceRampEnd(0), binIndex(-1), binCount(0) {}
+
+    bool isValid() const {return binIndex >= 0 && binCount > 0;}
+
+    /// This bin's collision energy, linearly interpolated between the ramp endpoints. A sweep of
+    /// fewer than two bins has no ramp to interpolate, so it falls back to the midpoint - the same
+    /// value the SDKs report.
+    double collisionEnergy() const
+    {
+        if (binCount < 2) return (ceRampStart + ceRampEnd) / 2;
+        if (binIndex <= 0) return ceRampStart;
+        if (binIndex >= binCount - 1) return ceRampEnd;
+        return ceRampStart + (ceRampEnd - ceRampStart) * binIndex / (binCount - 1);
+    }
+};
+
 
 struct PWIZ_API_DECL Spectrum
 {
@@ -136,7 +188,7 @@ struct PWIZ_API_DECL Spectrum
     virtual int getMSLevel() const = 0;
 
     virtual bool getHasIsolationInfo() const = 0;
-    virtual void getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy) const = 0;
+    virtual void getIsolationInfo(double& centerMz, double& lowerLimit, double& upperLimit, double& collisionEnergy, double& electronKineticEnergy, FragmentationMode& fragmentationMode) const = 0;
 
     virtual bool getHasPrecursorInfo() const = 0;
     virtual void getPrecursorInfo(double& selectedMz, double& intensity, int& charge) const = 0;
@@ -190,9 +242,9 @@ struct PWIZ_API_DECL Experiment
 
     virtual size_t getSRMSize() const = 0;
     virtual void getSRM(size_t index, Target& target) const = 0;
-    virtual void getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities) const = 0;
+    virtual double getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities, bool ignoreScheduledLimits) const = 0;
     virtual void getSIC(size_t index, pwiz::util::BinaryData<double>& times, pwiz::util::BinaryData<double>& intensities,
-                        double& basePeakX, double& basePeakY) const = 0;
+                        double& basePeakX, double& basePeakY, bool ignoreScheduledLimits) const = 0;
 
     virtual void getAcquisitionMassRange(double& startMz, double& stopMz) const = 0;
     virtual ScanType getScanType() const = 0;

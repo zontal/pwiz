@@ -43,15 +43,15 @@ struct PWIZ_API_DECL TestPathPredicate
 
 struct PWIZ_API_DECL IsNamedRawFile : public TestPathPredicate
 {
-    IsNamedRawFile(const std::string& rawpath) : filenames({ rawpath }) {}
-    IsNamedRawFile(const std::initializer_list<std::string>& filenames) : filenames(filenames) {}
+    IsNamedRawFile(const bfs::path& rawpath) : filenames({ rawpath }) {}
+    IsNamedRawFile(const std::initializer_list<bfs::path>& filenames) : filenames(filenames) {}
 
     bool operator() (const std::string& rawpath) const
     {
-        return filenames.count(bfs::path(rawpath).filename().string()) > 0;
+        return filenames.count(bfs::path(rawpath).filename()) > 0;
     }
 
-    std::set<std::string> filenames;
+    std::set<bfs::path> filenames;
 };
 
 struct PWIZ_API_DECL TestResult
@@ -69,7 +69,7 @@ struct PWIZ_API_DECL TestResult
 
 struct PWIZ_API_DECL ReaderTestConfig : public pwiz::msdata::Reader::Config
 {
-    ReaderTestConfig() : peakPicking(false), peakPickingCWT(false), thresholdCount(0), doublePrecision(false), autoTest(false) {}
+    ReaderTestConfig() : peakPicking(false), peakPickingCWT(false), thresholdCount(0), doublePrecision(false), autoTest(false), reportTimings(false) {}
     ReaderTestConfig(const ReaderTestConfig& rhs) : pwiz::msdata::Reader::Config(rhs)
     {
         peakPicking = rhs.peakPicking;
@@ -94,6 +94,7 @@ struct PWIZ_API_DECL ReaderTestConfig : public pwiz::msdata::Reader::Config
     boost::optional<int> runIndex;
 
     bool autoTest; // test config variant generated automatically (e.g. thresholdCount) that does not use a separate mzML file
+    bool reportTimings;
 };
 
 /// A common test harness for vendor readers; returns a TestResult (with count of failedTests and totalTests)

@@ -30,16 +30,20 @@
 #include "pwiz/data/msdata/MSData.hpp"
 #include "pwiz/utility/misc/Filesystem.hpp"
 #include "pwiz/utility/misc/Std.hpp"
-#include "pwiz/utility/misc/IntegerSet.hpp"
 #include "pwiz/utility/misc/SHA1Calculator.hpp"
 #include "pwiz/utility/misc/automation_vector.h"
+#include "pwiz/data/common/cv.hpp"
 
 using namespace pwiz::util;
 using namespace pwiz::vendor_api::Bruker;
+using namespace pwiz::cv;
 
 namespace pwiz {
 namespace msdata {
 namespace detail {
+
+// Read from chromatography-data.sqlite when available
+std::vector<vendor_api::Bruker::ChromatogramPtr> readChromatographyDataSqlite(const std::string rootpath);
 
 using namespace Bruker;
 
@@ -67,7 +71,7 @@ PWIZ_API_DECL size_t ChromatogramList_Bruker::size() const
 
 PWIZ_API_DECL const ChromatogramIdentity& ChromatogramList_Bruker::chromatogramIdentity(size_t index) const
 {
-    if (index > size_)
+    if (index >= size_)
         throw runtime_error(("[ChromatogramList_Bruker::chromatogramIdentity()] Bad index: " 
                             + lexical_cast<string>(index)).c_str());
     return index_[index];
@@ -91,7 +95,7 @@ PWIZ_API_DECL ChromatogramPtr ChromatogramList_Bruker::chromatogram(size_t index
 
 PWIZ_API_DECL ChromatogramPtr ChromatogramList_Bruker::chromatogram(size_t index, DetailLevel detailLevel) const
 {
-    if (index > size_)
+    if (index >= size_)
         throw runtime_error(("[ChromatogramList_Bruker::chromatogram()] Bad index: " 
                             + lexical_cast<string>(index)).c_str());
 
@@ -107,13 +111,12 @@ PWIZ_API_DECL ChromatogramPtr ChromatogramList_Bruker::chromatogram(size_t index
 
     if (detailLevel < DetailLevel_FullMetadata)
         return result;
-    bool getBinaryData = detailLevel == DetailLevel_FullData;
-
+    
     vendor_api::Bruker::ChromatogramPtr cd;
 
     switch (ci.chromatogramType)
     {
-        case MS_TIC_chromatogram:
+        case MS_TIC_chromatogram: // Prefer the TIC from API over that in chromatography-data.sqlite
             cd = compassDataPtr_->getTIC(config_.globalChromatogramsAreMs1Only);
             break;
 
@@ -121,11 +124,27 @@ PWIZ_API_DECL ChromatogramPtr ChromatogramList_Bruker::chromatogram(size_t index
             cd = compassDataPtr_->getBPC(config_.globalChromatogramsAreMs1Only);
             break;
 
-        default:
+        default: // As found in chromatography-data.sqlite
+            if (ci.trace < lcTraces_.size())
+            {
+                vendor_api::Bruker::ChromatogramPtr lcTrace = lcTraces_[ci.trace];
+                double dummy;
+                result->setTimeIntensityArrays(lcTrace->times, lcTrace->intensities, UO_second, traceUnitToCVID(lcTrace->units, dummy));
+                if (!lcTrace->description.empty())
+                    result->cvParams.push_back(CVParam(MS_chromatogram_title, lcTrace->description));
+                if (!lcTrace->instrument.empty())
+                    result->userParams.push_back(UserParam("Instrument", lcTrace->instrument));
+                return result;
+            }
             throw runtime_error("[ChromatogramList_Bruker] unsupported chromatogramType");
     }
 
     result->setTimeIntensityArrays(cd->times, cd->intensities, UO_second, MS_number_of_detector_counts);
+
+    if ((format_ != Reader_Bruker_Format_TDF || config_.combineIonMobilitySpectra) &&
+        !config_.globalChromatogramsAreMs1Only &&
+        cd->times.size() != compassDataPtr_->getMSSpectrumCount())
+        throw runtime_error("[ChromatogramList_Bruker] number of chromatogram times (" + toString(cd->times.size()) + ") does not match spectrum count (" + toString(compassDataPtr_->getMSSpectrumCount()) + ")");
 
     if (format_ != Reader_Bruker_Format_FID && format_ != Reader_Bruker_Format_U2)
     {
@@ -164,6 +183,22 @@ PWIZ_API_DECL void ChromatogramList_Bruker::createIndex()
         ie.chromatogramType = MS_basepeak_chromatogram;
         idToIndexMap_[ie.id] = ie.index;
     }
+
+    // Add LC traces from chromatography-data.sqlite when present
+    lcTraces_ = readChromatographyDataSqlite(rootpath_.string());
+    for (size_t i = 0; i < lcTraces_.size(); ++i)
+        {
+            const auto& chrom = lcTraces_[i];
+            index_.push_back(IndexEntry());
+            IndexEntry& ie = index_.back();
+            ie.index = index_.size() - 1;
+            ie.id = chrom->description;
+            ie.chromatogramType = traceTypeToCVID(chrom->type, chrom->units, chrom->description);
+            double dummy;
+            ie.units = traceUnitToCVID(chrom->units, dummy);
+            ie.trace = static_cast<long>(i);
+            idToIndexMap_[ie.id] = ie.index;
+        }
 
     /*if (format_ == Reader_Bruker_Format_U2)
     {

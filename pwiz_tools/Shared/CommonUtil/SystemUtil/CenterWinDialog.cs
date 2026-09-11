@@ -1,12 +1,16 @@
-﻿// https://stackoverflow.com/a/2576220
+// https://stackoverflow.com/a/2576220
 // Winforms-How can I make MessageBox appear centered on MainForm?
 
 using System;
-using System.Text;
 using System.Drawing;
 using System.Windows.Forms;
-using System.Runtime.InteropServices;
+using pwiz.Common.SystemUtil.PInvoke;
 
+// DO NOT DELETE without due diligence on how this is used across all ProteoWizard projects.
+// As of 12/31/2024, it is not used in Skyline so VisualStudio will say it's unreferenced,
+// but it is used in MSConvertGUI which is separate from the Skyline solution.
+//
+// CONSIDER: move to pwiz_tools/MSConvertGUI
 namespace pwiz.Common.SystemUtil
 {
     public class CenterWinDialog : IDisposable
@@ -22,50 +26,32 @@ namespace pwiz.Common.SystemUtil
 
         private void findDialog()
         {
-            // Enumerate windows to find the message box
+            // Enumerate this thread's windows to find the message box (a #32770 dialog) and center it.
             if (mTries < 0) return;
-            EnumThreadWndProc callback = checkWindow;
-            if (EnumThreadWindows(GetCurrentThreadId(), callback, IntPtr.Zero))
+            bool found = false;
+            foreach (var hWnd in User32.EnumThreadWindows((uint) Kernel32.GetCurrentThreadId()))
             {
-                if (++mTries < 10) mOwner.BeginInvoke(new MethodInvoker(findDialog));
+                if (User32.GetClassName(hWnd) != @"#32770")
+                    continue;
+                // Got it: center the dialog on the owner form.
+                Rectangle frmRect = new Rectangle(mOwner.Location, mOwner.Size);
+                var dlgRect = new User32.RECT();
+                User32.GetWindowRect(hWnd, ref dlgRect);
+                User32.MoveWindow(hWnd,
+                    frmRect.Left + (frmRect.Width - dlgRect.right + dlgRect.left) / 2,
+                    frmRect.Top + (frmRect.Height - dlgRect.bottom + dlgRect.top) / 2,
+                    dlgRect.right - dlgRect.left,
+                    dlgRect.bottom - dlgRect.top, true);
+                found = true;
+                break;
             }
-        }
-        private bool checkWindow(IntPtr hWnd, IntPtr lp)
-        {
-            // Checks if <hWnd> is a dialog
-            StringBuilder sb = new StringBuilder(260);
-            GetClassName(hWnd, sb, sb.Capacity);
-            if (sb.ToString() != @"#32770") return true;
-            // Got it
-            Rectangle frmRect = new Rectangle(mOwner.Location, mOwner.Size);
-            RECT dlgRect;
-            GetWindowRect(hWnd, out dlgRect);
-            MoveWindow(hWnd,
-                frmRect.Left + (frmRect.Width - dlgRect.Right + dlgRect.Left) / 2,
-                frmRect.Top + (frmRect.Height - dlgRect.Bottom + dlgRect.Top) / 2,
-                dlgRect.Right - dlgRect.Left,
-                dlgRect.Bottom - dlgRect.Top, true);
-            return false;
+            // Not found yet (the box may not have appeared): try again a few times.
+            if (!found && ++mTries < 10)
+                mOwner.BeginInvoke(new MethodInvoker(findDialog));
         }
         public void Dispose()
         {
             mTries = -1;
         }
-
-        // P/Invoke declarations
-        private delegate bool EnumThreadWndProc(IntPtr hWnd, IntPtr lp);
-        [DllImport("user32.dll")]
-        private static extern bool EnumThreadWindows(int tid, EnumThreadWndProc callback, IntPtr lp);
-        [DllImport("kernel32.dll")]
-        private static extern int GetCurrentThreadId();
-        [DllImport("user32.dll")]
-        private static extern int GetClassName(IntPtr hWnd, StringBuilder buffer, int buflen);
-        [DllImport("user32.dll")]
-        private static extern bool GetWindowRect(IntPtr hWnd, out RECT rc);
-        [DllImport("user32.dll")]
-        private static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int h, bool repaint);
-
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("ReSharper", "UnassignedField.Compiler")]
-        private struct RECT { public int Left; public int Top; public int Right; public int Bottom; }
     }
 }

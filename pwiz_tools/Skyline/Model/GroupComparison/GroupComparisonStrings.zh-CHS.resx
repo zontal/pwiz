@@ -288,7 +288,7 @@
     <value>肽段序列</value>
   </data>
   <data name="FoldChangeVolcanoPlot_BuildContextMenu_Formatting___" xml:space="preserve">
-    <value>格式化...</value>
+    <value>格式化…</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Expression" xml:space="preserve">
     <value>表达式</value>
@@ -324,28 +324,28 @@
     <value>超大</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Square" xml:space="preserve">
-    <value>正方形</value>
+    <value>&#x25A0;</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Diamond" xml:space="preserve">
-    <value>菱形</value>
+    <value>&#x25C6;</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Triangle" xml:space="preserve">
-    <value>三角形</value>
+    <value>&#x25B2;</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Circle" xml:space="preserve">
-    <value>圆圈</value>
+    <value>&#x25CF;</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_TriangleDown" xml:space="preserve">
-    <value>倒三角</value>
+    <value>&#x25BC;</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_X_Cross" xml:space="preserve">
-    <value>X 十字</value>
+    <value>&#x00D7;</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Plus" xml:space="preserve">
-    <value>加号</value>
+    <value>+</value>
   </data>
   <data name="VolcanoPlotFormattingDlg_VolcanoPlotFormattingDlg_Star" xml:space="preserve">
-    <value>星号</value>
+    <value>&#x2605;</value>
   </data>
   <data name="NormalizationMethod_TIC_Total_Ion_Current" xml:space="preserve">
     <value>总离子电流</value>
@@ -359,7 +359,13 @@
     <comment>Example: TIC Normalized Peak Area</comment>
   </data>
   <data name="NormalizationMethod_EQUALIZE_MEDIANS_Median_Normalized__0_" xml:space="preserve">
-	  <value>中位数归一化 {0}</value>
-      <comment>Example: Median Normalized Peak Area</comment>
+    <value>中位数归一化 {0}</value>
+    <comment>Example: Median Normalized Peak Area</comment>
+  </data>
+  <data name="EditGroupComparisonDlg_GetNormalizeOptionText_Batch_Calibration_Curve" xml:space="preserve">
+    <value>批次校准曲线</value>
+  </data>
+  <data name="EditGroupComparisonDlg_GroupComparisonDef_Group_comparisons_at_the_protein_level_using_calibrated_values_is_not_yet_supported_in_Skyline_" xml:space="preserve">
+    <value>Skyline 尚不支持使用校准值在蛋白质级别进行群组比较。</value>
   </data>
 </root>

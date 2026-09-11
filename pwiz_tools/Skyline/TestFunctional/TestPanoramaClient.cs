@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Sophie Pallanck <srpall .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -23,6 +23,7 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 using Newtonsoft.Json.Linq;
 using pwiz.Common.SystemUtil;
 using pwiz.PanoramaClient;
+using pwiz.Skyline.Util;
 using pwiz.SkylineTestUtil;
 
 namespace pwiz.SkylineTestFunctional
@@ -93,9 +94,9 @@ namespace pwiz.SkylineTestFunctional
 
             RunUI(() =>
             {
-                remoteDlg.FolderBrowser.SelectNode(NO_TARGETED);
-                remoteDlg.FolderBrowser.SelectNode(TARGETED);
-                remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(NO_TARGETED), "Unable to select {0}", NO_TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED), "Unable to select {0}", TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY), "Unable to select {0}", TARGETED_LIBRARY);
                 Assert.IsTrue(remoteDlg.BackEnabled);
                 remoteDlg.ClickBack();
                 Assert.AreEqual(TARGETED, remoteDlg.FolderBrowser.SelectedNodeText);
@@ -106,7 +107,7 @@ namespace pwiz.SkylineTestFunctional
                 remoteDlg.ClickForward();
                 Assert.AreEqual(TARGETED, remoteDlg.FolderBrowser.SelectedNodeText);
                 remoteDlg.ClickUp();
-                remoteDlg.FolderBrowser.SelectNode(VALID_SERVER);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(VALID_SERVER), "Unable to select {0}", VALID_SERVER);
                 Assert.IsFalse(remoteDlg.UpEnabled);
                 remoteDlg.Close();
             });
@@ -127,7 +128,7 @@ namespace pwiz.SkylineTestFunctional
 
             RunUI(() =>
             {
-                remoteDlg.FolderBrowser.SelectNode(TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED), "Unable to select {0}", TARGETED);
                 Assert.IsTrue(remoteDlg.VersionsVisible);
                 Assert.AreEqual(PanoramaFilePicker.RECENT_VER, remoteDlg.VersionsOption);
                 Assert.AreEqual(1, remoteDlg.FileNumber);
@@ -163,16 +164,16 @@ namespace pwiz.SkylineTestFunctional
 
             RunUI(() =>
             {
-                remoteDlg.FolderBrowser.SelectNode(NO_TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(NO_TARGETED), "Unable to select {0}", NO_TARGETED);
                 Assert.AreEqual(3, remoteDlg.FolderBrowser.TreeviewIcon);
-                remoteDlg.FolderBrowser.SelectNode(TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED), "Unable to select {0}", TARGETED);
                 Assert.AreEqual(1, remoteDlg.FolderBrowser.TreeviewIcon);
-                remoteDlg.FolderBrowser.SelectNode(VALID_SERVER);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(VALID_SERVER), "Unable to select {0}", VALID_SERVER);
                 Assert.AreEqual(-1, remoteDlg.FolderBrowser.TreeviewIcon);
-                remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY), "Unable to select {0}", TARGETED_LIBRARY);
                 Assert.AreEqual(2, remoteDlg.FolderBrowser.TreeviewIcon);
-                remoteDlg.FolderBrowser.SelectNode(TARGETED_COLLABORATION);
-                Assert.AreEqual(3, remoteDlg.FolderBrowser.TreeviewIcon);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED_COLLABORATION), "Unable to select {0}", TARGETED_COLLABORATION);
+                Assert.AreEqual(1, remoteDlg.FolderBrowser.TreeviewIcon);
                 remoteDlg.Close();
             });
             WaitForClosedForm(remoteDlg);
@@ -200,7 +201,7 @@ namespace pwiz.SkylineTestFunctional
 
             RunUI(() =>
             {
-                remoteDlg.FolderBrowser.SelectNode(TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED), "Unable to select {0}", TARGETED);
                 //remoteDlg.FolderBrowser.ClickRight();
                 //Assert.IsTrue(remoteDlg.FolderBrowser.IsExpanded(TARGETED));
                 Assert.IsTrue(remoteDlg.VersionsVisible);
@@ -210,7 +211,7 @@ namespace pwiz.SkylineTestFunctional
                 remoteDlg.TestFileJson = fileJson;
                 remoteDlg.TestSizeJson = sizeJson;
 
-                remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY), "Unable to select {0}", TARGETED_LIBRARY);
                 //remoteDlg.FolderBrowser.ClickRight();
                 //Assert.IsTrue(remoteDlg.FolderBrowser.IsExpanded(TARGETED_LIBRARY));
                 Assert.IsFalse(remoteDlg.VersionsVisible);
@@ -220,7 +221,7 @@ namespace pwiz.SkylineTestFunctional
                 remoteDlg.TestFileJson = filesJson;
                 remoteDlg.TestSizeJson = sizesJson;
 
-                remoteDlg.FolderBrowser.SelectNode(TARGETED_COLLABORATION);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED_COLLABORATION), "Unable to select {0}", TARGETED_COLLABORATION);
                 Assert.IsTrue(remoteDlg.VersionsVisible);
                 Assert.AreEqual(PanoramaFilePicker.RECENT_VER, remoteDlg.VersionsOption);
                 Assert.AreEqual(1, remoteDlg.FileNumber);
@@ -247,8 +248,8 @@ namespace pwiz.SkylineTestFunctional
             var sizeString = sizeObj.Format(@"fs1", 3, sizeObj);
             RunUI(() =>
             {
-                remoteDlg.FolderBrowser.SelectNode(TARGETED);
-                remoteDlg.ClickFile("File1");
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED), "Unable to select {0}", TARGETED);
+                Assert.IsTrue(remoteDlg.ClickFile("File1"), "Unable to click 'File1'");
                 Assert.AreEqual("File1", remoteDlg.GetItemValue(0));
                 Assert.AreEqual(sizeString, remoteDlg.GetItemValue(1));
                 Assert.AreEqual(4.ToString(), remoteDlg.GetItemValue(2));
@@ -259,14 +260,14 @@ namespace pwiz.SkylineTestFunctional
 
                 remoteDlg.ClickVersions();
 
-                remoteDlg.ClickFile("File2");
+                Assert.IsTrue(remoteDlg.ClickFile("File2"), "Unable to click 'File2'");
                 Assert.AreEqual("File2", remoteDlg.GetItemValue(0));
                 Assert.AreEqual(sizeObj.Format(@"fs1", 200, sizeObj), remoteDlg.GetItemValue(1));
                 Assert.AreEqual(4.ToString(), remoteDlg.GetItemValue(2));
                 Assert.AreEqual("File1", remoteDlg.GetItemValue(3));
                 Assert.AreEqual(formattedDate.ToString(CultureInfo.CurrentCulture), remoteDlg.GetItemValue(4));
 
-                remoteDlg.ClickFile("File3");
+                Assert.IsTrue(remoteDlg.ClickFile("File3"), "Unable to click 'File3'");
                 Assert.AreEqual("File3", remoteDlg.GetItemValue(0));
                 Assert.AreEqual(sizeObj.Format(@"fs1", 6000, sizeObj), remoteDlg.GetItemValue(1));
                 Assert.AreEqual(4.ToString(), remoteDlg.GetItemValue(2));
@@ -301,7 +302,7 @@ namespace pwiz.SkylineTestFunctional
 
             RunUI(() =>
             {
-                remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY), "Unable to select {0}", TARGETED_LIBRARY);
                 Assert.AreEqual(1, remoteDlg.FileNumber);
                 Assert.IsFalse(remoteDlg.ColumnVisible(2));
                 Assert.IsFalse(remoteDlg.ColumnVisible(3));
@@ -309,7 +310,7 @@ namespace pwiz.SkylineTestFunctional
                 remoteDlg.TestFileJson = filesJson;
                 remoteDlg.TestSizeJson = sizesJson;
 
-                remoteDlg.FolderBrowser.SelectNode(TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED), "Unable to select {0}", TARGETED);
                 Assert.IsTrue(remoteDlg.ColumnVisible(2));
                 Assert.IsFalse(remoteDlg.ColumnVisible(3));
                 remoteDlg.ClickVersions();
@@ -332,16 +333,16 @@ namespace pwiz.SkylineTestFunctional
             RunUI(() =>
             {
                 WaitForCondition(9000, () => remoteDlg.IsLoaded);
-                remoteDlg.FolderBrowser.SelectNode(NO_TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(NO_TARGETED), "Unable to select {0}", NO_TARGETED);
                 Assert.AreEqual(3, remoteDlg.FolderBrowser.TreeviewIcon);
-                remoteDlg.FolderBrowser.SelectNode(TARGETED);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED), "Unable to select {0}", TARGETED);
                 Assert.AreEqual(1, remoteDlg.FolderBrowser.TreeviewIcon);
-                remoteDlg.FolderBrowser.SelectNode(VALID_SERVER);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(VALID_SERVER), "Unable to select {0}", VALID_SERVER);
                 Assert.AreEqual(-1, remoteDlg.FolderBrowser.TreeviewIcon);
-                remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED_LIBRARY), "Unable to select {0}", TARGETED_LIBRARY);
                 Assert.AreEqual(2, remoteDlg.FolderBrowser.TreeviewIcon);
-                remoteDlg.FolderBrowser.SelectNode(TARGETED_COLLABORATION);
-                Assert.AreEqual(3, remoteDlg.FolderBrowser.TreeviewIcon);
+                Assert.IsTrue(remoteDlg.FolderBrowser.SelectNode(TARGETED_COLLABORATION), "Unable to select {0}", TARGETED_COLLABORATION);
+                Assert.AreEqual(1, remoteDlg.FolderBrowser.TreeviewIcon);
             });
             OkDialog(remoteDlg, remoteDlg.OkDialog);
         }
@@ -351,7 +352,8 @@ namespace pwiz.SkylineTestFunctional
         /// </summary>
         public void ShowPanoramaFilePicker(string server, string user, string pass, JToken folderJson, JToken fileJson = null, JToken sizeJson = null)
         {
-            using var dlg = new PanoramaFilePicker(new Uri(server), user, pass, folderJson, fileJson, sizeJson);
+            using var dlg = new PanoramaFilePicker(new Server(new Uri(server), user, pass), folderJson, fileJson, sizeJson);
+            dlg.LoadServerData(new SilentProgressMonitor());   // CONSIDER: Should this be using LongOperationRunner like SkylineWindow?
             dlg.ShowDialog(SkylineWindow);
         }
 
@@ -360,7 +362,8 @@ namespace pwiz.SkylineTestFunctional
         /// </summary>
         private void ShowPanoramaDirectoryPicker(JToken folderJson)
         {
-            using var remoteDlg = new PanoramaDirectoryPicker(new Uri(VALID_SERVER), VALID_USER_NAME, VALID_PASSWORD, folderJson);
+            using var remoteDlg = new PanoramaDirectoryPicker(new Server(new Uri(VALID_SERVER), VALID_USER_NAME, VALID_PASSWORD), folderJson);
+            remoteDlg.LoadServerData(new SilentProgressMonitor());   // CONSIDER: Should this be using LongOperationRunner like SkylineWindow?
             remoteDlg.ShowDialog(SkylineWindow);
         }
 
@@ -430,60 +433,18 @@ namespace pwiz.SkylineTestFunctional
                 return obj;
             }
 
-            public JObject CreatePrivateFolder(string name)
+            public JObject CreateFolder(string name, bool writable, bool targeted, bool collaboration = false, bool library = false)
             {
-                JObject obj = new JObject();
-                obj["name"] = name;
-                obj["path"] = "/" + name + "/";
-                obj["userPermissions"] = 0;
-                obj["children"] = new JArray();
-                obj["folderType"] = "Targeted MS";
-                obj["activeModules"] = new JArray("MS0", "MS1", "MS3");
-
-                return obj;
-            }
-
-            public JObject CreateFolder(string name, bool subfolder, bool targeted, bool collaboration = false, bool library = false)
-            {
-                JObject obj = new JObject();
-                obj["name"] = name;
-                obj["path"] = "/" + name + "/";
-                obj["userPermissions"] = subfolder ? 3 : 1;
-                if (subfolder || !targeted)
-                {
-                    // Create a writable subfolder if this folder is not writable, i.e. it is
-                    // not a targetedMS folder or the user does not have write permissions in this folder.
-                    // Otherwise, it will not get added to the folder tree (PublishDocumentDlg.AddChildContainers()).
-                    obj["children"] = new JArray(CreateFolder("Subfolder", false, true));
-                }
-                else
-                {
-                    obj["children"] = new JArray();
-                }
-
-                if (library)
-                {
-                    JObject objChild = new JObject();
-                    objChild["effectiveValue"] = "Library";
-                    obj["moduleProperties"] = new JArray(objChild);
-                }
-                obj["folderType"] = collaboration ? "Collaboration" : "Targeted MS";
-
-                obj["activeModules"] = targeted
-                    ? new JArray("MS0", "MS1", "TargetedMS", "MS3")
-                    : new JArray("MS0", "MS1", "MS3");
-
-                return obj;
+                return new BaseTestPanoramaClient.PanoramaFolder(name, writable, !collaboration, targeted, library).ToJson();
             }
 
             public JToken GetInfoForFolders(PanoramaServer server, string folder)
             {
-                JObject testFolders = new JObject();
-                testFolders = CreateFolder(TARGETED, true, true);
+                var testFolders = CreateFolder(TARGETED, true, true);
                 testFolders["children"] = new JArray(
                     CreateFolder(TARGETED_LIBRARY, true, true, false, true),
                     CreateFolder(TARGETED, true, true),
-                    CreateFolder(NO_TARGETED, true, false),
+                    CreateFolder(NO_TARGETED, true, false, true),
                     CreateFolder(TARGETED_COLLABORATION, true, true, true));
                 return testFolders;
             }

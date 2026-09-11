@@ -29,7 +29,7 @@
 #include "pwiz/utility/misc/Filesystem.hpp"
 #include "MassHunterData.hpp"
 #include "MidacData.hpp"
-#include "pwiz/utility/minimxml/SAXParser.hpp"
+#include "XmlMetadataParser.hpp"
 
 #pragma managed
 #include "pwiz/utility/misc/cpp_cli_utilities.hpp"
@@ -50,73 +50,6 @@ namespace Agilent {
 
 
 namespace {
-
-using namespace pwiz::minimxml;
-using boost::iostreams::stream_offset;
-using boost::iostreams::offset_to_position;
-
-struct Device
-{
-    int DeviceID;
-    string Name;
-    string DriverVersion;
-    string FirmwareVersion;
-    string ModelNumber;
-    string OrdinalNumber;
-    string SerialNumber;
-    string Type;
-    string StoredDataType;
-    string Delay;
-    string Vendor;
-};
-
-#pragma unmanaged
-struct HandlerDevices : public SAXParser::Handler
-{
-    vector<Device> devices;
-    string* currentProperty;
-
-    HandlerDevices() : currentProperty(nullptr)
-    {
-        parseCharacters = true;
-    }
-
-    virtual Status startElement(const string& name, const Attributes& attributes, stream_offset position)
-    {
-        if (name == "Device")
-        {
-            devices.push_back(Device());
-            getAttribute(attributes, "DeviceID", devices.back().DeviceID);
-        }
-        else if (name == "Devices" || name == "Version") return Status::Ok;
-        else if (name == "Name") currentProperty = &devices.back().Name;
-        else if (name == "DriverVersion") currentProperty = &devices.back().DriverVersion;
-        else if (name == "FirmwareVersion") currentProperty = &devices.back().FirmwareVersion;
-        else if (name == "ModelNumber") currentProperty = &devices.back().ModelNumber;
-        else if (name == "OrdinalNumber") currentProperty = &devices.back().OrdinalNumber;
-        else if (name == "SerialNumber") currentProperty = &devices.back().SerialNumber;
-        else if (name == "Type") currentProperty = &devices.back().Type;
-        else if (name == "StoredDataType") currentProperty = &devices.back().StoredDataType;
-        else if (name == "Delay") currentProperty = &devices.back().Delay;
-        else if (name == "Vendor") currentProperty = &devices.back().Vendor;
-        else
-            throw runtime_error(("[HandlerDevices] Unexpected element name: " + name).c_str());
-
-        return Status::Ok;
-    }
-
-    virtual Status characters(const SAXParser::saxstring& text, stream_offset position)
-    {
-        if (currentProperty)
-        {
-            currentProperty->assign(text.c_str());
-            currentProperty = nullptr;
-        }
-
-        return Status::Ok;
-    }
-};
-#pragma managed
 
 MHDAC::IMsdrPeakFilter^ msdrPeakFilter(PeakFilterPtr peakFilter)
 {
@@ -530,20 +463,13 @@ std::string MassHunterDataImpl::getDeviceName(DeviceType deviceType) const
 
 std::string MassHunterData::getDeviceSerialNumber(DeviceType deviceType) const
 {
-    bfs::path massHunterDevicesPath(massHunterRootPath_);
-    massHunterDevicesPath /= "AcqData/Devices.xml";
-    if (!bfs::exists(massHunterDevicesPath))
+    loadMetadataIfNeeded();
+
+    if (devices_.empty())
         return "";
 
-    ifstream devicesXml(massHunterDevicesPath.string().c_str(), ios::binary);
-    HandlerDevices handler;
-    SAXParser::parse(devicesXml, handler);
-
-    if (handler.devices.empty())
-        return "";
-
-    auto findItr = std::find_if(handler.devices.begin(), handler.devices.end(), [&](const Device& device) { return lexical_cast<int>(device.Type) == (int) deviceType; });
-    if (findItr == handler.devices.end())
+    auto findItr = std::find_if(devices_.begin(), devices_.end(), [&](const Device& device) { return lexical_cast<int>(device.Type) == (int) deviceType; });
+    if (findItr == devices_.end())
         return "";
 
     return findItr->SerialNumber;
@@ -681,26 +607,41 @@ const std::vector<Signal>& MassHunterDataImpl::getSignals() const
         for each (auto device in devices)
         {
             auto deviceNameAndOrdinal = device->DeviceName + device->OrdinalNumber.ToString();
-            auto chromatogramSignalTable = reader_->FileInformation->GetSignalTable(deviceNameAndOrdinal, MHDAC::StoredDataType::Chromatograms);
-            auto instrumentCurveSignalTable = reader_->FileInformation->GetSignalTable(deviceNameAndOrdinal, MHDAC::StoredDataType::InstrumentCurves);
-
-            for each (System::Data::DataRow^ chromatogram in chromatogramSignalTable->Rows)
+            try
             {
-                auto signalName = chromatogram["SignalName"]->ToString();
-                auto signalDescription = ToStdString(chromatogram["SignalDescription"]->ToString());
-                signals_.emplace_back(Signal{ ToStdString(deviceNameAndOrdinal), ToStdString(signalName), signalDescription, false, (DeviceType) device->DeviceType });
+                auto chromatogramSignalTable = reader_->FileInformation->GetSignalTable(deviceNameAndOrdinal, MHDAC::StoredDataType::Chromatograms);
+                for each (System::Data::DataRow ^ chromatogram in chromatogramSignalTable->Rows)
+                {
+                    auto signalName = chromatogram["SignalName"]->ToString();
+                    auto signalDescription = ToStdString(chromatogram["SignalDescription"]->ToString());
+                    signals_.emplace_back(Signal{ ToStdString(deviceNameAndOrdinal), ToStdString(signalName), signalDescription, false, (DeviceType)device->DeviceType });
+                }
+                for each (auto signal in nonMsDataReader->GetSignalInfo(device, MHDAC::StoredDataType::Chromatograms))
+                    signalInfoMap_->default[deviceNameAndOrdinal + signal->SignalName] = signal;
             }
-            for each (auto signal in nonMsDataReader->GetSignalInfo(device, MHDAC::StoredDataType::Chromatograms))
-                signalInfoMap_->default[deviceNameAndOrdinal + signal->SignalName] = signal;
-
-            for each (System::Data::DataRow^ curve in instrumentCurveSignalTable->Rows)
+            catch (System::Exception^ ex)
             {
-                auto signalName = curve["SignalName"]->ToString();
-                auto signalDescription = ToStdString(curve["SignalDescription"]->ToString());
-                signals_.emplace_back(Signal{ ToStdString(deviceNameAndOrdinal), ToStdString(signalName), signalDescription, true, (DeviceType) device->DeviceType });
+                // TODO: log error
+                cerr << "Error reading chromatogram signal table for " << ToStdString(deviceNameAndOrdinal) << ": " << ToStdString(ex->Message) << endl;
             }
-            for each (auto signal in nonMsDataReader->GetSignalInfo(device, MHDAC::StoredDataType::InstrumentCurves))
-                signalInfoMap_->default[deviceNameAndOrdinal + signal->SignalName] = signal;
+
+            try
+            {
+                auto instrumentCurveSignalTable = reader_->FileInformation->GetSignalTable(deviceNameAndOrdinal, MHDAC::StoredDataType::InstrumentCurves);
+                for each (System::Data::DataRow ^ curve in instrumentCurveSignalTable->Rows)
+                {
+                    auto signalName = curve["SignalName"]->ToString();
+                    auto signalDescription = ToStdString(curve["SignalDescription"]->ToString());
+                    signals_.emplace_back(Signal{ ToStdString(deviceNameAndOrdinal), ToStdString(signalName), signalDescription, true, (DeviceType)device->DeviceType });
+                }
+                for each (auto signal in nonMsDataReader->GetSignalInfo(device, MHDAC::StoredDataType::InstrumentCurves))
+                    signalInfoMap_->default[deviceNameAndOrdinal + signal->SignalName] = signal;
+            }
+            catch (System::Exception^ ex)
+            {
+                // TODO: log error
+                cerr << "Error reading instrument curve signal table for " << ToStdString(deviceNameAndOrdinal) << ": " << ToStdString(ex->Message) << endl;
+            }
         }
         return signals_;
     }
@@ -947,6 +888,47 @@ IonPolarity MassChromatogramImpl::getIonPolarity() const
     try { return (IonPolarity)chromData_->IonPolarity; } CATCH_AND_FORWARD
 }
 
+
+// sample-info accessors
+std::map<std::string, std::string> MassHunterData::getSampleInfoMap() const
+{
+    loadMetadataIfNeeded();
+    return sampleInfoMap_;
+}
+
+const std::string& MassHunterData::getSampleInfoValue(const std::string& key, const std::string& defaultValue) const
+{
+    loadMetadataIfNeeded();
+    auto it = sampleInfoMap_.find(key);
+    return (it != sampleInfoMap_.end()) ? it->second : defaultValue;
+}
+
+void MassHunterData::loadMetadataIfNeeded() const
+{
+    if (metadataLoaded_)
+        return;
+
+    metadataLoaded_ = true; // prevent re-entrance
+
+    try
+    {
+        bfs::path acqDataPath = bfs::path(massHunterRootPath_) / "AcqData";
+        if (!bfs::exists(acqDataPath))
+            return;
+        XmlMetadataParser parser(acqDataPath.string(), sampleInfoMap_, devices_);
+        parser.parse();
+    }
+    catch (const std::exception& e)
+    {
+        // TODO: log error
+        cerr << "Error loading metadata: " << e.what() << endl;
+    }
+    catch (...)
+    {
+        // TODO: log unknown error
+        cerr << "Unknown error loading metadata." << endl;
+    }
+}
 
 } // Agilent
 } // vendor_api

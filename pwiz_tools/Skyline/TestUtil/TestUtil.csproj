@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="12.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <PropertyGroup>
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
@@ -103,6 +103,18 @@
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\DotNetZip\DotNetZip.dll</HintPath>
     </Reference>
+    <Reference Include="Google.Protobuf, Version=3.7.0.0, Culture=neutral, PublicKeyToken=a7d26565bac4d604, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\Shared\Lib\Google.Protobuf.dll</HintPath>
+    </Reference>
+    <Reference Include="Grpc.Core, Version=2.0.0.0, Culture=neutral, PublicKeyToken=d754f35622e28bad, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\Shared\Lib\Grpc.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="Grpc.Core.Api, Version=2.0.0.0, Culture=neutral, PublicKeyToken=d754f35622e28bad, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\bin\x64\Release\Grpc.Core.Api.dll</HintPath>
+    </Reference>
     <Reference Include="JetBrains.Annotations, Version=2018.2.1.0, Culture=neutral, PublicKeyToken=1010a0d8d6380325, processorArchitecture=MSIL">
       <SpecificVersion>False</SpecificVersion>
       <HintPath>..\..\Shared\Lib\JetBrains.Annotations.dll</HintPath>
@@ -116,6 +128,10 @@
       <HintPath>..\..\Shared\Lib\Microsoft.Diagnostics.Runtime\lib\net40\Microsoft.Diagnostics.Runtime.dll</HintPath>
     </Reference>
     <Reference Include="Microsoft.VisualStudio.QualityTools.UnitTestFramework, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a, processorArchitecture=MSIL" />
+    <Reference Include="Newtonsoft.Json, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>..\..\Shared\Lib\Newtonsoft.Json.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Core">
       <RequiredTargetFramework>3.5</RequiredTargetFramework>
@@ -142,15 +158,46 @@
   <ItemGroup>
     <Compile Include="AbstractFunctionalTestEx.cs" />
     <Compile Include="AbstractUnitTestEx.cs" />
+    <Compile Include="McpConnectorTest.cs" />
+    <Compile Include="AlphaColorPickerButton.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="AssertEx.cs" />
+    <Compile Include="AsSmallMoleculeTestUtil.cs" />
     <Compile Include="AuditLogUtil.cs" />
     <Compile Include="CheckDocumentState.cs" />
     <Compile Include="CheckReportCompatibility.cs" />
+    <Compile Include="CompareDocuments.cs" />
+    <Compile Include="DllFinderTestUtil.cs" />
+    <Compile Include="EqualityExplainer.cs" />
     <Compile Include="ExampleText.cs" />
     <Compile Include="ExtensionTestContext.cs" />
-    <Compile Include="FileLockingProcessFinder.cs" />
+    <Compile Include="GitFileHelper.cs" />
+    <Compile Include="HangDetection.cs" />
+    <Compile Include="HttpClientTestHelper.cs" />
+    <Compile Include="KoinaTestUtil.cs" />
+    <Compile Include="MultiFormActivator.cs" />
+    <Compile Include="Properties\Resources.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTime>True</DesignTime>
+      <DependentUpon>Resources.resx</DependentUpon>
+    </Compile>
+    <Compile Include="Properties\TestUtilSettings.Designer.cs">
+      <AutoGen>True</AutoGen>
+      <DesignTimeSharedInput>True</DesignTimeSharedInput>
+      <DependentUpon>TestUtilSettings.settings</DependentUpon>
+    </Compile>
+    <Compile Include="ScreenshotInfo.cs" />
+    <Compile Include="ScreenshotPreviewForm.cs">
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="ScreenshotPreviewForm.Designer.cs">
+      <DependentUpon>ScreenshotPreviewForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="UniprotApiVersionCheck.cs" />
     <Compile Include="FormSeen.cs" />
     <Compile Include="GridTester.cs" />
+    <Compile Include="InstallTestUtil.cs" />
     <Compile Include="LongWaitDialogCanceler.cs" />
     <Compile Include="MemoryStreamManager.cs" />
     <Compile Include="MovedDirectory.cs" />
@@ -164,17 +211,30 @@
     <Compile Include="ProcessKiller.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ResultsUtil.cs" />
+    <Compile Include="ScopedAction.cs" />
     <Compile Include="AbstractUnitTest.cs" />
     <Compile Include="Schemas\SchemaDocuments.cs" />
     <Compile Include="ScreenshotManager.cs" />
+    <Compile Include="ScreenshotProcessingExtensions.cs" />
+    <Compile Include="SpectralLibraryTestUtil.cs" />
     <Compile Include="StackTraceLogger.cs" />
     <Compile Include="TestDocumentContainer.cs" />
     <Compile Include="TestFilesDir.cs" />
     <Compile Include="TestFunctional.cs" />
     <Compile Include="TypeInspector.cs" />
+    <Compile Include="ArdiaTestUtil.cs" />
+    <Compile Include="WatersConnectTestUtil.cs" />
     <Compile Include="UnifiTestUtil.cs" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="..\..\Shared\CommonFileDialogs\CommonFileDialogs.csproj">
+      <Project>{B8E3F4A1-7C2D-4E5F-9A1B-3C6D8E0F2A4B}</Project>
+      <Name>CommonFileDialogs</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Shared\CommonMsData\CommonMsData.csproj">
+      <Project>{86f8e7f5-a3ed-4519-9ad9-bf9abd6dd69f}</Project>
+      <Name>CommonMsData</Name>
+    </ProjectReference>
     <ProjectReference Include="..\..\Shared\Common\Common.csproj">
       <Project>{A5527BE9-4A62-458F-AE47-F0F9204A5CF9}</Project>
       <Name>Common</Name>
@@ -182,6 +242,10 @@
     <ProjectReference Include="..\..\Shared\CommonUtil\CommonUtil.csproj">
       <Project>{13BF2FFB-50A1-4AB1-83A4-5733E36905CE}</Project>
       <Name>CommonUtil</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Shared\PortableUtil\PortableUtil.csproj">
+      <Project>{97ECF0B4-0AAA-4593-ADE0-9E8740973AC2}</Project>
+      <Name>PortableUtil</Name>
     </ProjectReference>
     <ProjectReference Include="..\..\Shared\MSGraph\MSGraph.csproj">
       <Project>{26cfd1ff-f4f7-4f66-b5b4-e686bdb9b34e}</Project>
@@ -202,6 +266,10 @@
     <ProjectReference Include="..\Skyline.csproj">
       <Project>{DDA2EA4C-B632-4FDF-94BA-F71E4C152056}</Project>
       <Name>Skyline</Name>
+    </ProjectReference>
+    <ProjectReference Include="..\SkylineTool\SkylineTool.csproj">
+      <Project>{3FD4E167-8F9C-4116-8122-67C7AD143490}</Project>
+      <Name>SkylineTool</Name>
     </ProjectReference>
     <ProjectReference Include="..\TestRunnerLib\TestRunnerLib.csproj">
       <Project>{E3F0E34F-F9E6-4360-996F-E2054E4FA1AE}</Project>
@@ -229,6 +297,14 @@
     <EmbeddedResource Include="minimal.sky.view" />
     <EmbeddedResource Include="PauseAndContinueForm.resx">
       <DependentUpon>PauseAndContinueForm.cs</DependentUpon>
+      <SubType>Designer</SubType>
+    </EmbeddedResource>
+    <EmbeddedResource Include="Properties\Resources.resx">
+      <Generator>ResXFileCodeGenerator</Generator>
+      <LastGenOutput>Resources.Designer.cs</LastGenOutput>
+    </EmbeddedResource>
+    <EmbeddedResource Include="ScreenshotPreviewForm.resx">
+      <DependentUpon>ScreenshotPreviewForm.cs</DependentUpon>
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
@@ -244,6 +320,37 @@
     <EmbeddedResource Include="Schemas\AuditLog\Skyl_4.21.xsd">
       <SubType>Designer</SubType>
     </EmbeddedResource>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\DiskFailure.png" />
+    <None Include="Resources\larrow-cur.bmp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="app.config" />
+    <None Include="Properties\TestUtilSettings.settings">
+      <Generator>SettingsSingleFileGenerator</Generator>
+      <LastGenOutput>TestUtilSettings.Designer.cs</LastGenOutput>
+    </None>
+    <None Include="Resources\camera.ico" />
+    <None Include="Resources\save.png" />
+    <None Include="Resources\refresh.png" />
+    <None Include="Resources\pause.png" />
+    <None Include="Resources\continue.png" />
+    <None Include="Resources\progress.gif" />
+    <None Include="Resources\save_and_continue.png" />
+    <None Include="Resources\webdestination.png" />
+    <None Include="Resources\autosizeoptimize.png" />
+    <None Include="Resources\blank.png" />
+    <None Include="Resources\imagebutton.png" />
+    <None Include="Resources\textbutton.png" />
+    <None Include="Resources\websource.png" />
+    <None Include="Resources\noscreenshot.png" />
+    <None Include="Resources\hand-cur.bmp" />
+    <None Include="Resources\gitsource.png" />
+    <None Include="Resources\fileunchanged.png" />
+    <None Include="Resources\filechanged.png" />
+    <None Include="Resources\fileunknown.png" />
+    <None Include="Resources\undo.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

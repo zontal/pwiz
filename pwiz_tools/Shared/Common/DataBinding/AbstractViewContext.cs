@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -16,17 +16,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
-using System.Drawing;
-using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Windows.Forms;
 using pwiz.Common.Collections;
 using pwiz.Common.DataBinding.Attributes;
 using pwiz.Common.DataBinding.Clustering;
@@ -35,6 +24,16 @@ using pwiz.Common.DataBinding.Controls.Editor;
 using pwiz.Common.DataBinding.Layout;
 using pwiz.Common.Properties;
 using pwiz.Common.SystemUtil;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Threading;
+using System.Windows.Forms;
 
 namespace pwiz.Common.DataBinding
 {
@@ -45,6 +44,7 @@ namespace pwiz.Common.DataBinding
     {
         
         public const string DefaultViewName = "default";
+        public static readonly Color DefaultReadOnlyCellColor = Color.FromArgb(245, 245, 245);
         private IList<RowSourceInfo> _rowSources;
 
         protected AbstractViewContext(DataSchema dataSchema, IEnumerable<RowSourceInfo> rowSources)
@@ -55,7 +55,7 @@ namespace pwiz.Common.DataBinding
 
         public abstract string GetExportDirectory();
         public abstract void SetExportDirectory(string value);
-        public abstract DialogResult ShowMessageBox(Control owner, string message, MessageBoxButtons messageBoxButtons);
+        public abstract DialogResult ShowMessageBox(Control owner, string message, MessageBoxButtons messageBoxButtons, Exception exception);
         protected virtual string GetDefaultExportFilename(ViewInfo viewInfo)
         {
             string currentViewName = viewInfo.Name;
@@ -187,36 +187,27 @@ namespace pwiz.Common.DataBinding
 
         public Icon ApplicationIcon { get; protected set; }
 
-        protected virtual void WriteData(IProgressMonitor progressMonitor, TextWriter writer,
+        protected void WriteData(IProgressMonitor progressMonitor, TextWriter writer,
             BindingListSource bindingListSource, char separator)
         {
-            IProgressStatus status = new ProgressStatus(string.Format(Resources.AbstractViewContext_WriteData_Writing__0__rows, bindingListSource.Count));
-            WriteDataWithStatus(progressMonitor, ref status, writer, bindingListSource, separator);
+            var rowItemEnumerator = new RowItemList(bindingListSource.ReportResults.RowItems)
+            {
+                ItemProperties = bindingListSource.ItemProperties,
+                ColumnFormats = bindingListSource.ColumnFormats
+            };
+
+            if (progressMonitor != null)
+            {
+                rowItemEnumerator.SetProgressMonitor(progressMonitor, new ProgressStatus());
+            }
+            CreateDsvReportExporter(separator).ExportToTextWriter(writer, rowItemEnumerator);
         }
 
-        protected virtual void WriteDataWithStatus(IProgressMonitor progressMonitor, ref IProgressStatus status, TextWriter writer, BindingListSource bindingListSource, char separator)
+        protected virtual DsvReportExporter CreateDsvReportExporter(char separator)
         {
-            var dsvWriter = CreateDsvWriter(separator, bindingListSource.ColumnFormats);
-            IList<RowItem> rows = Array.AsReadOnly(bindingListSource.Cast<RowItem>().ToArray());
-            IList<PropertyDescriptor> properties = bindingListSource.GetItemProperties(Array.Empty<PropertyDescriptor>()).Cast<PropertyDescriptor>().ToArray();
-            dsvWriter.WriteHeaderRow(writer, properties);
-            var rowCount = rows.Count;
-            int startPercent = status.PercentComplete;
-            for (int rowIndex = 0; rowIndex < rowCount; rowIndex++)
-            {
-                if (progressMonitor.IsCanceled)
-                {
-                    return;
-                }
-                int percentComplete = startPercent + (rowIndex*(100 - startPercent)/rowCount);
-                if (percentComplete > status.PercentComplete)
-                {
-                    status = status.ChangeMessage(string.Format(Resources.AbstractViewContext_WriteData_Writing_row__0___1_, (rowIndex + 1), rowCount))
-                        .ChangePercentComplete(percentComplete);
-                    progressMonitor.UpdateProgress(status);
-                }
-                dsvWriter.WriteDataRow(writer, rows[rowIndex], properties);
-            }
+            return new DsvReportExporter(new DsvWriter(DataSchema.DataSchemaLocalizer.FormatProvider,
+                DataSchema.DataSchemaLocalizer.Language,
+                separator));
         }
 
         /// <summary>
@@ -253,17 +244,8 @@ namespace pwiz.Common.DataBinding
             catch (Exception exception)
             {
                 ShowMessageBox(owner, Resources.AbstractViewContext_Export_There_was_an_error_writing_to_the_file__ + exception.Message,
-                    MessageBoxButtons.OK);
+                    MessageBoxButtons.OK, exception);
             }
-        }
-
-        public virtual DsvWriter CreateDsvWriter(char separator, ColumnFormats columnFormats)
-        {
-            return new DsvWriter(DataSchema.DataSchemaLocalizer.FormatProvider, DataSchema.DataSchemaLocalizer.Language,
-                separator)
-            {
-                ColumnFormats = columnFormats
-            };
         }
 
         public void ExportToFile(Control owner, BindingListSource bindingListSource, String filename,
@@ -272,18 +254,24 @@ namespace pwiz.Common.DataBinding
             SafeWriteToFile(owner, filename, stream =>
             {
                 var writer = new StreamWriter(stream, new UTF8Encoding(false));
-                bool finished = false;
-                RunOnThisThread(owner, (cancellationToken, progressMonitor) =>
-                {
-                    WriteData(progressMonitor, writer, bindingListSource, separator);
-                    finished = !progressMonitor.IsCanceled;
-                });
-                if (finished)
-                {
-                    writer.Flush();
-                }
-                return finished;
+                return ExportToWriter(owner, bindingListSource, writer, separator);
             });
+        }
+
+        public bool ExportToWriter(Control owner, BindingListSource bindingListSource, TextWriter writer,
+            char separator)
+        {
+            bool finished = false;
+            RunOnThisThread(owner, (cancellationToken, progressMonitor) =>
+            {
+                WriteData(progressMonitor, writer, bindingListSource, separator);
+                finished = !progressMonitor.IsCanceled;
+            });
+            if (finished)
+            {
+                writer.Flush();
+            }
+            return finished;
         }
 
         /// <summary>
@@ -304,24 +292,35 @@ namespace pwiz.Common.DataBinding
         {
             try
             {
-                StringWriter tsvWriter = new StringWriter();
-                if (!RunOnThisThread(owner, (cancellationToken, progressMonitor) =>
-                    {
-                        WriteData(progressMonitor, tsvWriter, bindingListSource, '\t');
-                        progressMonitor.UpdateProgress(new ProgressStatus(string.Empty).Complete());
-                    }))
+                var text = GetCopyAllText(owner, bindingListSource);
+                if (text == null)
                 {
+                    // cancelled
                     return;
                 }
-
-                SetClipboardText(owner, tsvWriter.ToString());
+                SetClipboardText(owner, text);
             }
             catch (Exception exception)
             {
                 ShowMessageBox(owner, 
                     Resources.AbstractViewContext_CopyAll_There_was_an_error_copying_the_data_to_the_clipboard__ + exception.Message, 
-                    MessageBoxButtons.OK);
+                    MessageBoxButtons.OK, exception);
             }
+        }
+
+        public string GetCopyAllText(Control owner, BindingListSource bindingListSource)
+        {
+            StringWriter tsvWriter = new StringWriter();
+            if (!RunOnThisThread(owner, (cancellationToken, progressMonitor) =>
+                {
+                    WriteData(progressMonitor, tsvWriter, bindingListSource, '\t');
+                    progressMonitor.UpdateProgress(new ProgressStatus(string.Empty).Complete());
+                }))
+            {
+                return null;
+            }
+
+            return tsvWriter.ToString();
         }
 
         protected virtual void SetClipboardText(Control owner, string text)
@@ -409,7 +408,7 @@ namespace pwiz.Common.DataBinding
                     messageLines.Add(Resources.AbstractViewContext_CopyViewsToGroup_Do_you_want_to_replace_them_);
                     message = string.Join(Environment.NewLine, messageLines);
                 }
-                var result = ShowMessageBox(control, message, MessageBoxButtons.YesNoCancel);
+                var result = ShowMessageBox(control, message, MessageBoxButtons.YesNoCancel, null);
                 switch (result)
                 {
                     case DialogResult.Cancel:
@@ -480,27 +479,7 @@ namespace pwiz.Common.DataBinding
             {
                 return null;
             }
-            var columnTypeAttribute = columnDescriptor.GetAttributes().OfType<DataGridViewColumnTypeAttribute>().FirstOrDefault();
-
-            if (columnTypeAttribute == null || columnTypeAttribute.ColumnType == null)
-            {
-                return null;
-            }
-            try
-            {
-                var constructor = columnTypeAttribute.ColumnType.GetConstructor(Array.Empty<Type>());
-                Debug.Assert(null != constructor);
-                // ReSharper disable ConditionIsAlwaysTrueOrFalse
-                // ReSharper disable ConstantConditionalAccessQualifier
-                return (DataGridViewColumn) constructor?.Invoke(Array.Empty<object>());
-                // ReSharper restore ConstantConditionalAccessQualifier
-                // ReSharper restore ConditionIsAlwaysTrueOrFalse
-            }
-            catch (Exception exception)
-            {
-                Trace.TraceError(@"Exception constructing column of type {0}:{1}", columnTypeAttribute.ColumnType, exception);
-                return null;
-            }
+            return null;
         }
 
         protected DataGridViewLinkColumn CreateLinkColumn(PropertyDescriptor propertyDescriptor)
@@ -542,7 +521,7 @@ namespace pwiz.Common.DataBinding
             column.DefaultCellStyle.FormatProvider = DataSchema.DataSchemaLocalizer.FormatProvider;
             if (propertyDescriptor.IsReadOnly)
             {
-                column.DefaultCellStyle.BackColor = Color.FromArgb(245, 245, 245); // Lighter than Color.LightGray, which is still pretty dark actually
+                column.DefaultCellStyle.BackColor = DefaultReadOnlyCellColor;
             }
             if (!string.IsNullOrEmpty(propertyDescriptor.Description))
             {
@@ -593,14 +572,14 @@ namespace pwiz.Common.DataBinding
                 }
                 if (dataGridView != null && dataGridView.IsCurrentCellInEditMode)
                 {
-                    if (ShowMessageBox(dataGridView, message, MessageBoxButtons.OKCancel) == DialogResult.Cancel)
+                    if (ShowMessageBox(dataGridView, message, MessageBoxButtons.OKCancel, dataGridViewDataErrorEventArgs.Exception) == DialogResult.Cancel)
                     {
                         dataGridView.CancelEdit();
                     }
                 }
                 else
                 {
-                    ShowMessageBox(sender as Control, message, MessageBoxButtons.OK);
+                    ShowMessageBox(sender as Control, message, MessageBoxButtons.OK, dataGridViewDataErrorEventArgs.Exception);
                 }
             }
         }

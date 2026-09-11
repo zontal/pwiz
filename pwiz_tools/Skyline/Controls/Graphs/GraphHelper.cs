@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nick Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -36,18 +36,66 @@ namespace pwiz.Skyline.Controls.Graphs
     {
         private DisplayState _displayState;
         private bool _zoomLocked;
+        private ZoomSynchronizer _zoomSynchronizer;
 
         public const string SCIENTIFIC_NOTATION_FORMAT_STRING = "0.0#####e0";
 
-        public GraphHelper(MSGraphControl msGraphControl)
+        public GraphHelper(MSGraphControl msGraphControl, ZoomSynchronizer zoomSynchronizer)
         {
             GraphControl = msGraphControl;
+            _zoomSynchronizer = zoomSynchronizer;
             _displayState = new ErrorDisplayState();
+            GraphControl.HandleCreated += GraphControlOnHandleCreated;
+            GraphControl.HandleDestroyed += GraphControlOnHandleDestroyed;
+            GraphControl.ZoomEvent += GraphControlOnZoomEvent;
+            if (GraphControl.IsHandleCreated)
+            {
+                OnHandleCreated();
+            }
+        }
+
+        private void GraphControlOnHandleCreated(object sender, EventArgs e)
+        {
+            OnHandleCreated();
+        }
+
+        private void OnHandleCreated()
+        {
+            if (_zoomSynchronizer != null)
+            {
+                _zoomSynchronizer.RegisterGraph(this);
+                OnSynchronizedZoom();
+            }
+        }
+
+        public void OnSynchronizedZoom()
+        {
+            ZoomTo(_zoomSynchronizer.SynchronizedZoomState);
+        }
+
+        private void GraphControlOnZoomEvent(ZedGraphControl sender, ZoomState oldState, ZoomState newState, PointF mousePosition)
+        {
+            OnZoom();
+        }
+
+        public void OnZoom()
+        {
+            _zoomSynchronizer?.OnZoom(this);
+        }
+
+        private void GraphControlOnHandleDestroyed(object sender, EventArgs e)
+        {
+            _zoomSynchronizer?.UnregisterGraph(this);
         }
 
         public static GraphHelper Attach(MSGraphControl msGraphControl)
         {
-            GraphHelper graphHelper = new GraphHelper(msGraphControl);
+            return Attach(msGraphControl, null);
+        }
+
+        public static GraphHelper Attach(MSGraphControl msGraphControl, ZoomSynchronizer zoomSynchronizer)
+        {
+            GraphHelper graphHelper = new GraphHelper(msGraphControl, zoomSynchronizer);
             msGraphControl.MasterPane.Border.IsVisible = false;
             msGraphControl.GraphPane.Border.IsVisible = false;
             msGraphControl.GraphPane.AllowCurveOverlap = true;
@@ -59,14 +107,15 @@ namespace pwiz.Skyline.Controls.Graphs
         public PaneKey GetPaneKey(GraphPane graphPane) { return _displayState.GraphPaneKeys.FirstOrDefault(paneKey => ReferenceEquals(GetGraphPane(paneKey), graphPane)); }
         public IEnumerable<KeyValuePair<PaneKey, ChromGraphItem>> ListPrimaryGraphItems()
         {
-            var chromDisplayState = _displayState as ChromDisplayState;
-            if (null == chromDisplayState)
+            if (!(_displayState is ChromDisplayState chromDisplayState))
             {
-                return new KeyValuePair<PaneKey, ChromGraphItem>[0];
+                return Array.Empty<KeyValuePair<PaneKey, ChromGraphItem>>();
             }
-            return chromDisplayState.ChromGraphItems.Where(kvp => kvp.Value.Chromatogram != null && kvp.Value.TransitionGroupNode != null)
-                                                    .ToLookup(kvp => kvp.Key)
-                                                    .Select(grouping => grouping.Last());
+
+            return chromDisplayState.ChromGraphItems
+                .Where(kvp => kvp.Value.Chromatogram != null && kvp.Value.TransitionGroupNode != null)
+                .GroupBy(kvp => kvp.Key)
+                .Select(grouping => grouping.Last());
         }
 
         public void LockZoom()
@@ -163,7 +212,35 @@ namespace pwiz.Skyline.Controls.Graphs
             {
                 return;
             }
-            switch (chromDisplayState.AutoZoomChrom)
+
+            var autoZoom = chromDisplayState.AutoZoomChrom;
+            if (!bestPeaks.Any())
+            {
+                if (autoZoom == AutoZoomChrom.both)
+                {
+                    autoZoom = AutoZoomChrom.window;
+                }
+                if (autoZoom == AutoZoomChrom.peak)
+                {
+                    autoZoom = AutoZoomChrom.none;
+                }
+            }
+            var chromGraphItem = GetRetentionTimeGraphItem(chromDisplayState);
+            double? predictedRT = chromGraphItem?.RetentionPrediction;
+            double? windowHalf = chromGraphItem?.RetentionWindow * 2 / 3;
+            if (!predictedRT.HasValue)
+            {
+                if (autoZoom == AutoZoomChrom.both)
+                {
+                    autoZoom = AutoZoomChrom.peak;
+                }
+
+                if (autoZoom == AutoZoomChrom.window)
+                {
+                    autoZoom = AutoZoomChrom.none;
+                }
+            }
+            switch (autoZoom)
             {
                 case AutoZoomChrom.none:
                     foreach (var graphPane in GraphPanes)
@@ -184,51 +261,18 @@ namespace pwiz.Skyline.Controls.Graphs
                     }
                     break;
                 case AutoZoomChrom.window:
-                    {
-                        var chromGraph = GetRetentionTimeGraphItem(chromDisplayState);
-                        if (chromGraph != null)
-                        {
-                            // Put predicted RT in center with window occupying 2/3 of the graph
-                            double windowHalf = chromGraph.RetentionWindow * 2 / 3;
-                            double predictedRT = chromGraph.RetentionPrediction.HasValue
-                                                     ? // ReSharper
-                                                     chromGraph.RetentionPrediction.Value
-                                                     : 0;
-                            ZoomXAxis(predictedRT - windowHalf, predictedRT + windowHalf);
-                        }
-                    }
+                    ZoomXAxis((predictedRT - windowHalf).Value, (predictedRT + windowHalf).Value);
                     break;
                 case AutoZoomChrom.both:
-                    {
-                        double start = double.MaxValue;
-                        double end = 0;
-                        if (bestPeaks.Any())
-                        {
-                            start = bestPeaks.Min(peak => peak.StartRetentionTime);
-                            end = bestPeaks.Max(peak=>peak.EndRetentionTime);
-                        }
-                        var chromGraph = GetRetentionTimeGraphItem(chromDisplayState);
-                        if (chromGraph != null)
-                        {
-                            // Put predicted RT in center with window occupying 2/3 of the graph
-                            double windowHalf = chromGraph.RetentionWindow * 2 / 3;
-                            double predictedRT = chromGraph.RetentionPrediction.HasValue
-                                                     ? // ReSharper
-                                                     chromGraph.RetentionPrediction.Value
-                                                     : 0;
-                            // Make sure the peak has enough room to display, since it may be
-                            // much narrower than the retention time window.
-                            if (end != 0)
-                            {
-                                start -= windowHalf / 8;
-                                end += windowHalf / 8;
-                            }
-                            start = Math.Min(start, predictedRT - windowHalf);
-                            end = Math.Max(end, predictedRT + windowHalf);
-                        }
-                        if (end > 0)
-                            ZoomXAxis(start, end);
-                    }
+                    double start = bestPeaks.Min(peak => peak.StartRetentionTime);
+                    double end = bestPeaks.Max(peak => peak.EndRetentionTime);
+                    // Make sure the peak has enough room to display, since it may be
+                    // much narrower than the retention time window.
+                    start -= windowHalf.Value / 8;
+                    end += windowHalf.Value / 8;
+                    start = Math.Min(start, (predictedRT - windowHalf).Value);
+                    end = Math.Max(end, (predictedRT + windowHalf).Value);
+                    ZoomXAxis(start, end);
                     break;
             }
             foreach (var graphPane in GraphPanes)
@@ -372,7 +416,7 @@ namespace pwiz.Skyline.Controls.Graphs
             var bestStartTime = firstPeak.StartRetentionTime;
             var bestEndTime = lastPeak.EndRetentionTime;
             // If relative zooming, scale to the best peak
-            if (chromDisplayState.TimeRange == 0 || chromDisplayState.PeakRelativeTime)
+            if (bestEndTime > bestStartTime && (chromDisplayState.TimeRange == 0 || chromDisplayState.PeakRelativeTime))
             {
                 double multiplier = (chromDisplayState.TimeRange != 0 ? chromDisplayState.TimeRange : GraphChromatogram.DEFAULT_PEAK_RELATIVE_WINDOW);
                 bestStartTime -= firstPeak.Fwb * (multiplier - 1) / 2;
@@ -584,18 +628,34 @@ namespace pwiz.Skyline.Controls.Graphs
             g.Legend.FontSpec.Size = fontSize;
         }
 
+        /// <summary>
+        /// Ensure that the maximum value displayed on the Y-axis is greater than <paramref name="myMaxY"/>.
+        /// This is used when the maximum value is different from what ZedGraph thinks it should be, such as because
+        /// of the extra space for <see cref="MeanErrorBarItem"/> in <see cref="GetMaxY"/> or the space required
+        /// for the dot product lines and labels.
+        /// </summary>
         public static void ReformatYAxis(GraphPane g, double myMaxY)
         {
-            var _max = MyMod(myMaxY, g.YAxis.Scale.MajorStep) == 0.0 ? myMaxY :
-                  myMaxY + g.YAxis.Scale.MajorStep - MyMod(myMaxY, g.YAxis.Scale.MajorStep);
-            g.YAxis.Scale.Max = _max;
-        }
-        protected static double MyMod(double x, double y)
-        {
-            if (y == 0)
-                return 0;
-            var temp = x / y;
-            return y * (temp - Math.Floor(temp));
+            var yAxisScale = g.YAxis.Scale;
+            double newMax;
+            if (yAxisScale.IsLog)
+            {
+                newMax = Math.Pow(10.0, Math.Ceiling(Math.Log10(myMaxY)));
+            }
+            else
+            {
+                var majorStep = yAxisScale.MajorStep;
+                if (majorStep <= 0)
+                {
+                    return;
+                }
+                newMax = Math.Ceiling(myMaxY / majorStep) * majorStep;
+            }
+
+            if (newMax != yAxisScale.Max && newMax > yAxisScale.Min)
+            {
+                yAxisScale.Max = newMax;
+            }
         }
 
         // Find maximum value for bar graph including whiskers
@@ -645,9 +705,64 @@ namespace pwiz.Skyline.Controls.Graphs
                 (int)(baseColor.G * (1 - blendAmount) + blendColor.G * blendAmount),
                 (int)(baseColor.B * (1 - blendAmount) + blendColor.B * blendAmount));
         }
+
+        public Dictionary<PaneKey, ZoomStateStack> GetZoomStates()
+        {
+            var dict = new Dictionary<PaneKey, ZoomStateStack>();
+            foreach (var graphPane in GraphControl.MasterPane.PaneList)
+            {
+                var paneKey = GetPaneKey(graphPane);
+                var zoomStack = graphPane.ZoomStack.Clone();
+                zoomStack.Push(new ZoomState(graphPane, ZoomState.StateType.Zoom));
+                dict.Add(paneKey, zoomStack);
+            }
+
+            return dict;
+        }
+
+        public void ZoomTo(Dictionary<PaneKey, ZoomStateStack> zoomStacks)
+        {
+            if (zoomStacks == null)
+            {
+                return;
+            }
+            _displayState.ZoomStateValid = true;
+            int count = 0;
+            foreach (var pane in GraphPanes)
+            {
+                var paneKey = GetPaneKey(pane);
+                if (zoomStacks.TryGetValue(paneKey, out var state))
+                {
+                    ApplyState(state, pane);
+                    count++;
+                }
+            }
+
+            if (count == 0)
+            {
+                ApplyState(zoomStacks.Values.FirstOrDefault(), GraphPanes.First());
+            }
+
+            using var g = GraphControl.CreateGraphics();
+            foreach (var pane in GraphPanes)
+            {
+                pane.SetScale(g);
+            }
+            GraphControl.Refresh();
+        }
+
+        public static void ApplyState(ZoomStateStack state, MSGraphPane pane)
+        {
+            if (state.Count >= 1)
+            {
+                pane.ZoomStack.Clear();
+                pane.ZoomStack.AddRange(state.Take(state.Count - 1));
+                state.Top.ApplyState(pane);
+            }
+        }
     }
 
-    public struct PaneKey : IComparable
+    public struct PaneKey : IComparable, IEquatable<PaneKey>
     {
         public static readonly PaneKey PRECURSORS = new PaneKey(Adduct.EMPTY, null, false);
         public static readonly PaneKey PRODUCTS = new PaneKey(Adduct.EMPTY, null, true);
@@ -707,6 +822,28 @@ namespace pwiz.Skyline.Controls.Graphs
                 return false;
             }
             return true;
+        }
+
+        public bool Equals(PaneKey other)
+        {
+            return Equals(PrecursorAdduct, other.PrecursorAdduct) && Equals(IsotopeLabelType, other.IsotopeLabelType) && Nullable.Equals(SpectrumClassFilter, other.SpectrumClassFilter) && IsProducts == other.IsProducts;
+        }
+
+        public override bool Equals(object obj)
+        {
+            return obj is PaneKey other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                var hashCode = (PrecursorAdduct != null ? PrecursorAdduct.GetHashCode() : 0);
+                hashCode = (hashCode * 397) ^ (IsotopeLabelType != null ? IsotopeLabelType.GetHashCode() : 0);
+                hashCode = (hashCode * 397) ^ SpectrumClassFilter.GetHashCode();
+                hashCode = (hashCode * 397) ^ IsProducts.GetHashCode();
+                return hashCode;
+            }
         }
     }    
 }

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brian Pratt <bspratt .at. protein.ms>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -18,7 +18,10 @@
  */
 
 using System;
-using System.Runtime.InteropServices;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+using pwiz.Common.SystemUtil.PInvoke;
 
 namespace pwiz.Common.SystemUtil
 {
@@ -27,11 +30,58 @@ namespace pwiz.Common.SystemUtil
         /// <summary>
         /// Returns true iff the process is running under Wine (the "wine_get_version" function is exported by ntdll.dll)
         /// </summary>
-        public static bool IsRunningOnWine => GetProcAddress(GetModuleHandle(@"ntdll.dll"), @"wine_get_version") != IntPtr.Zero;
+        public static bool IsRunningOnWine => Kernel32.GetProcAddress(Kernel32.GetModuleHandle(@"ntdll.dll"), @"wine_get_version") != IntPtr.Zero;
 
-        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        static extern IntPtr GetModuleHandle([MarshalAs(UnmanagedType.LPWStr)] string lpModuleName);
-        [DllImport("kernel32", CharSet = CharSet.Ansi, ExactSpelling = true, SetLastError = true)]
-        static extern IntPtr GetProcAddress(IntPtr hModule, string procName); 
+        /// <summary>
+        /// Returns true iff the process is running under an OS and on volume(s) that support windows 8.3 format conversion
+        /// </summary>
+        private static Dictionary<string, bool> _volumesTested = new Dictionary<string, bool>();
+
+        public static bool CanConvertUnicodePaths
+        {
+            get
+            {
+                if (IsRunningOnWine)
+                {
+                    return false; // Never supported on Wine
+                }
+                else
+                {
+                    // Systems may have 8.3 conversion enabled on some volumes but not others
+                    // So don't assume we can convert Unicode paths unless we can actually do it everywhere we might need to
+                    return
+                        CanConvertUnicodePathsInDirectory(Path.GetTempPath()) &&
+                        CanConvertUnicodePathsInDirectory(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)) &&
+                        CanConvertUnicodePathsInDirectory(Directory.GetCurrentDirectory()) &&
+                        CanConvertUnicodePathsInDirectory(PathEx.GetDownloadsPath());
+                }
+            }
+        }
+        private static bool CanConvertUnicodePathsInDirectory(string baseDir)
+        {
+            // GetPathRoot returns null only for a null path and empty for a relative one. Either
+            // way there is no volume to key the cache by, and a null key would throw here and
+            // again at the store below.
+            var volume = Path.GetPathRoot(baseDir) ?? string.Empty;
+            if (_volumesTested.TryGetValue(volume, out var result))
+            {
+                return result; // Already tested this volume
+            }
+            try
+            {
+                var fileName = Path.Combine(baseDir, Path.GetRandomFileName() + @".test试验.txt");
+                File.WriteAllText(fileName, @"test data");
+                var converted = PathEx.GetNonUnicodePath(fileName);
+                File.Delete(fileName);
+                result = !Equals(converted, fileName);
+            }
+            catch
+            {
+                result = false; // Not writable?
+            }
+
+            _volumesTested[volume] = result;
+            return result;
+        }
     }
 }

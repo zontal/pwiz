@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -18,6 +18,7 @@
  */
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
 using System.Reflection;
@@ -129,6 +130,14 @@ namespace pwiz.Skyline.Util
             }
         }
 
+        /// <summary>
+        /// Version string without git hash suffix (e.g. "26.1.1.238").
+        /// </summary>
+        public static string BareVersion
+        {
+            get { return Version.Split('-')[0]; }
+        }
+
         public static string Version
         {
             get;
@@ -136,7 +145,7 @@ namespace pwiz.Skyline.Util
 
         private static int VersionPart(int index)
         {
-            string[] versionParts = Version.Split('-')[0].Split('.');
+            string[] versionParts = BareVersion.Split('.');
             return (versionParts.Length > index ? Convert.ToInt32(versionParts[index]) : 0);
         }
 
@@ -162,6 +171,15 @@ namespace pwiz.Skyline.Util
                                     (IsAutomatedBuild ? @" : automated build" : string.Empty),
                                      Regex.Replace(Version, @"(\d+\.\d+\.\d+\.\d+)-(\S+)", "$1 ($2)"));
             } 
+        }
+
+        [Localizable(false)]
+        public static string TutorialVersionFolder
+        {
+            get
+            {
+                return $"{MajorVersion}-{MinorVersion}";
+            }
         }
 
         public static string GetUserAgentString()

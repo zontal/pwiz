@@ -14,6 +14,8 @@ targets['Skyline'] = \
     }
 }
 
+targets['OspreyWindowsNetPerfRegressionTests'] = {} # Nightly perf tests for Osprey disbled until PR cadence slows down; {'master': {"ProteoWizard_OspreyWindowsNetPerfRegressionTests": "Osprey Windows .NET Perf Regression Tests"}}
+
 targets['Core'] = {}
 targets['Container'] = {}
 targets['Bumbershoot'] = {}
@@ -24,6 +26,7 @@ targets['All'] = merge(targets['Skyline'])
 # "pwiz_tools/Bumbershoot/Jamfile.jam" matches both "pwiz_tools/Bumbershoot/.*" and "pwiz_tools/.*", but will only trigger "Bumbershoot" targets
 matchPaths = [
     (".*/smartBuildTrigger.py", {}),
+    (".*/ai/.*", {}),
     ("libraries/.*", targets['All']),
     ("pwiz/.*", targets['All']),
     ("pwiz_aux/.*", targets['All']),
@@ -32,6 +35,7 @@ matchPaths = [
     ("pwiz_tools/Bumbershoot/.*", targets['Bumbershoot']),
     ("pwiz_tools/Skyline/.*", merge(targets['Skyline'], targets['Container'])),
     ("pwiz_tools/Shared/.*", merge(targets['Skyline'], targets['Bumbershoot'], targets['Container'])),
+    ("pwiz_tools/Osprey/.*", targets['OspreyWindowsNetPerfRegressionTests']),
     ("pwiz_tools/.*", targets['All']),
     ("Jamroot.jam", targets['All'])
 ]

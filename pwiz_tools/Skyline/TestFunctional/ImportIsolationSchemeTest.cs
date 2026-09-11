@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -19,10 +19,10 @@
 
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using pwiz.CommonMsData;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.FileUI;
 using pwiz.Skyline.Model.DocSettings;
-using pwiz.Skyline.Model.Results;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.SettingsUI;
 using pwiz.Skyline.Util;
@@ -102,7 +102,7 @@ namespace pwiz.SkylineTestFunctional
             var importDlg = ShowDialog<OpenDataSourceDialog>(isoEditor.ImportRanges);
             RunUI(() =>
             {
-                importDlg.CurrentDirectory = new MsDataFilePath(TestFilesDir.FullPath);
+                importDlg.SetCurrentDirectory(new MsDataFilePath(TestFilesDir.FullPath));
                 foreach (var rawFileName in rawFileNames)
                     importDlg.SelectFile(rawFileName);
                 if (!ArrayUtil.EqualsDeep(rawFileNames, importDlg.SelectedFiles.ToArray()))

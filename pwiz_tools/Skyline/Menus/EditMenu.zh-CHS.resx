@@ -123,44 +123,11 @@
   <metadata name="menuStrip1.TrayLocation" type="System.Drawing.Point, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a">
     <value>155, 17</value>
   </metadata>
-  <assembly alias="System.Drawing" name="System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
-  <data name="menuStrip1.Location" type="System.Drawing.Point, System.Drawing">
-    <value>0, 0</value>
-  </data>
-  <data name="menuStrip1.Size" type="System.Drawing.Size, System.Drawing">
-    <value>150, 24</value>
-  </data>
   <assembly alias="mscorlib" name="mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" />
-  <data name="menuStrip1.TabIndex" type="System.Int32, mscorlib">
-    <value>0</value>
-  </data>
-  <data name="menuStrip1.Text" xml:space="preserve">
-    <value>menuStrip1</value>
-  </data>
-  <data name="&gt;&gt;menuStrip1.Name" xml:space="preserve">
-    <value>menuStrip1</value>
-  </data>
-  <data name="&gt;&gt;menuStrip1.Type" xml:space="preserve">
-    <value>System.Windows.Forms.MenuStrip, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
-  </data>
-  <data name="&gt;&gt;menuStrip1.Parent" xml:space="preserve">
-    <value>$this</value>
-  </data>
-  <data name="&gt;&gt;menuStrip1.ZOrder" xml:space="preserve">
-    <value>0</value>
-  </data>
-  <data name="editToolStripMenuItem.ImageTransparentColor" type="System.Drawing.Color, System.Drawing">
-    <value>Fuchsia</value>
-  </data>
-  <data name="editToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>39, 20</value>
-  </data>
-  <data name="editToolStripMenuItem.Text" xml:space="preserve">
-    <value>编辑(&amp;E)</value>
-  </data>
   <data name="undoMenuItem.Enabled" type="System.Boolean, mscorlib">
     <value>False</value>
   </data>
+  <assembly alias="System.Drawing" name="System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" />
   <data name="undoMenuItem.ImageTransparentColor" type="System.Drawing.Color, System.Drawing">
     <value>Fuchsia</value>
   </data>
@@ -172,7 +139,7 @@
     <value>207, 22</value>
   </data>
   <data name="undoMenuItem.Text" xml:space="preserve">
-    <value>撤销(&amp;N)</value>
+    <value>撤销(&amp;U)</value>
   </data>
   <data name="redoMenuItem.Enabled" type="System.Boolean, mscorlib">
     <value>False</value>
@@ -271,7 +238,7 @@
     <value>207, 22</value>
   </data>
   <data name="findNextMenuItem.Text" xml:space="preserve">
-    <value>查找下一个(&amp;X)</value>
+    <value>查找下一个(&amp;N)</value>
   </data>
   <data name="toolStripSeparator8.Size" type="System.Drawing.Size, System.Drawing">
     <value>204, 6</value>
@@ -286,16 +253,10 @@
     <value>207, 22</value>
   </data>
   <data name="editNoteToolStripMenuItem.Text" xml:space="preserve">
-    <value>编辑注释(&amp;N)</value>
+    <value>编辑注释(&amp;E)</value>
   </data>
   <data name="toolStripSeparator42.Size" type="System.Drawing.Size, System.Drawing">
     <value>204, 6</value>
-  </data>
-  <data name="integrationToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>207, 22</value>
-  </data>
-  <data name="integrationToolStripMenuItem.Text" xml:space="preserve">
-    <value>整合(&amp;G)</value>
   </data>
   <data name="applyPeakAllToolStripMenuItem.ShortcutKeys" type="System.Windows.Forms.Keys, System.Windows.Forms">
     <value>Ctrl+Shift+A</value>
@@ -336,6 +297,12 @@
   <data name="removePeakToolStripMenuItem.Text" xml:space="preserve">
     <value>删除峰(&amp;R)</value>
   </data>
+  <data name="imputePeakBoundariesMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>284, 22</value>
+  </data>
+  <data name="imputePeakBoundariesMenuItem.Text" xml:space="preserve">
+    <value>划定峰边界</value>
+  </data>
   <data name="toolStripSeparator1.Size" type="System.Drawing.Size, System.Drawing">
     <value>281, 6</value>
   </data>
@@ -343,37 +310,19 @@
     <value>284, 22</value>
   </data>
   <data name="synchronizedIntegrationToolStripMenuItem.Text" xml:space="preserve">
-    <value>同步积分(&amp;Y)...</value>
+    <value>同步积分(&amp;Y)…</value>
+  </data>
+  <data name="integrationToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>207, 22</value>
+  </data>
+  <data name="integrationToolStripMenuItem.Text" xml:space="preserve">
+    <value>整合(&amp;G)</value>
   </data>
   <data name="insertToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
     <value>207, 22</value>
   </data>
   <data name="insertToolStripMenuItem.Text" xml:space="preserve">
     <value>插入(&amp;I)</value>
-  </data>
-  <data name="insertFASTAMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>155, 22</value>
-  </data>
-  <data name="insertFASTAMenuItem.Text" xml:space="preserve">
-    <value>FASTA(&amp;F)…</value>
-  </data>
-  <data name="insertProteinsMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>155, 22</value>
-  </data>
-  <data name="insertProteinsMenuItem.Text" xml:space="preserve">
-    <value>蛋白质(&amp;O)…</value>
-  </data>
-  <data name="insertPeptidesMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>155, 22</value>
-  </data>
-  <data name="insertPeptidesMenuItem.Text" xml:space="preserve">
-    <value>肽段(&amp;P)…</value>
-  </data>
-  <data name="insertTransitionListMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>155, 22</value>
-  </data>
-  <data name="insertTransitionListMenuItem.Text" xml:space="preserve">
-    <value>离子对列表(&amp;T)…</value>
   </data>
   <data name="toolStripSeparator6.Size" type="System.Drawing.Size, System.Drawing">
     <value>204, 6</value>
@@ -383,6 +332,108 @@
   </data>
   <data name="expandAllToolStripMenuItem.Text" xml:space="preserve">
     <value>全部展开(&amp;X)</value>
+  </data>
+  <data name="collapseAllToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>207, 22</value>
+  </data>
+  <data name="collapseAllToolStripMenuItem.Text" xml:space="preserve">
+    <value>全部折叠(&amp;O)</value>
+  </data>
+  <data name="toolStripSeparator5.Size" type="System.Drawing.Size, System.Drawing">
+    <value>204, 6</value>
+  </data>
+  <data name="setStandardTypeMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>207, 22</value>
+  </data>
+  <data name="setStandardTypeMenuItem.Text" xml:space="preserve">
+    <value>设定标准类型(&amp;Y)</value>
+  </data>
+  <data name="modifyPeptideMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>207, 22</value>
+  </data>
+  <data name="modifyPeptideMenuItem.Text" xml:space="preserve">
+    <value>修饰肽段(&amp;M)…</value>
+  </data>
+  <data name="manageUniquePeptidesMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>207, 22</value>
+  </data>
+  <data name="manageUniquePeptidesMenuItem.Text" xml:space="preserve">
+    <value>唯一肽段(&amp;Q)…</value>
+  </data>
+  <data name="editSpectrumFilterMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>207, 22</value>
+  </data>
+  <data name="editSpectrumFilterMenuItem.Text" xml:space="preserve">
+    <value>编辑谱图过滤器(&amp;L)…</value>
+  </data>
+  <data name="toolStripSeparator30.Size" type="System.Drawing.Size, System.Drawing">
+    <value>204, 6</value>
+  </data>
+  <data name="manageResultsMenuItem.ShortcutKeys" type="System.Windows.Forms.Keys, System.Windows.Forms">
+    <value>Ctrl+R</value>
+  </data>
+  <data name="manageResultsMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>207, 22</value>
+  </data>
+  <data name="manageResultsMenuItem.Text" xml:space="preserve">
+    <value>管理结果(&amp;S)…</value>
+  </data>
+  <data name="editToolStripMenuItem.ImageTransparentColor" type="System.Drawing.Color, System.Drawing">
+    <value>Fuchsia</value>
+  </data>
+  <data name="editToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>39, 20</value>
+  </data>
+  <data name="editToolStripMenuItem.Text" xml:space="preserve">
+    <value>编辑(&amp;E)</value>
+  </data>
+  <data name="menuStrip1.Location" type="System.Drawing.Point, System.Drawing">
+    <value>0, 0</value>
+  </data>
+  <data name="menuStrip1.Size" type="System.Drawing.Size, System.Drawing">
+    <value>150, 24</value>
+  </data>
+  <data name="menuStrip1.TabIndex" type="System.Int32, mscorlib">
+    <value>0</value>
+  </data>
+  <data name="menuStrip1.Text" xml:space="preserve">
+    <value>menuStrip1</value>
+  </data>
+  <data name="&gt;&gt;menuStrip1.Name" xml:space="preserve">
+    <value>menuStrip1</value>
+  </data>
+  <data name="&gt;&gt;menuStrip1.Type" xml:space="preserve">
+    <value>System.Windows.Forms.MenuStrip, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
+  <data name="&gt;&gt;menuStrip1.Parent" xml:space="preserve">
+    <value>$this</value>
+  </data>
+  <data name="&gt;&gt;menuStrip1.ZOrder" xml:space="preserve">
+    <value>0</value>
+  </data>
+  <data name="insertFASTAMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>156, 22</value>
+  </data>
+  <data name="insertFASTAMenuItem.Text" xml:space="preserve">
+    <value>FASTA(&amp;F)…</value>
+  </data>
+  <data name="insertProteinsMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>156, 22</value>
+  </data>
+  <data name="insertProteinsMenuItem.Text" xml:space="preserve">
+    <value>蛋白质(&amp;O)…</value>
+  </data>
+  <data name="insertPeptidesMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>156, 22</value>
+  </data>
+  <data name="insertPeptidesMenuItem.Text" xml:space="preserve">
+    <value>肽段(&amp;P)…</value>
+  </data>
+  <data name="insertTransitionListMenuItem.Size" type="System.Drawing.Size, System.Drawing">
+    <value>156, 22</value>
+  </data>
+  <data name="insertTransitionListMenuItem.Text" xml:space="preserve">
+    <value>离子对列表(&amp;T)…</value>
   </data>
   <data name="expandProteinsMenuItem.ShortcutKeys" type="System.Windows.Forms.Keys, System.Windows.Forms">
     <value>Ctrl+E</value>
@@ -411,12 +462,6 @@
   <data name="expandPrecursorsMenuItem.Text" xml:space="preserve">
     <value>母离子(&amp;R)</value>
   </data>
-  <data name="collapseAllToolStripMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>207, 22</value>
-  </data>
-  <data name="collapseAllToolStripMenuItem.Text" xml:space="preserve">
-    <value>全部折叠(&amp;O)</value>
-  </data>
   <data name="collapseProteinsMenuItem.ShortcutKeys" type="System.Windows.Forms.Keys, System.Windows.Forms">
     <value>Ctrl+Shift+E</value>
   </data>
@@ -444,15 +489,6 @@
   <data name="collapsePrecursorsMenuItem.Text" xml:space="preserve">
     <value>母离子(&amp;R)</value>
   </data>
-  <data name="toolStripSeparator5.Size" type="System.Drawing.Size, System.Drawing">
-    <value>204, 6</value>
-  </data>
-  <data name="setStandardTypeMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>207, 22</value>
-  </data>
-  <data name="setStandardTypeMenuItem.Text" xml:space="preserve">
-    <value>设定标准类型(&amp;Y)</value>
-  </data>
   <data name="noStandardMenuItem.Size" type="System.Drawing.Size, System.Drawing">
     <value>175, 22</value>
   </data>
@@ -475,7 +511,7 @@
     <value>175, 22</value>
   </data>
   <data name="qcStandardMenuItem.Text" xml:space="preserve">
-    <value>质量控制(Q&amp;C)</value>
+    <value>质量控制(&amp;C)</value>
   </data>
   <data name="irtStandardMenuItem.Enabled" type="System.Boolean, mscorlib">
     <value>False</value>
@@ -485,30 +521,6 @@
   </data>
   <data name="irtStandardMenuItem.Text" xml:space="preserve">
     <value>iRT(&amp;R)</value>
-  </data>
-  <data name="modifyPeptideMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>207, 22</value>
-  </data>
-  <data name="modifyPeptideMenuItem.Text" xml:space="preserve">
-    <value>修饰肽段(&amp;M)…</value>
-  </data>
-  <data name="manageUniquePeptidesMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>207, 22</value>
-  </data>
-  <data name="manageUniquePeptidesMenuItem.Text" xml:space="preserve">
-    <value>唯一肽段(&amp;Q)…</value>
-  </data>
-  <data name="toolStripSeparator30.Size" type="System.Drawing.Size, System.Drawing">
-    <value>204, 6</value>
-  </data>
-  <data name="manageResultsMenuItem.ShortcutKeys" type="System.Windows.Forms.Keys, System.Windows.Forms">
-    <value>Ctrl+R</value>
-  </data>
-  <data name="manageResultsMenuItem.Size" type="System.Drawing.Size, System.Drawing">
-    <value>207, 22</value>
-  </data>
-  <data name="manageResultsMenuItem.Text" xml:space="preserve">
-    <value>管理结果(&amp;S)…</value>
   </data>
   <metadata name="$this.Localizable" type="System.Boolean, mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089">
     <value>True</value>
@@ -798,6 +810,12 @@
   <data name="&gt;&gt;manageUniquePeptidesMenuItem.Type" xml:space="preserve">
     <value>System.Windows.Forms.ToolStripMenuItem, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
+  <data name="&gt;&gt;editSpectrumFilterMenuItem.Name" xml:space="preserve">
+    <value>editSpectrumFilterMenuItem</value>
+  </data>
+  <data name="&gt;&gt;editSpectrumFilterMenuItem.Type" xml:space="preserve">
+    <value>System.Windows.Forms.ToolStripMenuItem, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
   <data name="&gt;&gt;toolStripSeparator30.Name" xml:space="preserve">
     <value>toolStripSeparator30</value>
   </data>
@@ -808,6 +826,12 @@
     <value>manageResultsMenuItem</value>
   </data>
   <data name="&gt;&gt;manageResultsMenuItem.Type" xml:space="preserve">
+    <value>System.Windows.Forms.ToolStripMenuItem, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </data>
+  <data name="&gt;&gt;imputePeakBoundariesMenuItem.Name" xml:space="preserve">
+    <value>imputePeakBoundariesMenuItem</value>
+  </data>
+  <data name="&gt;&gt;imputePeakBoundariesMenuItem.Type" xml:space="preserve">
     <value>System.Windows.Forms.ToolStripMenuItem, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
   </data>
   <data name="&gt;&gt;$this.Name" xml:space="preserve">

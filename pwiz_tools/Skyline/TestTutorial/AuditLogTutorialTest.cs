@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Rita Chupalov <ritach .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -31,6 +31,7 @@ using pwiz.PanoramaClient;
 using pwiz.Common.Collections;
 using pwiz.Common.DataBinding;
 using pwiz.Common.DataBinding.Controls.Editor;
+using pwiz.CommonMsData;
 using pwiz.Skyline;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Controls;
@@ -38,6 +39,7 @@ using pwiz.Skyline.Controls.AuditLog;
 using pwiz.Skyline.Controls.Databinding;
 using pwiz.Skyline.Controls.Graphs;
 using pwiz.Skyline.Controls.Graphs.Calibration;
+using pwiz.Skyline.Controls.Databinding.AuditLog;
 using pwiz.Skyline.EditUI;
 using pwiz.Skyline.FileUI;
 using pwiz.Skyline.Model;
@@ -47,7 +49,6 @@ using pwiz.Skyline.Model.Databinding.Entities;
 using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.DocSettings.AbsoluteQuantification;
 using pwiz.Skyline.Model.GroupComparison;
-using pwiz.Skyline.Model.Results;
 using pwiz.Skyline.Model.Results.Scoring;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.SettingsUI;
@@ -65,17 +66,28 @@ namespace pwiz.SkylineTestTutorial
     {
         public const string SERVER_URL = "https://panoramaweb.org/";
         public const string PANORAMA_FOLDER = "SkylineTest";
-        public const string PANORAMA_USER_NAME = "ritach@uw.edu";
-        public const string PANORAMA_PASSWORD = "lclcmsms";
+        public const string PANORAMA_USER_NAME = "skyline_tester@proteinms.net";
+        public const string PANORAMA_PASSWORD = "Lclcmsms1!";
+
+        /// <summary>
+        /// Contains the version text to show in the audit log entries in s-23.
+        /// Set to null and run to s-23 to see the current version, and copy it here
+        /// if desired.
+        /// </summary>
+        public const string SKYLINE_VERSION_TEXT = "25.1.0.237-519d29babc (64-Bit)";
 
         public string testFolderName = "AuditLogUpload";
 
         [TestMethod]
         public void TestAuditLogTutorial()
         {
+            // Not yet translated
+            if (IsTranslationRequired)
+                return;
+
             // Set true to look at tutorial screenshots.
 //            IsPauseForScreenShots = true;
-//            PauseStartingPage = 16;
+//            PauseStartingScreenshot = 16;
 //            IsCoverShotMode = true;
             CoverShotName = "AuditLog";
 
@@ -91,10 +103,11 @@ namespace pwiz.SkylineTestTutorial
                 @"TestTutorial\AuditLogViews.zip"
             };
 
-            if(IsPauseForScreenShots)
-                PanoramaSetup();
-
-            RunFunctionalTest();
+            using (new TestTimeProvider())
+            using (new TestVersionProvider(SKYLINE_VERSION_TEXT))
+            {
+                RunFunctionalTest();
+            }
         }
 
         private string GetTestPath(string relativePath)
@@ -110,7 +123,7 @@ namespace pwiz.SkylineTestTutorial
                 SkylineWindow.NewDocument();
             });
             ShowAndPositionAuditLog(false);
-            PauseForScreenShot<AuditLogForm>("Empty Audit Log form.", 2);
+            PauseForScreenShot<AuditLogForm>("Empty Audit Log form.");
 
             // Configuring Settings for Inserting a New Peptide, p. 3
             {
@@ -138,7 +151,7 @@ namespace pwiz.SkylineTestTutorial
 
             OkDialog(peptideSettingsUi, peptideSettingsUi.OkDialog);
 
-            PauseForScreenShot<AuditLogForm>("Audit Log form with settings modifications.", 4);
+            PauseForScreenShot<AuditLogForm>("Audit Log form with settings modifications.");
 
             RunUI(() =>
             {
@@ -146,11 +159,17 @@ namespace pwiz.SkylineTestTutorial
                 SkylineWindow.Width = 1010;
             });
 
-            PauseForScreenShot("Undo list expanded. (manual)", 4);
+            RunUIForScreenShot(() => SkylineWindow.ShowUndo());
+            PauseForScreenShot("Undo list expanded.", null, bmp => 
+                ClipBitmap(bmp.CleanupBorder(), new Rectangle(0, 0, 713, 131)));
+            RunUIForScreenShot(() => SkylineWindow.ShowUndo(false));
 
             RunUI(SkylineWindow.Undo);
 
-            PauseForScreenShot("Redo list expanded. (manual)", 5);
+            RunUIForScreenShot(() => SkylineWindow.ShowRedo());
+            PauseForScreenShot("Redo list expanded.", null, bmp =>
+                ClipBitmap(bmp.CleanupBorder(), new Rectangle(0, 0, 743, 127)));
+            RunUIForScreenShot(() => SkylineWindow.ShowRedo(false));
 
             RunUI(SkylineWindow.Redo);
 
@@ -162,12 +181,8 @@ namespace pwiz.SkylineTestTutorial
                 var pasteDlg = ShowDialog<PasteDlg>(SkylineWindow.ShowPastePeptidesDlg);
                 RunUI(() => SetClipboardText("IEAIPQIDK\tGST-tag"));
                 RunUI(pasteDlg.PastePeptides);
-                RunUI(() =>
-                {
-                    pasteDlg.Size = new Size(700, 210);
-                    pasteDlg.Top = SkylineWindow.Bottom + 20;
-                });
-                PauseForScreenShot<PasteDlg.PeptideListTab>("Insert Peptide List", 6);
+                RunUIForScreenShot(() => pasteDlg.Size = new Size(700, 210));
+                PauseForScreenShot<PasteDlg.PeptideListTab>("Insert Peptide List");
 
                 using (new WaitDocumentChange())
                 {
@@ -179,16 +194,17 @@ namespace pwiz.SkylineTestTutorial
 
             RunUI( () =>
             {
+                SkylineWindow.ShowFilesTreeForm(false); // Hide files tab
                 SkylineWindow.ExpandPrecursors();
                 SkylineWindow.Height = 390;
             });
 
-            PauseForScreenShot("Main window with Targets view", 6);
+            PauseForScreenShot<SequenceTreeForm>("Targets view");
 
             ShowAndPositionAuditLog(true);
-            PauseForScreenShot<AuditLogForm>("Audit Log form with inserted peptide.", 7);
+            PauseForScreenShot<AuditLogForm>("Audit Log form with inserted peptide.");
 
-            ShowLastExtraInfo("Extra info form with inserted peptide info.", 7);
+            ShowLastExtraInfo("Extra info form with inserted peptide info.");
 
             string documentPath = GetTestPath("AuditLogTutorial" + SrmDocument.EXT);
             RunUI(() => SkylineWindow.SaveDocument(documentPath));
@@ -223,9 +239,9 @@ namespace pwiz.SkylineTestTutorial
             WaitForCondition(10 * 60 * 1000,    // ten minutes
                 () => SkylineWindow.Document.Settings.HasResults && SkylineWindow.Document.Settings.MeasuredResults.IsLoaded);
 
-            PauseForScreenShot<AuditLogForm>("Audit Log form with imported data files.", 9);
+            PauseForScreenShot<AuditLogForm>("Audit Log form with imported data files.");
 
-            ShowLastExtraInfo("Extra info form for the import.", 9);
+            ShowLastExtraInfo("Extra info form for the import.");
             
             // Peptide Quantitification Settings p. 9
             peptideSettingsUi = ShowDialog<PeptideSettingsUI>(SkylineWindow.ShowPeptideSettingsUI);
@@ -239,7 +255,7 @@ namespace pwiz.SkylineTestTutorial
             });
             OkDialog(peptideSettingsUi, peptideSettingsUi.OkDialog);
 
-            PauseForScreenShot<AuditLogForm>("Audit Log form with quantification settings.", 10);
+            PauseForScreenShot<AuditLogForm>("Audit Log form with quantification settings.");
 
             // Specify analyte concentrations of external standards
             RunUI(()=>
@@ -278,13 +294,17 @@ namespace pwiz.SkylineTestTutorial
                 gridFloatingWindow.Size = new Size(370, 315);
                 gridFloatingWindow.Top = SkylineWindow.Bottom + 20;
             });
-            PauseForScreenShot<DocumentGridForm>("Document grid with concentrations filled in", 11);
+            PauseForScreenShot<DocumentGridForm>("Document grid with concentrations filled in");
             RunUI(documentGridForm.Close);
 
             ShowAndPositionAuditLog(true);
-            PauseForScreenShot<AuditLogForm>("Audit Log form with grid changes", 12);
+            PauseForScreenShot<AuditLogForm>("Audit Log form with grid changes");
 
-            ShowLastExtraInfo("Extra Info for the analyte data import.", 12);
+            ShowLastExtraInfo("Extra Info for the analyte data import.");
+            // Read the row count while the form is still open. Close() sets SkylineWindow's
+            // AuditLogForm to null synchronously, so reading it afterwards yields 0 and the wait
+            // further down degrades to "any rows at all", which is already true.
+            var auditRowsBefore = CallUI(() => SkylineWindow.AuditLogForm.DataGridView.Rows.Count);
             RunUI(SkylineWindow.AuditLogForm.Close);
 
             const string unknownReplicate = "FOXN1-GST";
@@ -294,9 +314,15 @@ namespace pwiz.SkylineTestTutorial
             RunUI(() => SkylineWindow.Size = new Size(936, 527));
             WaitForGraphs();
 
-            PauseForScreenShot("Heavy precursor chromatogram", 13);
+            PauseForScreenShot("Heavy precursor chromatogram");
 
-            RunUI(()=>
+            // Build the change BEFORE opening the document-change scope. WaitDocumentChange waits in
+            // Dispose, so an assertion failing inside the using would unwind through a three-minute
+            // wait for a change that is never coming, and that timeout would replace the real
+            // failure - burying exactly the diagnosis these asserts exist to give.
+            GraphChromatogram graphChromHeavy = null;
+            List<ChangedPeakBoundsEventArgs> listChanges = null;
+            RunUI(() =>
             {
                 var pathHeavy = SkylineWindow.DocumentUI.GetPathTo((int)SrmDocument.Level.TransitionGroups, 1);
 
@@ -309,7 +335,8 @@ namespace pwiz.SkylineTestTutorial
                 var firstChromItem = graphChrom.GraphItems.FirstOrDefault(gci => gci.TransitionChromInfo != null);
                 Assert.IsNotNull(firstChromItem, "Missing graph item");
 
-                var listChanges = new List<ChangedPeakBoundsEventArgs>
+                graphChromHeavy = graphChrom;
+                listChanges = new List<ChangedPeakBoundsEventArgs>
                 {
                     new ChangedPeakBoundsEventArgs(pathHeavy,
                         null,
@@ -320,13 +347,23 @@ namespace pwiz.SkylineTestTutorial
                         PeakIdentification.FALSE,
                         PeakBoundsChangeType.both)
                 };
-                graphChrom.SimulateChangedPeakBounds(listChanges);
             });
 
-            ShowAndPositionAuditLog(true, 50, 200);
-            WaitForConditionUI(500, () => SkylineWindow.AuditLogForm.DataGridView.Rows.Count > 0);
+            // Wait for the document this produces before moving on. Without it the peak bounds
+            // change and the calibration exclusion further down could be written to the audit log
+            // in either order, and the log is compared line by line - the entries swapped places
+            // roughly one run in five. Every other document change in this test already does this.
+            using (new WaitDocumentChange())
+            {
+                RunUI(() => graphChromHeavy.SimulateChangedPeakBounds(listChanges));
+            }
 
-            PauseForScreenShot<AuditLogForm>("Audit Log form with changed integration boundary.", 14);
+            ShowAndPositionAuditLog(true, 50, 200);
+            // Not "any rows": the audit log form has been shown three times before this and is
+            // already full, so that condition was true before the change above was even made.
+            WaitForConditionUI(() => SkylineWindow.AuditLogForm.DataGridView.Rows.Count > auditRowsBefore);
+
+            PauseForScreenShot<AuditLogForm>("Audit Log form with changed integration boundary.");
             int reasonIndex = 2;
             using (new WaitDocumentChange())
             {
@@ -341,7 +378,7 @@ namespace pwiz.SkylineTestTutorial
             }
             RunUI(() => SkylineWindow.AuditLogForm.DataGridView.AutoResizeColumn(reasonIndex));
             SetGridFormToFullWidth(SkylineWindow.AuditLogForm);
-            PauseForScreenShot<AuditLogForm>("Audit Log form with updated reason.", 14);
+            PauseForScreenShot<AuditLogForm>("Audit Log form with updated reason.");
 
             // View the calibration curve p. 15
             RunUI(()=>SkylineWindow.ShowCalibrationForm());
@@ -357,7 +394,8 @@ namespace pwiz.SkylineTestTutorial
                 VerifyCalibrationCurve(calibrationForm, 5.4065E-1, -2.9539E-1, 0.999);
             });
 
-            PauseForScreenShot<CalibrationForm>("Calibration curve zoomed", 15);
+            JiggleSelection();
+            PauseForScreenShot<CalibrationForm>("Calibration curve zoomed");
             RunUI(() =>
             {
                 priorZoomState?.ApplyState(calibrationForm.ZedGraphControl.GraphPane);
@@ -377,9 +415,13 @@ namespace pwiz.SkylineTestTutorial
             RunUI(() => VerifyCalibrationCurve(calibrationForm, 5.52E-1, -6.3678E-1, 1));
             OkDialog(calibrationForm, calibrationForm.Close);
 
-            PauseForScreenShot<AuditLogForm>("Audit Log with excluded standard records", 16);
+            PauseForScreenShot<AuditLogForm>("Audit Log with excluded standard records");
 
-            PauseForScreenShot<AuditLogForm>("Audit Log Reports menu (manual)", 16);
+            RunUIForScreenShot(() => SkylineWindow.AuditLogForm.Parent.Parent.Width += 100);    // Wider to remove the horizontal scrollbar
+            ShowReportsDropdown(AuditLogStrings.AuditLogForm_AuditLogForm_All_Info);
+            PauseForScreenShot<AuditLogForm>("Audit Log Reports menu", null, bmp =>
+                ClipBitmap(bmp.CleanupBorder(true), new Rectangle(0, 0, 503, bmp.Height)));
+            HideReportsDropdown();
 
             // TODO(nicksh): Audit log reason field does not currently support fill down
 //            RunUI(() =>
@@ -389,23 +431,42 @@ namespace pwiz.SkylineTestTutorial
 //                    SkylineWindow.AuditLogForm.DataGridView.Rows[i].Cells[reasonIndex].Selected = true;
 //            });
 //            RunUI(() => SkylineWindow.AuditLogForm.DataboundGridControl.FillDown());
-            RunUI(() =>
+            // The audit log grid is filled by a background query, so its rows can still describe
+            // the document as it was before the four exclusions above. A row holds the
+            // AuditLogEntry it was built from and writes the Reason back to that entry by
+            // LogIndex, so editing a stale row 0 puts the reason on the peak-bounds entry instead
+            // of the Standard_8 exclusion. That surfaced only as two swapped "Reason Changed"
+            // entries in the recorded audit log - an identical diff every time, at 1 in 240
+            // executions. Wait for each row to hold the entry it is meant to edit, and name the
+            // entry actually found there if it never does.
+            var logIndexesToEdit = CallUI(() => SkylineWindow.Document.AuditLog.AuditLogEntries
+                .Enumerate().Take(4).Select(entry => entry.LogIndex).ToArray());
+            for (int i = 0; i < 4; i++)
             {
-                for (int i = 0; i < 4; i++)
-                    SetCellValue(SkylineWindow.AuditLogForm.DataGridView, i, reasonIndex, "Excluded standard below LOD");
-            });
+                int row = i;
+                WaitForConditionUI(() => GetAuditLogRowLogIndex(row) == logIndexesToEdit[row],
+                    () => string.Format("Audit log grid row {0} holds entry {1}, expected entry {2}",
+                        row, GetAuditLogRowLogIndex(row), logIndexesToEdit[row]));
+                // Setting a Reason modifies the document. Wait for each one so the next row is
+                // read from a grid that has caught up with the edit before it.
+                using (new WaitDocumentChange())
+                {
+                    RunUI(() => SetCellValue(SkylineWindow.AuditLogForm.DataGridView, row, reasonIndex,
+                        "Excluded standard below LOD"));
+                }
+            }
             RunUI(() =>
             {
                 SkylineWindow.AuditLogForm.ChooseView(AuditLogStrings.AuditLogForm_MakeAuditLogForm_Undo_Redo);
             });
             SetGridFormToFullWidth(SkylineWindow.AuditLogForm);
-            RunUI(() =>
+            RunUIForScreenShot(() =>
             {
                 var floatingWindow = SkylineWindow.AuditLogForm.Parent.Parent;
                 floatingWindow.Height = 334;
                 floatingWindow.Width -= 15;
             });
-            PauseForScreenShot<AuditLogForm>("Audit Log with UndoRedo view.", 17);
+            PauseForScreenShot<AuditLogForm>("Audit Log with UndoRedo view.");
             if (IsCoverShotMode)
             {
                 RunUI(() =>
@@ -429,7 +490,7 @@ namespace pwiz.SkylineTestTutorial
                     SkylineWindow.AuditLogForm.DataGridView.AutoResizeColumn(reasonIndex);
                     SkylineWindow.AuditLogForm.DataGridView.AutoResizeColumn(reasonIndex - 1);
                 });
-                TakeCoverShot();
+                TakeCoverShot(floatingLogWindow);
             }
 
             var customizeDialog = ShowDialog<ViewEditor>(SkylineWindow.AuditLogForm.NavBar.CustomizeView);
@@ -450,17 +511,22 @@ namespace pwiz.SkylineTestTutorial
 
                 customizeDialog.Height = 370;
             });
-            PauseForScreenShot<ViewEditor.ChooseColumnsView>("Custom Columns report template", 17);
+            PauseForScreenShot<ViewEditor.ChooseColumnsView>("Custom Columns report template");
             OkDialog(customizeDialog, customizeDialog.OkDialog);
             SetGridFormToFullWidth(SkylineWindow.AuditLogForm);
-            RunUI(() => SkylineWindow.AuditLogForm.Parent.Parent.Height += 10); // Extra for 2-line headers
-            PauseForScreenShot<AuditLogForm>("Audit Log with custom view.", 18);
+            RunUIForScreenShot(() =>
+            {
+                var floatingForm = SkylineWindow.AuditLogForm.Parent.Parent;
+                floatingForm.Width = 1140; // Wider for Skyline Version and User columns
+                floatingForm.Height += 10; // Extra for 2-line headers
+            }); 
+            PauseForScreenShot<AuditLogForm>("Audit Log with custom view.");
 
             var registrationDialog = ShowDialog<MultiButtonMsgDlg>(() => SkylineWindow.ShowPublishDlg(null));
-            PauseForScreenShot<MultiButtonMsgDlg>("Upload confirmation dialog.", 19);
+            PauseForScreenShot<MultiButtonMsgDlg>("Upload confirmation dialog.");
 
             var loginDialog = ShowDialog<EditServerDlg>(registrationDialog.ClickNo);
-            PauseForScreenShot<EditServerDlg>("Login dialog.", 20);
+            PauseForScreenShot<EditServerDlg>("Login dialog.");
 
             RunUI(() =>
             {
@@ -468,21 +534,23 @@ namespace pwiz.SkylineTestTutorial
                 loginDialog.Username = PANORAMA_USER_NAME;
             });
 
-            if (!IsPauseForScreenShots)
+            if (!IsPauseForScreenShots || IsAutoScreenShotMode) // Skip manual screenshots if in auto-screenshot mode
                 OkDialog(loginDialog, loginDialog.CancelButton.PerformClick);
             else
             {
+                PanoramaSetup();
+
                 PauseForManualTutorialStep("MANUAL STEP (no screenshot). Enter password in the Edit Server dialog but DO NOT click OK. Close this window instead to proceed.");
 
-                var publishDialog = ShowDialog<PublishDocumentDlg>(loginDialog.OkDialog);
+                var publishDialog = ShowDialog<PublishDocumentDlgPanorama>(loginDialog.OkDialog);
                 WaitForCondition(() => publishDialog.IsLoaded);
                 RunUI(() =>
                 {
                     publishDialog.SelectItem(testFolderName);
                 });
-                PauseForScreenShot<PublishDocumentDlg>("Folder selection dialog.", 21);
-                var browserConfirmationDialog = ShowDialog<MultiButtonMsgDlg>(publishDialog.OkDialog);
-
+                PauseForScreenShot<PublishDocumentDlgPanorama>("Folder selection dialog.");
+                var shareTypeDlg = ShowDialog<ShareTypeDlg>(publishDialog.OkDialog);
+                var browserConfirmationDialog = ShowDialog<MultiButtonMsgDlg>(shareTypeDlg.OkDialog);
                 OkDialog(browserConfirmationDialog, browserConfirmationDialog.ClickYes);
 
                 PauseForScreenShot("Uploaded document in Panorama (in browser).");
@@ -542,25 +610,16 @@ namespace pwiz.SkylineTestTutorial
             if (Program.SkylineOffscreen)
                 return;
 
+            const int timeExtra = 10;
             const int spacing = 20;
-            int formWidth = 772 + messageExtra;
+            int formWidth = 772 + messageExtra + timeExtra;
             if (verticalScrollbar)
                 formWidth += spacing;
             RunUI(() =>
             {
                 var floatingWindow = auditLogForm.Parent.Parent;
                 floatingWindow.Size = new Size(formWidth, height ?? 354);
-                var screen = Screen.FromControl(SkylineWindow);
-                if (screen.Bounds.Right > SkylineWindow.Right + spacing + floatingWindow.Width)
-                {
-                    floatingWindow.Top = SkylineWindow.Top;
-                    floatingWindow.Left = SkylineWindow.Right + spacing;
-                }
-                else
-                {
-                    floatingWindow.Top = SkylineWindow.Bottom + spacing;
-                    floatingWindow.Left = (screen.Bounds.Left + screen.Bounds.Right) / 2 - floatingWindow.Width / 2;
-                }
+                auditLogForm.DataGridView.Columns[0].Width += timeExtra;
                 if (messageExtra > 0)
                 {
                     var pathMessage = PropertyPath.Parse("Details!*.AllInfoMessage");
@@ -586,7 +645,7 @@ namespace pwiz.SkylineTestTutorial
         /***
          * Shows AuditLogExtraInfoForm for the most recently performed operation if it is available.
          */
-        private void ShowLastExtraInfo(string message, int? pageNum = null)
+        private void ShowLastExtraInfo(string message)
         {
             WaitForConditionUI(() =>
             {
@@ -601,13 +660,7 @@ namespace pwiz.SkylineTestTutorial
 
             var extraInfoDialog = ShowDialog<AuditLogExtraInfoForm>(() =>
                 ((TextImageCell)SkylineWindow.AuditLogForm.DataGridView.Rows[0].Cells[1]).ClickImage(0));
-            RunUI(() =>
-            {
-                var logFloatingWindow = SkylineWindow.AuditLogForm.Parent.Parent;
-                extraInfoDialog.Left = logFloatingWindow.Left;
-                extraInfoDialog.Top = logFloatingWindow.Bottom + 20;
-            });
-            PauseForScreenShot<AuditLogExtraInfoForm>(message, pageNum);
+            PauseForScreenShot<AuditLogExtraInfoForm>(message);
             OkDialog(extraInfoDialog, extraInfoDialog.OkDialog);
         }
 
@@ -625,16 +678,103 @@ namespace pwiz.SkylineTestTutorial
 
         private void PanoramaSetup()
         {
-            Uri serverUri = new Uri(SERVER_URL);
+            // NOTE: This method is called when IsPauseForScreenShots is set to true. 
+            // Before running the test change the permissions on the Panorama project folder at 
+            // https://panoramaweb.org/SkylineTest/project-begin.view 
+            // Make the test user (PANORAMA_USER_NAME) a folder administrator so that the
+            // user is able to create and delete folders in the "SkylineTest" project.
+            var panoramaClient =  new WebPanoramaClient(new Uri(SERVER_URL), PANORAMA_USER_NAME, PANORAMA_PASSWORD);
 
-            IPanoramaClient panoramaClient = PanoramaUtil.CreatePanoramaClient(serverUri);
+            try
+            {
+                panoramaClient.DeleteFolderIfExists($@"{PANORAMA_FOLDER}/{testFolderName}");
+            }
+            catch (Exception e)
+            {
+                AssertEx.Fail("Cannot delete existing Panorama test folder. {0}", e.Message);
+            }
+            
+            try
+            {
+                panoramaClient.CreateTargetedMsFolder(PANORAMA_FOLDER, testFolderName);
+            }
+            catch (Exception e)
+            {
+                AssertEx.Fail("Error creating Panorama test folder. {0}", e.Message);
+            }
+        }
 
-            var deleteResult = panoramaClient.DeleteFolder($@"{PANORAMA_FOLDER}/{testFolderName}", PANORAMA_USER_NAME,
-                PANORAMA_PASSWORD);
-            if(deleteResult != FolderOperationStatus.OK && deleteResult != FolderOperationStatus.notfound)
-                Assert.Fail($@"Cannot delete existing test folder. Returns {deleteResult}");
-            Assert.AreEqual(FolderOperationStatus.OK, panoramaClient.CreateFolder(PANORAMA_FOLDER, testFolderName,
-                PANORAMA_USER_NAME, PANORAMA_PASSWORD), "Error when creating panorama test folder.");
+        /// <summary>
+        /// The LogIndex of the audit log entry the given audit log grid row was built from, or -1
+        /// if the grid does not have that row yet. Rows are built by a background query, so this
+        /// can lag the document.
+        /// </summary>
+        private static int GetAuditLogRowLogIndex(int row)
+        {
+            var bindingListSource = SkylineWindow.AuditLogForm.BindingListSource;
+            if (row >= bindingListSource.Count)
+                return -1;
+            switch ((bindingListSource[row] as RowItem)?.Value)
+            {
+                case AuditLogRow logRow:
+                    return logRow.Entry.LogIndex;
+                case AuditLogDetailRow detailRow:
+                    return detailRow.AuditLogRow.Entry.LogIndex;
+                default:
+                    return -1;
+            }
+        }
+    }
+
+    public class TestTimeProvider : AuditLogEntry.ITimeProvider, IDisposable
+    {
+        private readonly AuditLogEntry.ITimeProvider _previousProvider;
+        private readonly DateTime _startTime;
+        private TimeSpan _elapsedTime = TimeSpan.Zero;
+        private Random _random = new Random(1); // A consistent random series
+
+        public TestTimeProvider(DateTime? startTime = null)
+        {
+            _previousProvider = AuditLogEntry.TimeProvider;
+            // Start with a consistent local time of 2025-1-1 at 9:35 AM
+            var localTime = startTime ?? new DateTime(2025, 1, 1, 9, 35, 0, DateTimeKind.Local);
+            // The audit logging system expects a UTC time.
+            _startTime = localTime.ToUniversalTime();
+            AuditLogEntry.TimeProvider = this;
+        }
+
+        public DateTime Now
+        {
+            get
+            {
+                _elapsedTime += TimeSpan.FromSeconds(_random.Next(2, 10));  // Random time from 2 to 10 seconds
+                return _startTime.Add(_elapsedTime);
+            }
+        }
+
+        public void Dispose()
+        {
+            AuditLogEntry.TimeProvider = _previousProvider;
+        }
+    }
+
+    public class TestVersionProvider : AuditLogEntry.IVersionProvider, IDisposable
+    {
+        private readonly AuditLogEntry.IVersionProvider _previousProvider;
+
+        public string Version { get; }
+
+        public TestVersionProvider(string version)
+        {
+            _previousProvider = AuditLogEntry.VersionProvider;
+            Version = version;
+            if (!string.IsNullOrEmpty(version))
+                AuditLogEntry.VersionProvider = this;
+        }
+
+        public void Dispose()
+        {
+            AuditLogEntry.VersionProvider = _previousProvider;
         }
     }
 }

@@ -23,7 +23,6 @@ using pwiz.Common.Collections;
 using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Model.Results.Scoring;
 using pwiz.Skyline.Model.Results.Spectra;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 using pwiz.Skyline.Util.Extensions;
 
@@ -56,10 +55,23 @@ namespace pwiz.Skyline.Model.Results
         {
             CachePath = cachePath;
             CacheFormat = CacheFormat.CURRENT;
-            _fs = new FileSaver(CachePath);
-            _fsScans = new FileSaver(CachePath + ChromatogramCache.SCANS_EXT, true);
-            _fsPeaks = new FileSaver(CachePath + ChromatogramCache.PEAKS_EXT, true);
-            _fsScores = new FileSaver(CachePath + ChromatogramCache.SCORES_EXT, true);
+            try
+            {
+                _fs = new FileSaver(CachePath);
+                _fsScans = new FileSaver(CachePath + ChromatogramCache.SCANS_EXT, true);
+                _fsPeaks = new FileSaver(CachePath + ChromatogramCache.PEAKS_EXT, true);
+                _fsScores = new FileSaver(CachePath + ChromatogramCache.SCORES_EXT, true);
+            }
+            catch (Exception)
+            {
+                // Creating a later temp file can fail, and then the caller never gets an
+                // object to dispose, so the ones already created would keep their files open.
+                _fs?.Dispose();
+                _fsScans?.Dispose();
+                _fsPeaks?.Dispose();
+                _fsScores?.Dispose();
+                throw;
+            }
             _loader = loader;
             _status = status;
             _completed = completed;
@@ -119,7 +131,7 @@ namespace pwiz.Skyline.Model.Results
                             }
                             catch (Exception xWrite)
                             {
-                                throw new IOException(TextUtil.LineSeparate(string.Format(Resources.ChromCacheWriter_Complete_Failure_attempting_to_write_the_file__0_, _fs.RealName), xWrite.Message));
+                                throw new IOException(TextUtil.LineSeparate(string.Format(ResultsResources.ChromCacheWriter_Complete_Failure_attempting_to_write_the_file__0_, _fs.RealName), xWrite.Message), xWrite);
                             }
                         }
 

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -22,14 +22,23 @@ using System.Drawing;
 using System.IO;
 using System.Text;
 using System.Windows.Forms;
+using pwiz.CommonMsData;
 using pwiz.Skyline.Model.Results;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 
 namespace pwiz.Skyline.Controls.Graphs
 {
     public partial class FileProgressControl : UserControl
     {
+        public interface IStateProvider
+        {
+            DateTime Time { get; }
+            string PrepareErrorText(string errorText);
+            int? GetFrozenProgress(MsDataFileUri filePath);
+            bool IsProgressFrozen { get; }
+        }
+
+        private readonly IStateProvider _stateProvider;
         private int _number;
         private MsDataFileUri _filePath;
         private bool _selected;
@@ -48,8 +57,9 @@ namespace pwiz.Skyline.Controls.Graphs
         public event EventHandler ShowGraph;
         public event EventHandler ShowLog;
 
-        public FileProgressControl()
+        public FileProgressControl(IStateProvider stateProvider)
         {
+            _stateProvider = stateProvider;
             InitializeComponent();
             labelPercent.Text = string.Empty;
             TabStop = false;
@@ -81,7 +91,7 @@ namespace pwiz.Skyline.Controls.Graphs
             { 
                 _number = value;
                 if (_filePath != null)
-                    labelFileName.Text = string.Format(Resources.FileProgressControl_Number__0____1_, _number, Path.GetFileNameWithoutExtension(_filePath.GetFilePath()));
+                    labelFileName.Text = string.Format(GraphsResources.FileProgressControl_Number__0____1_, _number, Path.GetFileNameWithoutExtension(_filePath.GetFilePath()));
             }
         }
 
@@ -89,6 +99,13 @@ namespace pwiz.Skyline.Controls.Graphs
         {
             get { return progressBar.Value; }
         }
+
+        /// <summary>
+        /// Gets the progress bar control for screenshot processing.
+        /// Use with ScreenshotProcessingExtensions.FillProgressBar to paint over
+        /// the animated progress bar with a static representation.
+        /// </summary>
+        public ProgressBar ProgressBar => progressBar;
 
         public MsDataFileUri FilePath
         {
@@ -125,6 +142,13 @@ namespace pwiz.Skyline.Controls.Graphs
 
         public void SetStatus(ChromatogramLoadingStatus status)
         {
+            // Statuses are immutable snapshots delivered through the UI message queue, so an older
+            // one can arrive after a newer one and undo a file that already finished, leaving
+            // AllChromatogramsGraph.Finished false for the rest of the run. Retry loads the file
+            // again under a new status Id, which is why only the chain that finished is held back.
+            if (Status != null && Status.IsFinal && !status.IsFinal && ReferenceEquals(Status.Id, status.Id))
+                return;
+
             Status = status;
             IsCanceled = false;
             try
@@ -133,8 +157,8 @@ namespace pwiz.Skyline.Controls.Graphs
                 {
                     if (Error == null)
                     {
-                        Error = string.Format(Resources.FileProgressControl_SetStatus_, DateTime.Now.ToShortTimeString(),
-                            ExceptionUtil.GetMessage(status.ErrorException));
+                        Error = string.Format(GraphsResources.FileProgressControl_SetStatus_, _stateProvider.Time.ToShortTimeString(),
+                            _stateProvider.PrepareErrorText(ExceptionUtil.GetMessage(status.ErrorException)));
                         _errorCount++;
                         if (_errorLog.Count == 3)
                         {
@@ -143,9 +167,9 @@ namespace pwiz.Skyline.Controls.Graphs
                         }
                         _errorLog.Insert(0, Error);
                         _errorExceptions.Insert(0, status.ErrorException.ToString());
-                        btnRetry.Text = Resources.FileProgressControl_SetStatus_Retry;
+                        btnRetry.Text = GraphsResources.FileProgressControl_SetStatus_Retry;
                         btnRetry.Visible = true;
-                        ShowWarningIcon(Resources.FileProgressControl_SetStatus_failed);
+                        ShowWarningIcon(GraphsResources.FileProgressControl_SetStatus_failed);
                     }
                 }
                 else
@@ -153,33 +177,54 @@ namespace pwiz.Skyline.Controls.Graphs
                     if (!string.IsNullOrEmpty(status.WarningMessage))
                     {
                         Warning = status.WarningMessage;
-                        ShowWarningIcon(Resources.FileProgressControl_SetStatus_warning);
+                        ShowWarningIcon(GraphsResources.FileProgressControl_SetStatus_warning);
                     }
                     if (status.IsCanceled)
                     {
                         IsCanceled = true;
                         progressBar.Visible = false;
                         labelPercent.Visible = false;
-                        labelStatus.Text = Resources.FileProgressControl_SetStatus_canceled;
+                        labelStatus.Text = GraphsResources.FileProgressControl_SetStatus_canceled;
                         labelStatus.Visible = true;
-                        btnRetry.Text = Resources.FileProgressControl_SetStatus_Retry;
+                        btnRetry.Text = GraphsResources.FileProgressControl_SetStatus_Retry;
                         btnRetry.Visible = true;
                         _backColor = _cancelColor;
                     }
-                    else if (status.IsComplete)
+                    else
                     {
-                        Finish();
-                    }
-                    else if (status.PercentComplete > 0)
-                    {
-                        progressBar.Visible = true;
-                        labelPercent.Visible = true;
-                        progressBar.Value = status.PercentComplete;
-                        labelPercent.Text = (status.PercentComplete / 100.0).ToString(@"P0");
-                        labelStatus.Visible = false;
-                        btnRetry.Text = Resources.FileProgressControl_SetStatus_Cancel;
-                        btnRetry.Visible = true;
-                        _backColor = _okColor;
+                        // Check for frozen progress first - if frozen, show the frozen value
+                        // even if the file has completed (to prevent "imported" from showing)
+                        var frozenProgress = _stateProvider.GetFrozenProgress(_filePath);
+                        if (frozenProgress.HasValue)
+                        {
+                            progressBar.Visible = true;
+                            labelPercent.Visible = true;
+                            progressBar.Value = frozenProgress.Value;
+                            labelPercent.Text = (frozenProgress.Value / 100.0).ToString(@"P0");
+                            labelStatus.Visible = false;
+                            btnRetry.Text = GraphsResources.FileProgressControl_SetStatus_Cancel;
+                            btnRetry.Visible = true;
+                            _backColor = _okColor;
+                        }
+                        else if (_stateProvider.IsProgressFrozen)
+                        {
+                            // Frozen but this file is not in the frozen list - stay gray/no progress
+                        }
+                        else if (status.IsComplete)
+                        {
+                            Finish();
+                        }
+                        else if (status.PercentComplete > 0)
+                        {
+                            progressBar.Visible = true;
+                            labelPercent.Visible = true;
+                            progressBar.Value = status.PercentComplete;
+                            labelPercent.Text = (status.PercentComplete / 100.0).ToString(@"P0");
+                            labelStatus.Visible = false;
+                            btnRetry.Text = GraphsResources.FileProgressControl_SetStatus_Cancel;
+                            btnRetry.Visible = true;
+                            _backColor = _okColor;
+                        }
                     }
                 }
                 Invalidate();
@@ -209,13 +254,13 @@ namespace pwiz.Skyline.Controls.Graphs
                 progressBar.Value = 100;
                 progressBar.Visible = false;
                 labelPercent.Visible = false;
-                labelStatus.Text = Resources.FileProgressControl_Finish_imported;
+                labelStatus.Text = GraphsResources.FileProgressControl_Finish_imported;
                 labelStatus.Visible = true;
                 btnRetry.Visible = false;
                 _backColor = _okColor;
                 if (_errorCount > 0)
                 {
-                    btnRetry.Text = Resources.FileProgressControl_btnRetry_Click_Log;
+                    btnRetry.Text = GraphsResources.FileProgressControl_btnRetry_Click_Log;
                     btnRetry.Visible = true;
                 }
             }
@@ -232,9 +277,9 @@ namespace pwiz.Skyline.Controls.Graphs
                 sb.AppendLine(Warning);
             }
             if (_errorCount > 1)
-                sb.AppendFormat(Resources.FileProgressControl_GetErrorLog_, _errorCount);
+                sb.AppendFormat(GraphsResources.FileProgressControl_GetErrorLog_, _errorCount);
             if (_errorCount > 3)
-                sb.Append(Resources.FileProgressControl_GetErrorLog_2);
+                sb.Append(GraphsResources.FileProgressControl_GetErrorLog_2);
             for (int i = 0; i < _errorLog.Count; i++)
             {
                 sb.AppendLine().Append(_errorLog[i]);
@@ -293,27 +338,27 @@ namespace pwiz.Skyline.Controls.Graphs
         {
             ControlOnMouseDown(this, new MouseEventArgs(MouseButtons.Left, 1, 0, 0, 0));
             var buttonText = btnRetry.Text;
-            if (buttonText == Resources.FileProgressControl_SetStatus_Retry)
+            if (buttonText == GraphsResources.FileProgressControl_SetStatus_Retry)
             {
                 if (Retry != null)
                     Retry(this, null);
             }
-            else if (buttonText == Resources.FileProgressControl_SetStatus_Cancel)
+            else if (buttonText == GraphsResources.FileProgressControl_SetStatus_Cancel)
             {
                 if (Cancel != null)
                     Cancel(this, null);
             }
-            else if (buttonText == Resources.FileProgressControl_btnRetry_Click_Graph)
+            else if (buttonText == GraphsResources.FileProgressControl_btnRetry_Click_Graph)
             {
                 if (ShowGraph != null)
                     ShowGraph(this, null);
-                btnRetry.Text = Resources.FileProgressControl_btnRetry_Click_Log;
+                btnRetry.Text = GraphsResources.FileProgressControl_btnRetry_Click_Log;
             }
-            else if (buttonText == Resources.FileProgressControl_btnRetry_Click_Log)
+            else if (buttonText == GraphsResources.FileProgressControl_btnRetry_Click_Log)
             {
                 if (ShowLog != null)
                     ShowLog(this, null);
-                btnRetry.Text = Resources.FileProgressControl_btnRetry_Click_Graph;
+                btnRetry.Text = GraphsResources.FileProgressControl_btnRetry_Click_Graph;
             }
         }
     }

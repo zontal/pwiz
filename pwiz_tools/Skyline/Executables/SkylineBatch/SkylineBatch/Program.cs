@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Ali Marsh <alimarsh .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  * Copyright 2020 University of Washington - Seattle, WA
@@ -31,6 +31,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Windows.Forms;
 using log4net.Config;
+using pwiz.Common;
 using SkylineBatch.Properties;
 using SharedBatch;
 
@@ -54,6 +55,8 @@ namespace SkylineBatch
         [STAThread]
         public static void Main(string[] args)
         {
+            CommonApplicationSettings.ProgramName = @"Skyline Batch";
+            CommonApplicationSettings.ProgramNameAndVersion = Version();
             ProgramLog.Init("SkylineBatch");
             Application.EnableVisualStyles();
             InitializeVersion();
@@ -221,7 +224,15 @@ namespace SkylineBatch
         {
             if (SkylineInstallations.FindSkyline())
                 return true;
-            
+
+            // FindSkylineForm is modal and there is no one to answer it under a functional test,
+            // so on a machine with no Skyline installation the whole test run hangs here instead
+            // of failing. Carry on without the settings: tests that need a Skyline path build
+            // their own SkylineSettings, and a missing installation then surfaces as a test
+            // failure with a message rather than as a run that never finishes.
+            if (FunctionalTest)
+                return true;
+
             var form = new FindSkylineForm(AppName(), Icon());
             Application.Run(form);
             if (form.DialogResult == DialogResult.OK)
@@ -304,7 +315,7 @@ namespace SkylineBatch
 
         public static string AppName()
         {
-            return "Skyline Batch";
+            return CommonApplicationSettings.ProgramName;
         }
 
         public static Icon Icon()

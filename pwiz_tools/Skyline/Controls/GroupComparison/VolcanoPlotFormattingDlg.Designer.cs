@@ -1,4 +1,4 @@
-﻿namespace pwiz.Skyline.Controls.GroupComparison
+namespace pwiz.Skyline.Controls.GroupComparison
 {
     partial class VolcanoPlotFormattingDlg
     {
@@ -34,6 +34,12 @@
             this.button2 = new System.Windows.Forms.Button();
             this.regexColorRowGrid1 = new pwiz.Skyline.Controls.GroupComparison.RegexColorRowGrid();
             this.advancedCheckBox = new System.Windows.Forms.CheckBox();
+            this.layoutLabelsBox = new System.Windows.Forms.CheckBox();
+            this.toolStripFormatting = new System.Windows.Forms.ToolStrip();
+            this.btnDeleteRule = new System.Windows.Forms.ToolStripButton();
+            this.btnMoveRuleUp = new System.Windows.Forms.ToolStripButton();
+            this.btnMoveRuleDown = new System.Windows.Forms.ToolStripButton();
+            this.toolStripFormatting.SuspendLayout();
             this.SuspendLayout();
             // 
             // button1
@@ -66,11 +72,63 @@
             this.advancedCheckBox.UseVisualStyleBackColor = true;
             this.advancedCheckBox.CheckedChanged += new System.EventHandler(this.advancedCheckBox_CheckedChanged);
             // 
-            // VolcanoPlotFormattingDlg
+            // layoutLabelsBox
             // 
+            resources.ApplyResources(this.layoutLabelsBox, "layoutLabelsBox");
+            this.layoutLabelsBox.Name = "layoutLabelsBox";
+            this.layoutLabelsBox.UseVisualStyleBackColor = true;
+            this.layoutLabelsBox.CheckedChanged += new System.EventHandler(this.layoutLabelsBox_CheckedChanged);
+            //
+            // toolStripFormatting
+            //
+            this.toolStripFormatting.Anchor = ((System.Windows.Forms.AnchorStyles)((System.Windows.Forms.AnchorStyles.Top | System.Windows.Forms.AnchorStyles.Right)));
+            this.toolStripFormatting.AutoSize = false;
+            this.toolStripFormatting.Dock = System.Windows.Forms.DockStyle.None;
+            this.toolStripFormatting.GripStyle = System.Windows.Forms.ToolStripGripStyle.Hidden;
+            this.toolStripFormatting.Items.AddRange(new System.Windows.Forms.ToolStripItem[] {
+            this.btnDeleteRule,
+            this.btnMoveRuleUp,
+            this.btnMoveRuleDown});
+            this.toolStripFormatting.LayoutStyle = System.Windows.Forms.ToolStripLayoutStyle.VerticalStackWithOverflow;
+            this.toolStripFormatting.Location = new System.Drawing.Point(624, 12);
+            this.toolStripFormatting.Name = "toolStripFormatting";
+            this.toolStripFormatting.Size = new System.Drawing.Size(26, 80);
+            this.toolStripFormatting.TabIndex = 4;
+            //
+            // btnDeleteRule
+            //
+            this.btnDeleteRule.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.btnDeleteRule.Image = global::pwiz.Skyline.Properties.Resources.Delete;
+            this.btnDeleteRule.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this.btnDeleteRule.Name = "btnDeleteRule";
+            this.btnDeleteRule.Size = new System.Drawing.Size(23, 20);
+            this.btnDeleteRule.Click += new System.EventHandler(this.btnDeleteRule_Click);
+            //
+            // btnMoveRuleUp
+            //
+            this.btnMoveRuleUp.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.btnMoveRuleUp.Image = global::pwiz.Skyline.Properties.Resources.up_pro32;
+            this.btnMoveRuleUp.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this.btnMoveRuleUp.Name = "btnMoveRuleUp";
+            this.btnMoveRuleUp.Size = new System.Drawing.Size(23, 20);
+            this.btnMoveRuleUp.Click += new System.EventHandler(this.btnMoveRuleUp_Click);
+            //
+            // btnMoveRuleDown
+            //
+            this.btnMoveRuleDown.DisplayStyle = System.Windows.Forms.ToolStripItemDisplayStyle.Image;
+            this.btnMoveRuleDown.Image = global::pwiz.Skyline.Properties.Resources.down_pro32;
+            this.btnMoveRuleDown.ImageTransparentColor = System.Drawing.Color.Magenta;
+            this.btnMoveRuleDown.Name = "btnMoveRuleDown";
+            this.btnMoveRuleDown.Size = new System.Drawing.Size(23, 20);
+            this.btnMoveRuleDown.Click += new System.EventHandler(this.btnMoveRuleDown_Click);
+            //
+            // VolcanoPlotFormattingDlg
+            //
             resources.ApplyResources(this, "$this");
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
+            this.Controls.Add(this.toolStripFormatting);
             this.Controls.Add(this.advancedCheckBox);
+            this.Controls.Add(this.layoutLabelsBox);
             this.Controls.Add(this.regexColorRowGrid1);
             this.Controls.Add(this.button2);
             this.Controls.Add(this.button1);
@@ -79,6 +137,8 @@
             this.Name = "VolcanoPlotFormattingDlg";
             this.ShowIcon = false;
             this.ShowInTaskbar = false;
+            this.toolStripFormatting.ResumeLayout(false);
+            this.toolStripFormatting.PerformLayout();
             this.ResumeLayout(false);
             this.PerformLayout();
 
@@ -91,6 +151,11 @@
         private System.Windows.Forms.Button button2;
         private RegexColorRowGrid regexColorRowGrid1;
         private System.Windows.Forms.CheckBox advancedCheckBox;
+        private System.Windows.Forms.CheckBox layoutLabelsBox;
+        private System.Windows.Forms.ToolStrip toolStripFormatting;
+        private System.Windows.Forms.ToolStripButton btnDeleteRule;
+        private System.Windows.Forms.ToolStripButton btnMoveRuleUp;
+        private System.Windows.Forms.ToolStripButton btnMoveRuleDown;
 
     }
 }

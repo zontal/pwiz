@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -91,7 +91,7 @@ namespace pwiz.SkylineTestFunctional
                 var ms2Clause = transitionGroupDocNode.SpectrumClassFilter.Clauses[1];
                 Assert.AreEqual(2, ms2Clause.FilterSpecs.Count);
                 Assert.AreEqual(3.0,
-                    ms2Clause.FilterSpecs[1].Predicate.GetOperandValue(new DataSchema(), typeof(double)));
+                    ms2Clause.FilterSpecs[1].Predicate.GetOperandValue(new DataSchema(), typeof(int)));
             });
             RunDlg<EditSpectrumFilterDlg>(SkylineWindow.EditMenu.EditSpectrumFilter, dlg =>
             {

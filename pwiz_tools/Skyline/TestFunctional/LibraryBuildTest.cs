@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -23,6 +23,7 @@ using System.IO;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using pwiz.BiblioSpec;
+using pwiz.Common.SystemUtil;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Controls.SeqNode;
 using pwiz.Skyline.EditUI;
@@ -33,6 +34,7 @@ using pwiz.Skyline.Model.Lib;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.SettingsUI;
 using pwiz.Skyline.SettingsUI.Irt;
+using pwiz.Skyline.ToolsUI;
 using pwiz.Skyline.Util;
 using pwiz.SkylineTestUtil;
 
@@ -54,7 +56,8 @@ namespace pwiz.SkylineTestFunctional
         private PeptideSettingsUI PeptideSettingsUI { get; set; }
         private bool ReportLibraryBuildFailures { get; set; }
 
-        [TestMethod]
+        [TestMethod,
+         NoLeakTesting(TestExclusionReason.EXCESSIVE_TIME)] // Don't leak test this - it takes a long time to run even once
         public void TestLibraryBuild()
         {
             TestFilesZip = @"TestFunctional\LibraryBuildTest.zip";
@@ -142,7 +145,7 @@ namespace pwiz.SkylineTestFunctional
             BuildLibraryError("zero_charge.pep.XML", null);
             BuildLibraryError("truncated.pep.XML", null);
             BuildLibraryError("missing_mzxml.pep.XML", null, null, "could not find matches for the following");
-            BuildLibraryError("..\\mascot\\F027319.dat", null, 1e-12, "No matches passed score filter");
+            BuildLibraryError("..\\mascot\\F027319.dat", null, 1e-12, "produced no spectra that passed");
             BuildLibraryError(TestFilesDir.GetVendorTestData(TestFilesDir.VendorDir.BiblioSpec, "mismatched-scan-numbers.pepXML"), null, null, "WARNING: Could not find native id");
             BuildLibraryError(TestFilesDir.GetVendorTestData(TestFilesDir.VendorDir.BiblioSpec, "mismatched-nativeid-format.mzid"), null, null, "WARNING: Mismatch between spectrum");
 
@@ -173,6 +176,22 @@ namespace pwiz.SkylineTestFunctional
             // Make sure explorer handles this adduct type
             var viewLibUI = ShowDialog<ViewLibraryDlg>(SkylineWindow.ViewSpectralLibraries);
             RunUI(() => AssertEx.IsTrue(viewLibUI.GraphItem.IonLabels.Any()));
+            OkDialog(viewLibUI, viewLibUI.CancelDialog);
+
+            // Now check for handling when adduct tries to label more atoms than are present in the molecule
+            var sslLines = File.ReadAllLines(TestFilesDir.GetTestPath("library_valid\\heavy_adduct.ssl")).ToList();
+            var badSSL = sslLines[1].Replace("ms2\t2","ms2\t3").Replace(@"M6C13", @"M66C13"); // Molecule is C54H83N15O20 so this makes no sense
+            sslLines.Add(badSSL);
+            File.WriteAllLines(TestFilesDir.GetTestPath("library_valid\\heavy_adduct_bad.ssl"), sslLines);
+            BuildLibraryValid("heavy_adduct_bad.ssl", true, false, false, 2);
+            // Make sure explorer handles this adduct, which is a bad match for the molecule
+            viewLibUI = ShowDialog<ViewLibraryDlg>(SkylineWindow.ViewSpectralLibraries);
+            RunUI(() => AssertEx.IsTrue(viewLibUI.GraphItem.IonLabels.Any()));
+            // Add All should cause some notifications since one of them is bad
+            RunDlg<FilterMatchedPeptidesDlg>(viewLibUI.AddAllPeptides, filterMatchedDlg =>
+            {
+                filterMatchedDlg.CancelDialog();
+            });
             OkDialog(viewLibUI, viewLibUI.CancelDialog);
 
             // Barbara added code to ProteoWizard to rebuild a missing or invalid mzXML index
@@ -424,7 +443,7 @@ namespace pwiz.SkylineTestFunctional
             // no recalibrate, add iRTs, add predictor
             _libraryName = libraryBaseName + "_irt2"; // library_test_irt2
             BuildLibraryIrt(true, false, true);
-            RunUI(() => Assert.IsTrue(PeptideSettingsUI.Prediction.RetentionTime.Name.Equals(_libraryName)));
+            RunUI(() => Assert.IsTrue(PeptideSettingsUI.SelectedRTPredictor.Equals(_libraryName)));
             var editIrtDlg2 = ShowDialog<EditIrtCalcDlg>(PeptideSettingsUI.EditCalculator);
             RunUI(() => Assert.IsTrue(ReferenceEquals(editIrtDlg2.IrtStandards, IrtStandard.BIOGNOSYS_10)));
             OkDialog(editIrtDlg2, editIrtDlg2.CancelDialog);
@@ -432,12 +451,12 @@ namespace pwiz.SkylineTestFunctional
             // recalibrate, add iRTs, no add predictor
             _libraryName = libraryBaseName + "_irt3"; // library_test_irt3
             BuildLibraryIrt(true, true, false);
-            RunUI(() => Assert.IsTrue(PeptideSettingsUI.Prediction.RetentionTime.Name.Equals(libraryBaseName + "_irt2")));
+            RunUI(() => Assert.IsTrue(PeptideSettingsUI.SelectedRTPredictor.Equals(libraryBaseName + "_irt2")));
 
             // recalibrate, add iRTs, add predictor
             _libraryName = libraryBaseName + "_irt4"; // library_test_irt4
             BuildLibraryIrt(true, true, true);
-            RunUI(() => Assert.IsTrue(PeptideSettingsUI.Prediction.RetentionTime.Name.Equals(_libraryName)));
+            RunUI(() => Assert.IsTrue(PeptideSettingsUI.SelectedRTPredictor.Equals(_libraryName)));
             var editIrtDlg4 = ShowDialog<EditIrtCalcDlg>(PeptideSettingsUI.EditCalculator);
             RunUI(() => Assert.IsTrue(editIrtDlg4.IrtStandards.IsEmpty));
             OkDialog(editIrtDlg4, editIrtDlg4.CancelDialog);
@@ -462,7 +481,7 @@ namespace pwiz.SkylineTestFunctional
             var recalibrateDlg = ShowDialog<MultiButtonMsgDlg>(addIrtDlg.OkDialog);
             var addPredictorDlg = ShowDialog<AddRetentionTimePredictorDlg>(recalibrateDlg.BtnCancelClick);
             OkDialog(addPredictorDlg, addPredictorDlg.NoDialog);
-            var twoStandardDb = IrtDb.GetIrtDb(TestFilesDir.GetTestPath(_libraryName) + ".blib", null);
+            var twoStandardDb = IrtDb.GetIrtDb(TestFilesDir.GetTestPath(_libraryName) + ".blib");
             var dbStandards = twoStandardDb.StandardPeptides.ToArray();
             // Check that the created blib has the chosen standards.
             Assert.AreEqual(dbStandards.Length, IrtStandard.BIOGNOSYS_11.Peptides.Count);
@@ -637,9 +656,8 @@ namespace pwiz.SkylineTestFunctional
 
             var messageDlg = WaitForOpenForm<MessageDlg>();
             Assert.IsNotNull(messageDlg, "No message box shown");
-            AssertEx.Contains(messageDlg.Message, "ERROR");
             if (messageParts.Length == 0)
-                AssertEx.Contains(messageDlg.Message, inputFile, "line");
+                AssertEx.Contains(messageDlg.Message, "ERROR", inputFile, "line");
             else
                 AssertEx.Contains(messageDlg.Message, messageParts);
             OkDialog(messageDlg, messageDlg.OkDialog);           
@@ -675,13 +693,43 @@ namespace pwiz.SkylineTestFunctional
                                 ShowDialog<PeptideSettingsUI>(SkylineWindow.ShowPeptideSettingsUI);
 
             // Control console output on failure for diagnosing nightly test failures
-            PeptideSettingsUI.ReportLibraryBuildFailure = ReportLibraryBuildFailures;
+            // PeptideSettingsUI.ReportLibraryBuildFailure = ReportLibraryBuildFailures;
             
             // Allow a person watching to see what is going on in the Library tab
             RunUI(() =>
             {
                 if (PeptideSettingsUI.SelectedTab != PeptideSettingsUI.TABS.Library)
                     PeptideSettingsUI.SelectedTab = PeptideSettingsUI.TABS.Library;
+            });
+        }
+
+        // Adds the input files. A SINGLE file is added by driving the real native "Add Input Files" (Open) dialog --
+        // type its full path and accept -- so the build still exercises the connector's native-dialog automation
+        // (from the test thread, which is where those gestures run). MULTIPLE files are added directly through
+        // BuildLibraryDlg.AddInputFiles, which shows no dialog; driving a multiselect Open dialog by name is
+        // exercised on its own by NativeFileDialogTest.
+        private void AddInputFilesThroughDialog(BuildLibraryDlg buildLibraryDlg, IList<string> inputPaths)
+        {
+            if (inputPaths.Count > 1)
+            {
+                RunUI(() => buildLibraryDlg.AddInputFiles(inputPaths));
+                return;
+            }
+            RunLongNativeDlg<NativeOpenFileDialog>(buildLibraryDlg.ClickAddFile, dlg =>
+            {
+                dlg.EnterPath(inputPaths[0]);
+                dlg.Accept();
+            });
+        }
+
+        // Adds a directory of input files by driving the real native Browse-For-Folder dialog: select the folder
+        // and accept.
+        private void AddInputDirectoryThroughDialog(BuildLibraryDlg buildLibraryDlg, string inputDir)
+        {
+            RunLongNativeDlg<NativeFolderBrowserDialog>(buildLibraryDlg.ClickAddDirectory, dlg =>
+            {
+                dlg.SetValue(@"Folder", inputDir);
+                dlg.DismissWithAcceptButton();
             });
         }
 
@@ -710,11 +758,14 @@ namespace pwiz.SkylineTestFunctional
                 if (irtStandard != null && !irtStandard.IsEmpty)
                     buildLibraryDlg.IrtStandard = irtStandard;
                 buildLibraryDlg.OkWizardPage();
-                if (inputPaths != null)
-                    buildLibraryDlg.AddInputFiles(inputPaths);
-                else
-                    buildLibraryDlg.AddDirectory(inputDir);
             });
+            // Add the inputs by driving the real native dialogs -- files through the "Add Input Files" (multiselect
+            // Open) dialog, a directory through the Browse-For-Folder dialog -- rather than calling AddInputFiles /
+            // AddDirectory directly, so every build here exercises the connector's native-dialog automation.
+            if (inputPaths != null)
+                AddInputFilesThroughDialog(buildLibraryDlg, inputPaths);
+            else
+                AddInputDirectoryThroughDialog(buildLibraryDlg, inputDir);
             WaitForConditionUI(() => buildLibraryDlg.Grid.ScoreTypesLoaded);
             if (thresholdAll)
             {

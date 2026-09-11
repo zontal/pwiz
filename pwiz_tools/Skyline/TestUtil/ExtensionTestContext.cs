@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -23,6 +23,8 @@ using System.Linq;
 using System.Reflection;
 using Ionic.Zip;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.Skyline;
 using pwiz.Skyline.Util;
 
@@ -47,6 +49,12 @@ namespace pwiz.SkylineTestUtil
                 string.Compare(value.ToString(), "true", true, CultureInfo.InvariantCulture) == 0;
         }
 
+        public static long GetLongValue(this TestContext testContext, string property, long defaultValue)
+        {
+            var value = testContext.Properties[property];
+            return (value == null) ? defaultValue : Convert.ToInt64(value.ToString());
+        }
+
         public static TValue GetEnumValue<TValue>(this TestContext testContext, string property, TValue defaultValue)
         {
             var value = testContext.Properties[property];
@@ -59,7 +67,15 @@ namespace pwiz.SkylineTestUtil
         {
             // when run with VSTest/MSTest (when .runsettings file is used), use the CustomTestResultsDirectory property if available
             // because there's no other way to override the TestDir
-            return testContext.Properties["CustomTestResultsDirectory"]?.ToString() ?? testContext.TestDir;
+            var dir = testContext.Properties["CustomTestResultsDirectory"]?.ToString() ?? testContext.TestDir;
+            var decoration = testContext.Properties[@"UnicodeDecoration"]?.ToString(); // Helps check unicode handling N.B. "UnicodeDecoration" must agree with RunTests.cs
+            if (string.IsNullOrEmpty(decoration))
+            {
+                return dir;
+            }
+
+            // ReSharper disable once AssignNullToNotNullAttribute
+            return Path.Combine(dir, decoration);
         }
 
         public static string GetTestPath(this TestContext testContext, string relativePath)
@@ -132,12 +148,14 @@ namespace pwiz.SkylineTestUtil
         public static void ExtractTestFiles(this TestContext testContext, string relativePathZip, string destDir, string[] persistentFiles, string persistentFilesDir)
         {
             string pathZip = testContext.GetProjectDirectory(relativePathZip);
-            try
+            bool zipFileExists = File.Exists(pathZip);
+            if (zipFileExists)
             {
-                Helpers.Try<Exception>(() =>
+                try
                 {
-                    using (ZipFile zipFile = ZipFile.Read(pathZip))
+                    TryHelper.Try<Exception>(() =>
                     {
+                        using ZipFile zipFile = ZipFile.Read(pathZip);
                         foreach (ZipEntry zipEntry in zipFile)
                         {
                             if (zipEntry.IsDirectory && !IsPersistentDir(persistentFiles, zipEntry.FileName))
@@ -153,12 +171,26 @@ namespace pwiz.SkylineTestUtil
                             else
                                 zipEntry.Extract(destDir, ExtractExistingFileAction.OverwriteSilently);
                         }
-                    }
-                });
+                    });
+                }
+                catch (Exception ex)
+                {
+                    throw new ApplicationException("Error reading test zip file: " + pathZip, ex);
+                }
             }
-            catch (Exception ex)
+
+            // If there exists a ".data" folder with the same base name as the .zip, copy all files from this.
+            // This allows overriding some of the files from the .zip, or checking the entire .zip in as an exploded
+            // .data folder
+            var dataFolderName = Path.ChangeExtension(pathZip, ".data");
+            if (Directory.Exists(dataFolderName))
             {
-                throw new ApplicationException("Error reading test zip file: " + pathZip, ex);
+                CopyRecursively(dataFolderName, destDir, zipFileExists);
+            }
+            else if (!zipFileExists)
+            {
+                throw new ApplicationException(string.Format(
+                    "Test zip file {0} and test folder {1} do not exist", pathZip, dataFolderName));
             }
         }
 
@@ -245,7 +277,7 @@ namespace pwiz.SkylineTestUtil
 
         public static string ExtAgilentRaw
         {
-            get { return CanImportAgilentRaw ? DataSourceUtil.EXT_AGILENT_BRUKER_RAW : ExtMzml; }
+            get { return CanImportAgilentRaw ? DataSourceUtil.EXT_AGILENT_BRUKER_D : ExtMzml; }
         }
 
         public static bool CanImportMobilionRaw
@@ -299,6 +331,23 @@ namespace pwiz.SkylineTestUtil
 #else
                 return false;
 #endif
+            }
+        }
+
+        private static void CopyRecursively(string sourcePath, string destinationPath, bool overwrite)
+        {
+            Directory.CreateDirectory(destinationPath);
+            foreach (string file in Directory.GetFiles(sourcePath))
+            {
+                string destinationFile = Path.Combine(destinationPath, Path.GetFileName(file));
+                File.Copy(file, destinationFile, overwrite);
+            }
+
+            // Copy each subdirectory using recursion.
+            foreach (string directory in Directory.GetDirectories(sourcePath))
+            {
+                string destinationDirectory = Path.Combine(destinationPath, Path.GetFileName(directory));
+                CopyRecursively(directory, destinationDirectory, overwrite);
             }
         }
     }

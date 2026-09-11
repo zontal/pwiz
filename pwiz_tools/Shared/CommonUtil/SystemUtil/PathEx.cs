@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -19,14 +19,34 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using System.IO;
 using System.Text.RegularExpressions;
+using System.Linq;
+using pwiz.Common.SystemUtil.PInvoke;
+using System.Text;
 
 namespace pwiz.Common.SystemUtil
 {
     public static class PathEx
     {
+        /// <summary>
+        /// Name a per-test working directory, short enough that it does not push command lines run
+        /// against it over the length limit: long test names become their capitals and digits plus the
+        /// original length, e.g. "Foo7WithBar" to "F7WB11".
+        /// <para>
+        /// Shared so that anything needing to name or reason about one of these directories agrees on
+        /// the name. In particular the parallel test runner locks them, and a lock keyed any differently
+        /// would let two tests that shorten to the same thing into the same directory at once.
+        /// </para>
+        /// </summary>
+        public static string GetTestDirectoryName(string testName, string cultureName)
+        {
+            var shortened = testName.Length > 10 // Arbitrary cutoff, but too little is likely to lead to ambiguous names
+                ? string.Concat(testName.Replace(@"Test", string.Empty).Where(c => char.IsUpper(c) || char.IsDigit(c))) + testName.Length
+                : testName;
+            return $@"{shortened}_{cultureName}";
+        }
+
         /// <summary>
         /// Determines whether the file name in the given path has a
         /// specific extension.  Because this is Windows, the comparison
@@ -42,6 +62,30 @@ namespace pwiz.Common.SystemUtil
         public static bool HasExtension(string path, string ext)
         {
             return path.ToLowerInvariant().EndsWith(ext.ToLowerInvariant());
+        }
+
+        /// <summary>
+        /// True if <paramref name="a"/> and <paramref name="b"/> refer to the same
+        /// path on disk. Normalizes both sides (GetFullPath + trailing-separator trim)
+        /// and compares case-insensitively, which is the right semantics on Windows.
+        /// Null/empty paths compare equal only to each other.
+        /// </summary>
+        public static bool SamePath(string a, string b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b))
+                return string.Equals(a, b);
+            try
+            {
+                string Normalize(string p) => Path.GetFullPath(p)
+                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                return string.Equals(Normalize(a), Normalize(b), StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                // GetFullPath throws on paths with invalid characters — fall back to a
+                // raw string comparison rather than masking that as "different".
+                return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+            }
         }
 
         public static string GetCommonRoot(IEnumerable<string> paths)
@@ -101,24 +145,26 @@ namespace pwiz.Common.SystemUtil
             return string.Join(Path.DirectorySeparatorChar.ToString(CultureInfo.InvariantCulture), parts.ToArray());
         }
 
+        /// <summary>
+        /// Environment variable which can be used to override <see cref="GetDownloadsPath"/>.
+        /// </summary>
+        public const string SKYLINE_DOWNLOAD_PATH = @"SKYLINE_DOWNLOAD_PATH";
+
         // From http://stackoverflow.com/questions/3795023/downloads-folder-not-special-enough
         // Get the path for the Downloads directory, avoiding the assumption that it's under the 
         // user's personal directory (it's possible to relocate it under newer versions of Windows)
         public static string GetDownloadsPath()
         {
-            string path = Environment.GetEnvironmentVariable(@"SKYLINE_DOWNLOAD_PATH");
+            string path = Environment.GetEnvironmentVariable(SKYLINE_DOWNLOAD_PATH);
             if (path != null)
             {
                 return path;
             }
             else if (Environment.OSVersion.Version.Major >= 6)
             {
-                IntPtr pathPtr;
-                int hr = SHGetKnownFolderPath(ref FolderDownloads, 0, IntPtr.Zero, out pathPtr);
-                if (hr == 0)
+                path = Shell32.GetDownloadsFolder();
+                if (path != null)
                 {
-                    path = Marshal.PtrToStringUni(pathPtr);
-                    Marshal.FreeCoTaskMem(pathPtr);
                     return path;
                 }
             }
@@ -129,12 +175,21 @@ namespace pwiz.Common.SystemUtil
             return path;
         }
 
-        private static Guid FolderDownloads = new Guid(@"374DE290-123F-4565-9164-39C4925E467B");
-        [DllImport(@"shell32.dll", CharSet = CharSet.Auto)]
-        private static extern int SHGetKnownFolderPath(ref Guid id, int flags, IntPtr token, out IntPtr path);
+        /// <summary>
+        /// Returns true if the <see cref="GetDownloadsPath"/> is likely to be a folder
+        /// which is shared with other users on the computer
+        /// </summary>
+        public static bool IsDownloadsPathShared()
+        {
+            // If the "SKYLINE_DOWNLOAD_PATH" environment variable has been set in a system environment
+            // variable and not a user environment variable, then assume the folder is shared
+            // with other users
+            return null != Environment.GetEnvironmentVariable(SKYLINE_DOWNLOAD_PATH)
+                   && null == Environment.GetEnvironmentVariable(SKYLINE_DOWNLOAD_PATH, EnvironmentVariableTarget.User);
+        }
 
         /// <summary>
-        /// Wrapper around <see cref="Path.GetDirectoryName"/> which, if an error occurs, adds
+        /// Wrapper around <see cref="Path.GetDirectoryName(string)"/> which, if an error occurs, adds
         /// the path to the exception message.
         /// Eventually, this method might catch the exception and try to return something reasonable,
         /// but, for now, we are trying to figure out the source of invalid paths.
@@ -149,6 +204,82 @@ namespace pwiz.Common.SystemUtil
             {
                 throw AddPathToArgumentException(e, path);
             }
+        }
+
+        public const string PREFIX_LONG_PATH = @"\\?\";
+
+        /// <summary>
+        /// Returns a path with a long-path prefix. If the passed in path already has
+        /// a long-path prefix it is returned as is. Otherwise, one is prepended.
+        /// </summary>
+        /// <param name="path">Path to convert to long-path syntax. This must be a fully qualified path.</param>
+        public static string ToLongPath(this string path)
+        {
+            if (path != null && path.StartsWith(PREFIX_LONG_PATH))
+                return path;
+
+            // Note: Using this function requires an already
+            // fully qualified path.
+            if (!IsPathFullyQualified(path))
+                throw new ArgumentException($@"Failed attempting to use long-path syntax for the path '{path}' which is not fully qualified.");
+
+            // Avoid adding the long-path prefix to a path that already has it.
+            return PREFIX_LONG_PATH + path;
+        }
+
+        /// <summary>
+        /// Returns true if the path specified is relative to the current drive or working directory.
+        /// Returns false if the path is fixed to a specific drive or UNC path.  This method does no
+        /// validation of the path (URIs will be returned as relative as a result).
+        /// </summary>
+        /// <remarks>
+        /// Copied from .NET 8 source code
+        /// Handles paths that use the alternate directory separator.  It is a frequent mistake to
+        /// assume that rooted paths (Path.IsPathRooted) are not relative.  This isn't the case.
+        /// "C:a" is drive relative- meaning that it will be resolved against the current directory
+        /// for C: (rooted, but relative). "C:\a" is rooted and not relative (the current directory
+        /// will not be used to modify the path).
+        /// </remarks>
+        public static bool IsPathFullyQualified(string path)
+        {
+            if (string.IsNullOrEmpty(path) || path.Length < 2)
+            {
+                // It isn't fixed, it must be relative.  There is no way to specify a fixed
+                // path with one character (or less).
+                return false;
+            }
+
+            if (IsDirectorySeparator(path[0]))
+            {
+                // There is no valid way to specify a relative path with two initial slashes or
+                // \? as ? isn't valid for drive relative paths and \??\ is equivalent to \\?\
+                return path[1] == '?' || IsDirectorySeparator(path[1]);
+            }
+
+            // The only way to specify a fixed path that doesn't begin with two slashes
+            // is the drive, colon, slash format- i.e. C:\
+            return path.Length >= 3
+                   && path[1] == Path.VolumeSeparatorChar
+                   && IsDirectorySeparator(path[2])
+                   // To match old behavior we'll check the drive character for validity as the path is technically
+                   // not qualified if you don't have a valid drive. "=:\" is the "=" file's default data stream.
+                   && IsValidDriveChar(path[0]);
+        }
+
+        /// <summary>
+        /// True if the given character is a directory separator.
+        /// </summary>
+        private static bool IsDirectorySeparator(char c)
+        {
+            return c == Path.DirectorySeparatorChar || c == Path.AltDirectorySeparatorChar;
+        }
+
+        /// <summary>
+        /// Returns true if the given character is a valid drive letter. (borrowed from .NET 8 code)
+        /// </summary>
+        private static bool IsValidDriveChar(char value)
+        {
+            return (uint)((value | 0x20) - 'a') <= 'z' - 'a';
         }
 
         private static ArgumentException AddPathToArgumentException(ArgumentException argumentException, string path)
@@ -184,8 +315,25 @@ namespace pwiz.Common.SystemUtil
         }
 
         /// <summary>
+        /// Apparently this was added to Path in .NET 5 and later. Several places in the project have
+        /// now implemented this with either RemovePrefix or some other method.
+        /// </summary>
+        /// <param name="relativePathTo">The base path to make the path relative to</param>
+        /// <param name="path">The full path to make relative</param>
+        /// <returns>The relative path from the base path to the given path</returns>
+        public static string GetRelativePath(string relativePathTo, string path)
+        {
+            if (!relativePathTo.EndsWith(Path.DirectorySeparatorChar.ToString()))
+                relativePathTo += Path.DirectorySeparatorChar;
+            return RemovePrefix(path, relativePathTo);
+        }
+
+        /// <summary>
         /// If the path starts with the prefix, then skip over the prefix; 
-        /// otherwise, return the original path.
+        /// otherwise, return the original path. This works well as a method of getting a relative
+        /// path in combination with <see cref="GetCommonRoot(System.Collections.Generic.IEnumerable{string})"/>, since
+        /// it is guaranteed to return a directory path ending with a Path.DirectorySeparatorChar, but not in
+        /// cases where a path to a directory lacks a terminating separator. In those cases, use <see cref="GetRelativePath"/>.
         /// </summary>
         public static string RemovePrefix(string path, string prefix)
         {
@@ -238,6 +386,23 @@ namespace pwiz.Common.SystemUtil
         }
 
         /// <summary>
+        /// Returns true iff c is a valid filename character (e.g. isn't one of \/*:?&lt;>|" nor a non-printable chars).
+        /// </summary>
+        public static bool IsValidFilenameChar(char c)
+        {
+            const string illegalFilename = "\\/*:?<>|\"";
+            return !(c < 0x20 || c == 0x7f || illegalFilename.Contains(c));
+        }
+
+        /// <summary>
+        /// Replaces invalid filename characters (\/*:?&lt;>|" and non-printable chars) with a replacement character (default '_').
+        /// </summary>
+        public static string ReplaceInvalidFilenameCharacters(string filename, char replacementChar = '_')
+        {
+            return filename.All(IsValidFilenameChar) ? filename : new string(filename.Select(c => IsValidFilenameChar(c) ? c : '_').ToArray());
+        }
+
+        /// <summary>
         /// Like Path.GetRandomFileName(), but in test context adds some legal but unusual characters for robustness testing
         /// </summary>
         /// <returns>a random filename</returns>
@@ -271,6 +436,71 @@ namespace pwiz.Common.SystemUtil
                 }
             }
             return fileName;
+        }
+
+        /// <summary>
+        /// Replaces backslashes with forward slashes. Used when paths are sent over
+        /// JSON/MCP protocols where forward slashes are the expected convention.
+        /// </summary>
+        public static string ToForwardSlashPath(this string path)
+        {
+            return path?.Replace('\\', '/');
+        }
+
+        /// <summary>
+        /// We often encounter tools that can't deal with Unicode characters in file paths, this method
+        /// will try to convert such paths to a non-Unicode version using the 8.3 format short path name.
+        /// Converts only the segments that need it, to avoid trashing filename extensions.
+        /// e.g. "C:\Program Files\Common Files\my files with ünicode\foo.mzml" (note the umlaut U) => ""C:\Program Files\Common Files\MYFILE~1\foo.mzml"
+        ///
+        /// Only works on NTFS volumes, with 8.3 support enabled. So, for example, not on Docker instances.
+        ///
+        /// N.B there is an equivalent function in pwiz CLI util.Filesystem, but not all uses of
+        /// this capability necessarily want to depend on the CLI. The Skyline test system checks for
+        /// identical performance of the two implementations.
+        ///
+        /// </summary>
+        /// <param name="path">Path to an existing file</param>
+        /// <returns>Path with unicode segments changed to 8.3 representation, if possible</returns>    
+        public static string GetNonUnicodePath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return path;
+            }
+
+            // Check for non-printable or non-ASCII characters
+            var hasNonAscii = path.Any(c => c < 32 || c > 126);
+            if (!hasNonAscii)
+            {
+                return path;
+            }
+
+            var fullPath = Path.GetFullPath(path);
+            var segments = fullPath.Split(new[] { Path.DirectorySeparatorChar }, StringSplitOptions.RemoveEmptyEntries);
+            var currentPath = segments[0] + Path.DirectorySeparatorChar; // Root directory
+
+            foreach (var segment in segments.Skip(1))
+            {
+                var nextPath = Path.Combine(currentPath, segment);
+
+                // Replace segment with 8.3 short name only if it contains non-ASCII
+                var needsShort = segment.Any(c => c < 32 || c > 126);
+                if (needsShort && (Directory.Exists(nextPath) || File.Exists(nextPath)))
+                {
+                    var sb = new StringBuilder(260);
+                    var result = Kernel32.GetShortPathName(nextPath, sb, sb.Capacity);
+                    if (result > 0)
+                    {
+                        var shortSegment = Path.GetFileName(sb.ToString());
+                        nextPath = Path.Combine(currentPath, shortSegment);
+                    }
+                }
+
+                currentPath = nextPath;
+            }
+
+            return currentPath;
         }
 
     }

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using pwiz.Common.SystemUtil;
@@ -6,7 +6,6 @@ using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Controls.Graphs;
 using pwiz.Skyline.Model;
 using pwiz.Skyline.Model.Find;
-using pwiz.Skyline.Properties;
 using ZedGraph;
 
 namespace pwiz.Skyline.Util
@@ -38,7 +37,7 @@ namespace pwiz.Skyline.Util
             var count = peptideAnnotationPairs.Count;
             if (results.Count != count)
             {
-                MessageDlg.Show(sender, string.Format(Resources.HistogramHelper_CreateAndShowFindResults_Only_showing__0___1__peptides, MAX_FINDRESULTS_PEPTIDES, count));
+                MessageDlg.Show(sender, string.Format(UtilResources.HistogramHelper_CreateAndShowFindResults_Only_showing__0___1__peptides, MAX_FINDRESULTS_PEPTIDES, count));
                 results = results.GetRange(0, MAX_FINDRESULTS_PEPTIDES);
             }
 
@@ -47,6 +46,36 @@ namespace pwiz.Skyline.Util
                 var nodes = peptideAnnotationPairs[0];
                 graphSummary.StateProvider.SelectedPath = new IdentityPath(nodes.PeptideGroup.PeptideGroup, nodes.Peptide.Peptide);
             }
+
+            Program.MainWindow.ShowFindResults(results);
+        }
+
+        //
+        // Populates the Skyline "FindResults" window when multiple items are associated
+        // with a clickable point
+        //
+        public static void CreateAndShowFindResults(ZedGraphControl sender, GraphSummary graphSummary, SrmDocument document, IList<string> peptideTextIds, string displayText)
+        {
+            var molecules = document.Molecules.ToList();
+            var matchingPeptides = molecules.Where(m => peptideTextIds.Contains(m.RawTextId)).ToList();
+            var results = new List<FindResult>(matchingPeptides.Count);
+            var pred = new FindPredicate(new FindOptions().ChangeCustomFinders(new[] { new MassErrorBinFinder(peptideTextIds, displayText) }), Program.MainWindow.SequenceTree.GetDisplaySettings(null));
+
+            for (var i = 0; i < Math.Min(matchingPeptides.Count, MAX_FINDRESULTS_PEPTIDES); i++)
+            {
+                var bookmark = new Bookmark(document.GetPathTo((int)SrmDocument.Level.Molecules, molecules.IndexOf(matchingPeptides[i])));
+                results.Add(new FindResult(pred, document, new FindMatch(bookmark, displayText)));
+            }
+
+            var count = matchingPeptides.Count;
+            if (results.Count != count)
+            {
+                MessageDlg.Show(sender, string.Format(UtilResources.HistogramHelper_CreateAndShowFindResults_Only_showing__0___1__peptides, MAX_FINDRESULTS_PEPTIDES, count));
+                results = results.GetRange(0, MAX_FINDRESULTS_PEPTIDES);
+            }
+
+            if (matchingPeptides.Count == 1)
+                graphSummary.StateProvider.SelectedPath = document.GetPathTo((int)SrmDocument.Level.Molecules, molecules.IndexOf(matchingPeptides[0]));
 
             Program.MainWindow.ShowFindResults(results);
         }

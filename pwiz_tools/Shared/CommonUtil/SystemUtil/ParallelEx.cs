@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -19,8 +19,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
+using System.Runtime.ExceptionServices;
+using JetBrains.Annotations;
 
 namespace pwiz.Common.SystemUtil
 {
@@ -39,19 +39,31 @@ namespace pwiz.Common.SystemUtil
             public int TheInt { get; private set; }
         }
 
+        private const int DEFAULT_MAX_THREAD_COUNT = 8;
         public static int GetThreadCount(int? maxThreads = null)
         {
             if (SINGLE_THREADED)
                 return 1;
             int threadCount = Environment.ProcessorCount;
-            int maxThreadCount = maxThreads ?? 8; // Trial with maximum of 8
+            int maxThreadCount = maxThreads ?? DEFAULT_MAX_THREAD_COUNT; // Trial with maximum of 8
             if (threadCount > maxThreadCount)
                 threadCount = maxThreadCount;
             return threadCount;
         }
 
-        public static void For(int fromInclusive, int toExclusive, Action<int> body, Action<AggregateException> catchClause = null, int? maxThreads = null)
+        public static void For(int fromInclusive, int toExclusive, [InstantHandle] Action<int> body, Action<AggregateException> catchClause = null, int? maxThreads = null, string threadName = null)
         {
+            int count = toExclusive - fromInclusive;
+            if (count <= 0)
+            {
+                return;
+            }
+
+            if (count == 1 && catchClause == null)
+            {
+                body(fromInclusive);
+                return;
+            }
             Action<int> localBody = i =>
             {
                 LocalizationHelper.InitThread(); // Ensure appropriate culture
@@ -61,7 +73,7 @@ namespace pwiz.Common.SystemUtil
             {
                 using (var worker = new QueueWorker<IntHolder>(null, (h, i) => localBody(h.TheInt)))
                 {
-                    worker.RunAsync(GetThreadCount(maxThreads), typeof(ParallelEx).Name);
+                    worker.RunAsync(GetThreadCount(maxThreads ?? Math.Min(count, DEFAULT_MAX_THREAD_COUNT)), threadName ?? nameof(ParallelEx));
                     for (int i = fromInclusive; i < toExclusive; i++)
                     {
                         if (worker.Exception != null)
@@ -76,7 +88,7 @@ namespace pwiz.Common.SystemUtil
 //            LoopWithExceptionHandling(() => Parallel.For(fromInclusive, toExclusive, PARALLEL_OPTIONS, localBody), catchClause);
         }
 
-        public static void ForEach<TSource>(IEnumerable<TSource> source, Action<TSource> body, Action<AggregateException> catchClause = null, int? maxThreads = null) where TSource : class
+        public static void ForEach<TSource>(IEnumerable<TSource> source, Action<TSource> body, Action<AggregateException> catchClause = null, int? maxThreads = null, string threadName = null) where TSource : class
         {
             Action<TSource> localBody = o =>
             {
@@ -87,7 +99,7 @@ namespace pwiz.Common.SystemUtil
             {
                 using (var worker = new QueueWorker<TSource>(null, (s, i) => localBody(s)))
                 {
-                    worker.RunAsync(GetThreadCount(maxThreads), typeof(ParallelEx).Name);
+                    worker.RunAsync(GetThreadCount(maxThreads), threadName ?? nameof(ParallelEx));
                     foreach (TSource s in source)
                     {
                         if (worker.Exception != null)
@@ -130,19 +142,11 @@ namespace pwiz.Common.SystemUtil
 
                 if (ex != null)
                 {
-                    // The thrown exception needs to be preserved to preserve
-                    // the original stack trace from which it was thrown.  In some cases,
-                    // its type must also be preserved, because existing code handles certain
-                    // exception types.  If this case threw only TargetInvocationException,
-                    // then more frequently the code would just have to have a blanket catch
-                    // of the base exception type, which could hide coding errors.
-                    if (ex is InvalidDataException)
-                        throw new InvalidDataException(ex.Message, ex);
-                    if (ex is IOException)
-                        throw new IOException(ex.Message, ex);
-                    if (ex is OperationCanceledException)
-                        throw new OperationCanceledException(ex.Message, ex);
-                    throw new TargetInvocationException(ex.Message, ex);
+                    // Rethrow the exception from the worker thread with both its type and its
+                    // original stack trace intact.  The type matters because existing code
+                    // catches specific exception types, and the stack trace from the throw
+                    // site is what makes a reported error diagnosable.
+                    ExceptionDispatchInfo.Capture(ex).Throw();
                 }
                 if (catchClause != null)
                     catchClause(x);

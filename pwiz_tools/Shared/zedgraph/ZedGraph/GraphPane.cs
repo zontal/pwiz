@@ -1,6 +1,6 @@
 //============================================================================
 //ZedGraph Class Library - A Flexible Line Graph/Bar Graph Library in C#
-//Copyright © 2004  John Champion
+//Copyright Â© 2004  John Champion
 //
 //This library is free software; you can redistribute it and/or
 //modify it under the terms of the GNU Lesser General Public
@@ -21,6 +21,7 @@ using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Collections;
+using System.Collections.Generic;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
 using System.Diagnostics;
@@ -28,6 +29,7 @@ using System.IO;
 using System.Runtime.Serialization;
 using System.Security.Permissions;
 using System.ComponentModel;
+using System.Linq;
 
 namespace ZedGraph
 {
@@ -141,6 +143,33 @@ namespace ZedGraph
 		/// </summary>
 		/// <seealso cref="Default.LineType"/>
 		private LineType _lineType;
+
+		private LabelLayout _labelLayout;
+
+		/// <summary>
+		/// Indicates if this graph pane has the LabelLayout object attached.
+		/// Setting it to false removes the layout object.
+		/// </summary>
+		public bool EnableLabelLayout
+		{
+			get => _labelLayout != null;
+			set
+			{
+				if (!value)
+					_labelLayout = null;
+			}
+		}
+		public LabelLayout Layout => _labelLayout;
+
+		/// <summary>
+		/// Raised when plot changes occur that should trigger a label layout update.
+		/// </summary>
+		public event EventHandler LayoutRequested;
+
+		internal void OnLayoutRequested()
+		{
+			LayoutRequested?.Invoke(this, EventArgs.Empty);
+		}
 
 	#endregion
 
@@ -536,7 +565,7 @@ namespace ZedGraph
 		/// </summary>
 		/// <param name="info">A <see cref="SerializationInfo"/> instance that defines the serialized data</param>
 		/// <param name="context">A <see cref="StreamingContext"/> instance that contains the serialized data</param>
-		[SecurityPermissionAttribute( SecurityAction.Demand, SerializationFormatter = true )]
+		[SecurityPermission( SecurityAction.Demand, SerializationFormatter = true )]
 		public override void GetObjectData( SerializationInfo info, StreamingContext context )
 		{
 			base.GetObjectData( info, context );
@@ -848,7 +877,7 @@ namespace ZedGraph
 			foreach ( Axis axis in _y2AxisList )
 				axis.Scale.ResetScaleData();
 			*/
-		}
+        }
 
 		internal void DrawGrid( Graphics g, float scaleFactor )
 		{
@@ -1507,9 +1536,66 @@ namespace ZedGraph
 			return slices;
 		}
 
-	#endregion
+		#endregion
 
-	#region General Utility Methods
+		#region General Utility Methods
+
+        public bool ApplyLabelLayout(LabelLayout labelLayout, LabelLayout.LayoutResult result, Graphics g)
+        {
+            if (labelLayout == null || result == null)
+                return false;
+
+            if (_labelLayout != null)
+            {
+                foreach (var existing in _labelLayout.LabeledPoints.Values)
+                {
+                    GraphObjList.Remove(existing.Connector);
+                }
+            }
+
+            _labelLayout = labelLayout;
+            if (!_labelLayout.ApplyPlacements(result, g))
+                return false;
+
+            foreach (var labPoint in _labelLayout.LabeledPoints.Values)
+            {
+                GraphObjList.Remove(labPoint.Connector);
+                _labelLayout.DrawConnector(labPoint, g);
+            }
+
+            return true;
+        }
+
+        public LabeledPoint OverLabel(Point mousePt, out bool isOverBoundary)
+        {
+            isOverBoundary = false;
+            if (_labelLayout != null)
+            {
+                using (Graphics g = Graphics.FromHwnd(IntPtr.Zero))
+                {
+                    if (FindNearestObject(mousePt, g, out var nearestObj, out _))
+                    {
+                        if (nearestObj is TextObj label && _labelLayout.LabeledPoints.TryGetValue(label, out var labPoint))
+                        {
+                            float scaleFactor = CalcScaleFactor();
+                            isOverBoundary = labPoint.Label.PointOnBoxBoundary(mousePt, this, g, scaleFactor);
+                            return labPoint;
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+        
+        public RectangleF GetRectScreen(TextObj obj, Graphics g)
+        {
+            PointF pix = obj.Location.Transform(this);
+            var points = obj.FontSpec.GetBox(g, obj.Text, pix.X, pix.Y, obj.Location.AlignH,
+                obj.Location.AlignV, CalcScaleFactor(), new SizeF());
+            var res = new RectangleF(points[0].X, points[0].Y, points[2].X - points[0].X, points[2].Y - points[0].Y);
+            return res;
+        }
+
 		/// <summary>
 		/// Transform a data point from the specified coordinate type
 		/// (<see cref="CoordType"/>) to screen coordinates (pixels).
@@ -2174,9 +2260,10 @@ namespace ZedGraph
 									{
 										valueHandler.GetValues( curve, iPt, out xVal, out _, out yVal );
 									}
-
-									distX = ( xVal - xAct ) * xPixPerUnit;
-									distY = ( yVal - yAct ) * yPixPerUnitAct;
+									// Pixel distance needs to be calculated differently for log scale graphs
+									var testDist = 
+                                    distY = yAxis.Scale.Transform(yVal) - yAxis.Scale.Transform(yAct); ;
+									distX = xAxis.Scale.Transform(xVal) - xAxis.Scale.Transform(xAct); ;
 									dist = distX * distX + distY * distY;
 
 									if ( dist >= minDist )
@@ -2221,7 +2308,91 @@ namespace ZedGraph
 			else  // otherwise, no valid point found
 				return false;
 		}
+        public bool FindNearestStick(PointF mousePt, out StickItem nearestStick, out int iNearestIndex)
+        {
+            nearestStick = null;
+            iNearestIndex = -1;
+            if (!_chart._rect.Contains(mousePt))
+                return false;
+            double x, x2;
+            double[] y;
+            double[] y2;
+            ReverseTransform(mousePt, out x, out x2, out y, out y2);
 
+            if (!AxisRangesValid())
+                return false;
+
+            double minDist = 1e20;
+
+            foreach (var stickItem in CurveList.OfType<StickItem>())
+            {
+                if (stickItem.IsVisible)
+                {
+                    double yAct, xAct;
+                    int yIndex = stickItem.GetYAxisIndex(this);
+                    Axis yAxis = stickItem.GetYAxis(this);
+                    Axis xAxis = stickItem.GetXAxis(this);
+
+                    if (stickItem.IsY2Axis)
+                        yAct = y2[yIndex];
+                    else
+                        yAct = y[yIndex];
+
+                    xAct = xAxis is XAxis ? x : x2;
+                    IPointList points = stickItem.Points;
+                    if (points != null)
+                    {
+                        for (int iPt = 0; iPt < stickItem.NPts; iPt++)
+                        {
+                            double xVal, yVal;
+                            // xVal is the user scale X value of the current point
+                            if (xAxis._scale.IsAnyOrdinal && !stickItem.IsOverrideOrdinal)
+                                xVal = (double)iPt + 1.0;
+                            else
+                                xVal = points[iPt].X;
+
+                            // yVal is the user scale Y value of the current point
+                            if (yAxis._scale.IsAnyOrdinal && !stickItem.IsOverrideOrdinal)
+                                yVal = (double)iPt + 1.0;
+                            else
+                                yVal = points[iPt].Y;
+
+                            if (xVal != PointPairBase.Missing &&
+                                yVal != PointPairBase.Missing)
+                            {
+                                if (yVal >= 0)
+                                {
+									if (yAct < 0 || yAct > yVal)
+                                        continue;
+                                }
+                                else 
+                                {
+									if (yAct < yVal || yAct > 0)
+                                        continue;
+                                }
+                                if (nearestStick == null)
+                                {
+                                    nearestStick = stickItem;
+                                    iNearestIndex = iPt;
+                                }
+                                var xDist = Math.Abs(XAxis.Scale.Transform(xVal) - XAxis.Scale.Transform(xAct));
+                                if (xDist < minDist)
+                                {
+                                    minDist = xDist;
+                                    nearestStick = stickItem;
+                                    iNearestIndex = iPt;
+                                }
+                            }
+                        }
+                        if (nearestStick != null && minDist <= Default.NearestTol)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+            return false;
+        }
 		/// <summary>
 		/// Search through the <see cref="GraphObjList" /> and <see cref="CurveList" /> for
 		/// items that contain active <see cref="Link" /> objects.

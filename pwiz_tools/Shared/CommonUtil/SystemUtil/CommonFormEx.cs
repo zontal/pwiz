@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -20,15 +20,54 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Linq;
 using System.Windows.Forms;
+using pwiz.Common.GUI;
 
 namespace pwiz.Common.SystemUtil
 {
-    public class CommonFormEx : Form, IFormView
+    /// <summary>
+    /// Implemented by form base classes to signal that the form is closing or disposing.
+    /// Background threads should check this before calling BeginInvoke to avoid deadlock
+    /// when .NET attempts to recreate a handle on a closing form.
+    /// </summary>
+    public interface IClosingAware
     {
-        public static bool TestMode { get; set; }
-        public static bool Offscreen { get; set; }
-        public static bool ShowFormNames { get; set; }
+        bool IsClosingOrDisposing { get; }
+    }
+
+    public class CommonFormEx : Form, IFormView, IClosingAware
+    {
+        /// <summary>
+        /// Flag indicating the form is closing or disposing. Set early (in OnFormClosing)
+        /// to give background threads maximum warning before the handle is destroyed.
+        /// Used by SafeBeginInvoke to avoid deadlock when BeginInvoke tries to recreate
+        /// a handle on a closing form.
+        /// </summary>
+        private volatile bool _isClosingOrDisposing;
+
+        /// <summary>
+        /// Returns true if this form is in the process of closing or disposing.
+        /// Background threads should check this before calling BeginInvoke.
+        /// </summary>
+        public bool IsClosingOrDisposing => _isClosingOrDisposing;
+
+        public static bool TestMode
+        {
+            get { return CommonApplicationSettings.FunctionalTest; }
+        }
+        public static bool PauseMode
+        {
+            get { return CommonApplicationSettings.PauseSeconds != 0; }
+        }
+        public static bool Offscreen
+        {
+            get { return CommonApplicationSettings.Offscreen; }
+        }
+        public static bool ShowFormNames
+        {
+            get { return CommonApplicationSettings.ShowFormNames; }
+        }
 
         private static readonly List<CommonFormEx> _undisposedForms = new List<CommonFormEx>();
 
@@ -42,7 +81,12 @@ namespace pwiz.Common.SystemUtil
 
             // Track undisposed forms.
             if (TestMode)
-                _undisposedForms.Add(this);
+            {
+                lock (_undisposedForms)
+                {
+                    _undisposedForms.Add(this);
+                }
+            }
 
 // ReSharper disable LocalizableElement
             if (ShowFormNames)
@@ -52,24 +96,56 @@ namespace pwiz.Common.SystemUtil
 
         protected override bool ShowWithoutActivation
         {
-            get { return TestMode || Offscreen; }
+            // Avoid activating forms during test mode or when off screen, but not when
+            // pausing to show Skyline as it normally functions.
+            get { return (TestMode || Offscreen) && !PauseMode; }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            base.OnFormClosing(e);
+            // Set the flag after base call in case a handler cancelled the close.
+            // This gives background threads early warning before handle destruction,
+            // helping SafeBeginInvoke avoid deadlock.
+            if (!e.Cancel)
+                _isClosingOrDisposing = true;
+        }
+
+        protected override void OnHandleDestroyed(EventArgs e)
+        {
+            // Belt-and-suspenders: also set when handle is destroyed
+            _isClosingOrDisposing = true;
+            base.OnHandleDestroyed(e);
         }
 
         protected override void Dispose(bool disposing)
         {
+            _isClosingOrDisposing = true;
             base.Dispose(disposing);
 
             if (TestMode && disposing)
-                _undisposedForms.Remove(this);
+            {
+                lock (_undisposedForms)
+                {
+                    _undisposedForms.Remove(this);
+                }
+            }
         }
 
         public static void CheckAllFormsDisposed()
         {
-            if (_undisposedForms.Count != 0)
+            lock (_undisposedForms)
             {
-                var formType = _undisposedForms[0].GetType().Name;
-                _undisposedForms.Clear();
-                throw new ApplicationException(formType + @" was not disposed");
+                if (_undisposedForms.Count != 0)
+                {
+                    var formType = _undisposedForms[0].GetType();
+                    string exceptionMessage = formType + @" was not disposed";
+                    string message = _undisposedForms.OfType<CommonAlertDlg>().FirstOrDefault()?.Message;
+                    if (message != null)
+                        exceptionMessage = CommonTextUtil.LineSeparate(exceptionMessage, @"message: " + message);
+                    _undisposedForms.Clear();
+                    throw new ApplicationException(exceptionMessage);
+                }
             }
         }
 
@@ -84,10 +160,29 @@ namespace pwiz.Common.SystemUtil
             var offscreenPoint = new Point(0, 0);
             foreach (var screen in Screen.AllScreens)
             {
-                offscreenPoint.X = Math.Min(offscreenPoint.X, screen.Bounds.Right);
-                offscreenPoint.Y = Math.Min(offscreenPoint.Y, screen.Bounds.Bottom);
+                offscreenPoint.X = Math.Min(offscreenPoint.X, screen.Bounds.Left);
+                offscreenPoint.Y = Math.Min(offscreenPoint.Y, screen.Bounds.Top);
             }
             return offscreenPoint - Screen.PrimaryScreen.Bounds.Size;    // position one screen away to top left
+        }
+        public void CheckDisposed()
+        {
+            if (IsDisposed)
+            {
+                throw new ObjectDisposedException(@"Form disposed");
+            }
+        }
+
+        public virtual string DetailedMessage { get { return null; } }
+
+        public DialogResult ShowParentlessDialog()
+        {
+            // Parentless dialogs should always be shown in the taskbar because:
+            // 1. If not shown in the taskbar it will be a leak in Windows 10
+            // 2. It is difficult to switch to Skyline if there is a modal dialog which is not in the taskbar
+            ShowInTaskbar = true;
+
+            return ShowDialog();
         }
     }
 }

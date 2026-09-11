@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Don Marsh <donmarsh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -22,9 +22,10 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Windows.Forms;
+using pwiz.Common.SystemUtil.PInvoke;
+using TestRunnerLib.PInvoke;
 using Timer = System.Windows.Forms.Timer;
 
 namespace SkylineTester
@@ -45,16 +46,6 @@ namespace SkylineTester
         public DateTime RunStartTime { get; set; }
         public bool IsUnattended { get; set; }
         public readonly object LogLock = new object();
-
-        /// <summary>Checks whether our child process is being debugged.</summary>
-        /// From https://www.codeproject.com/articles/670193/csharp-detect-if-debugger-is-attached
-        /// The "remote" in CheckRemoteDebuggerPresent does not imply that the debugger
-        /// necessarily resides on a different computer; instead, it indicates that the 
-        /// debugger resides in a separate and parallel process.
-        /// Use the IsDebuggerPresent function to detect whether the calling process 
-        /// is running under the debugger.
-        [DllImport("kernel32.dll", SetLastError = true, ExactSpelling = true)]
-        static extern bool CheckRemoteDebuggerPresent(IntPtr hProcess, ref bool isDebuggerPresent);
 
         private string _workingDirectory;
         private readonly List<string> _commands = new List<string>();
@@ -406,10 +397,12 @@ namespace SkylineTester
                 _process.ErrorDataReceived += HandleOutput;
                 _process.Exited += ProcessExit;
             }
+
+            _processName = Path.GetFileNameWithoutExtension(exe);
+            var process = _process;
             _process.Start();
-            _processName = _process.ProcessName;
-            _process.BeginOutputReadLine();
-            _process.BeginErrorReadLine();
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
             ResetLastOutputTime();
         }
 
@@ -488,7 +481,7 @@ namespace SkylineTester
                 if (_process == null)
                     return false;
                 var isDebuggerAttached=false;
-                CheckRemoteDebuggerPresent(_process.Handle, ref isDebuggerAttached);
+                Kernel32Test.CheckRemoteDebuggerPresent(_process.Handle, ref isDebuggerAttached);
                 return isDebuggerAttached;
             }
         }
@@ -500,12 +493,14 @@ namespace SkylineTester
         /// </summary>
         void ProcessExit(object sender, EventArgs e)
         {
-            ProcessExit(false);
+            if (ReferenceEquals(sender, _process))
+                ProcessExit(false);
         }
 
         void ProcessExitIgnoreError(object sender, EventArgs e)
         {
-            ProcessExit(true);
+            if (ReferenceEquals(sender, _process))
+                ProcessExit(true);
         }
 
         void ProcessExit(bool ignoreError)
@@ -514,7 +509,6 @@ namespace SkylineTester
                 return;
 
             var exitCode = _process.ExitCode; // That's all the info you can get from a process that has exited - no name etc
-            var processName = _process.ToString();
             _process = null;
             bool processKilled = _processKilled;
             _processKilled = false;
@@ -539,7 +533,7 @@ namespace SkylineTester
                 try
                 {
                     if (!processKilled)
-                        Log(Environment.NewLine + "# Process " + (_processName??string.Empty) + " had nonzero exit code " + exitCode + Environment.NewLine);
+                        Log(Environment.NewLine + "# Process " + (_processName??string.Empty) + " had nonzero exit code " + Kernel32.FormatExitCode(exitCode) + Environment.NewLine);
                     RunUI(() => CommandsDone(_restartOnProcessFailure && !processKilled ? EXIT_TYPE.error_restart : EXIT_TYPE.error_stop));
                 }
 // ReSharper disable once EmptyGeneralCatchClause
@@ -564,18 +558,74 @@ namespace SkylineTester
             set
             {
                 _logFile = value;
-                if (File.Exists(_logFile))
+                VisibleLogFile = _logFile;
+            }
+        }
+
+        /// <summary>
+        /// Points the shell at <paramref name="logFile"/> for a new run, rolling any existing log
+        /// aside to a timestamped name instead of deleting it.
+        /// <para>Assigning <see cref="LogFile"/> used to delete the file it was given, which made
+        /// starting a run destroy the previous run's log before a single test had produced output.
+        /// A second click on the Run/Stop button while a stop was still in flight was enough to
+        /// lose a nine-hour run that way, so the record of a long run now survives one accidental
+        /// start.</para>
+        /// <para>Exactly one previous log is kept: older rolled logs are removed, so this cannot
+        /// accumulate. A failure to roll leaves the old log in place and is reported to the log
+        /// rather than swallowed - losing the previous log is the thing being prevented.</para>
+        /// </summary>
+        public void StartNewLog(string logFile)
+        {
+            LogFile = logFile;  // Set first, so a failure below is logged against the new target
+
+            if (string.IsNullOrEmpty(logFile))
+                return;
+
+            // Everything below is inside the try: the file can be locked, or vanish between two
+            // calls, and File.Exists/FileInfo.Length/Move all throw on that. Nothing about
+            // preparing a log is worth taking the window down at the start of a run.
+            try
+            {
+                // Under LogLock, like every other access to this file: UpdateLog appends under it
+                // and the memory graph reads the whole file under it on a background thread. A
+                // refresh landing mid-roll would otherwise fail the Move with a sharing violation.
+                lock (LogLock)
                 {
-                    try
+                    if (!File.Exists(logFile) || new FileInfo(logFile).Length == 0)
+                        return;     // Nothing worth keeping
+
+                    var directory = Path.GetDirectoryName(logFile) ?? string.Empty;
+                    var baseName = Path.GetFileNameWithoutExtension(logFile);
+                    var extension = Path.GetExtension(logFile);
+
+                    var rolledLog = Path.Combine(directory,
+                        baseName + DateTime.Now.ToString("-yyyyMMdd-HHmmss") + extension);
+
+                    // Second resolution, so a second roll within the same second would collide and
+                    // Move would throw. That destination is a log seconds old at most, unlike the
+                    // one being rolled now.
+                    if (File.Exists(rolledLog))
+                        File.Delete(rolledLog);
+
+                    // Move before pruning. Pruning first would mean a Move that then throws - the
+                    // log is the file most likely to be locked at run start - had already discarded
+                    // the older rolled log for nothing.
+                    File.Move(logFile, rolledLog);
+
+                    // Keep exactly one previous log. Nightly logs are named and pruned by Summary in
+                    // its own directory, and do not match this pattern.
+                    foreach (var oldLog in Directory.GetFiles(directory, baseName + "-*" + extension))
                     {
-                        File.Delete(_logFile);
-                    }
-// ReSharper disable once EmptyGeneralCatchClause
-                    catch (Exception)
-                    {
+                        if (!string.Equals(oldLog, rolledLog, StringComparison.OrdinalIgnoreCase))
+                            File.Delete(oldLog);
                     }
                 }
-                VisibleLogFile = _logFile;
+            }
+            catch (Exception e)
+            {
+                // The old log stays where it is and the run appends to it. Mixed output beats
+                // destroying the record of a long run, which is the reason for rolling at all.
+                Log("# Could not roll the previous log aside: " + e.Message);
             }
         }
 

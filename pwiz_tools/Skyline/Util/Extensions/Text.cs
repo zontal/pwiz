@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brendan MacLean <brendanx .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -22,7 +22,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using pwiz.Common.SystemUtil;
@@ -35,24 +34,48 @@ namespace pwiz.Skyline.Util.Extensions
     /// </summary>
     public static class TextUtil
     {
+        public const string HYPHEN = "-";
+        public const string SPACE = " ";
+        public const string CARET = @"^";
+        public const string AMPERSAND = @"&";
+        public const string AT = @"@";
+        public const string EQUAL = @"=";
+        public const string FORWARD_SLASH = @"/";
+        public const string SEMICOLON = @";";
+        public const string UNDERSCORE = @"_";
+        public const string LEFT_PARENTHESIS = @"(";
+        public const string RIGHT_PARENTHESIS = @")";
+        public const string LEFT_SQUARE_BRACKET = @"[";
+        public const string RIGHT_SQUARE_BRACKET = @"]";
+
         public const string EXT_CSV = ".csv";
         public const string EXT_TSV = ".tsv";
+        public const string EXT_PARQUET = ".parquet";
 
         public static string FILTER_CSV
         {
-            get { return FileDialogFilter(Resources.TextUtil_DESCRIPTION_CSV_CSV__Comma_delimited_, EXT_CSV); }
+            get { return FileDialogFilter(ExtensionsResources.TextUtil_DESCRIPTION_CSV_CSV__Comma_delimited_, EXT_CSV); }
         }
 
         public static string FILTER_TSV
         {
-            get { return FileDialogFilter(Resources.TextUtil_DESCRIPTION_TSV_TSV__Tab_delimited_, EXT_TSV); }
+            get { return FileDialogFilter(ExtensionsResources.TextUtil_DESCRIPTION_TSV_TSV__Tab_delimited_, EXT_TSV); }
+        }
+
+        public static string FILTER_PARQUET
+        {
+            get { return FileDialogFilter(ExtensionsResources.TextUtil_DESCRIPTION_PARQUET_Parquet, EXT_PARQUET); }
         }
 
         public const char SEPARATOR_CSV = ',';
         public const char SEPARATOR_CSV_INTL = ';'; // International CSV for comma-decimal locales
         public const char SEPARATOR_TSV = '\t';
-        public static readonly string SEPARATOR_TSV_STR = SEPARATOR_TSV.ToString(); 
+        public static readonly string SEPARATOR_TSV_STR = SEPARATOR_TSV.ToString();
         public const char SEPARATOR_SPACE = ' ';
+        // ASCII unit separator (U+001F). Used as an in-memory delimiter for joining
+        // repeated single-arg config values (e.g. DIA-NN --fasta) so the parser can
+        // round-trip multi-occurrence flags through a Dictionary<string,string>.
+        public const char SEPARATOR_UNIT = '';
 
         public const string EXCEL_NA = "#N/A";
 
@@ -70,8 +93,8 @@ namespace pwiz.Skyline.Util.Extensions
         /// The CSV separator character for a given culture.  Like Excel, a comma
         /// is used unless the decimal separator is a comma.  This allows exported CSV
         /// files to be imported directly into Excel on the same system.
-        /// <param name="cultureInfo">The culture for which the separator is requested.</param>
         /// </summary>
+        /// <param name="cultureInfo">The culture for which the separator is requested.</param>
         public static char GetCsvSeparator(IFormatProvider cultureInfo)
         {
             var numberFormat = cultureInfo.GetFormat(typeof(NumberFormatInfo)) as NumberFormatInfo;
@@ -361,6 +384,11 @@ namespace pwiz.Skyline.Util.Extensions
             return '"' + text + '"';
         }
 
+        public static string SingleQuote(this string text)
+        {
+            return '\'' + text + '\'';
+        }
+
         /// <summary>
         /// This function can be used as a replacement for String.Join("\n", ...)
         /// </summary>
@@ -368,14 +396,7 @@ namespace pwiz.Skyline.Util.Extensions
         /// <returns>A single string containing the original set separated by new lines</returns>
         public static string LineSeparate(IEnumerable<string> lines)
         {
-            var sb = new StringBuilder();
-            foreach (string line in lines)
-            {
-                if (sb.Length > 0)
-                    sb.AppendLine();
-                sb.Append(line);
-            }
-            return sb.ToString();
+            return CommonTextUtil.LineSeparate(lines);
         }
 
         /// <summary>
@@ -389,20 +410,28 @@ namespace pwiz.Skyline.Util.Extensions
         }
 
         /// <summary>
+        /// Utility function for <see cref="string"/> like <see cref="File"/> ReadLines().
+        /// </summary>
+        /// <param name="text">Text possibly multi-line</param>
+        /// <returns>Enumerable lines without line endings</returns>
+        public static IEnumerable<string> ReadLines(this string text)
+        {
+            using var reader = new StringReader(text);
+            var lines = new List<string>();
+            string line;
+            while ((line = reader.ReadLine()) != null)
+                lines.Add(line);
+            return lines;
+        }
+
+        /// <summary>
         /// This function can be used as a replacement for String.Join(" ", ...)
         /// </summary>
         /// <param name="values">A set of strings to be separated by spaces</param>
         /// <returns>A single string containing the original set separated by spaces</returns>
         public static string SpaceSeparate(IEnumerable<string> values)
         {
-            var sb = new StringBuilder();
-            foreach (string value in values)
-            {
-                if (sb.Length > 0)
-                    sb.Append(SEPARATOR_SPACE);
-                sb.Append(value);
-            }
-            return sb.ToString();
+            return CommonTextUtil.SpaceSeparate(values);
         }
 
         /// <summary>
@@ -460,7 +489,7 @@ namespace pwiz.Skyline.Util.Extensions
         /// </summary>
         public static string AppendColon(string left)
         {
-            return left + Resources.ColonEndOfLine;
+            return left + ExtensionsResources.ColonEndOfLine;
         }
 
         /// <summary>
@@ -468,7 +497,15 @@ namespace pwiz.Skyline.Util.Extensions
         /// </summary>
         public static string ColonSeparate(string left, string right)
         {
-            return string.Format(Resources.ColonSeparator, left, right);
+            return string.Format(ExtensionsResources.ColonSeparator, left, right);
+        }
+
+        /// <summary>
+        /// Separates items in a list with the localized comma character
+        /// </summary>
+        public static string CommaSeparateListItems(this IEnumerable<string> values)
+        {
+            return string.Join(ExtensionsResources.ListItemSeparator, values);
         }
 
         /// <summary>
@@ -570,6 +607,70 @@ namespace pwiz.Skyline.Util.Extensions
             return sb.ToString();
         }
 
+        public static string EscapePipe(string str)
+        {
+            return str.Replace(@"|", @"\pipe");
+        }
+        public static string UnescapePipe(string str)
+        {
+            return str.Replace(@"\pipe", @"|");
+        }
+        /// <summary>
+        /// Replaces tabs, carriage returns, and newlines with spaces, collapsing
+        /// consecutive whitespace into a single space. Useful for embedding
+        /// multi-line descriptions into TSV fields without escaping.
+        /// </summary>
+        public static string FlattenToSingleLine(this string str)
+        {
+            if (string.IsNullOrEmpty(str))
+                return string.Empty;
+            var sb = new StringBuilder(str.Length);
+            bool lastWasSpace = false;
+            foreach (char c in str)
+            {
+                if (c == '\r' || c == '\n' || c == '\t')
+                {
+                    if (!lastWasSpace)
+                    {
+                        sb.Append(' ');
+                        lastWasSpace = true;
+                    }
+                }
+                else if (c == ' ')
+                {
+                    if (!lastWasSpace)
+                    {
+                        sb.Append(' ');
+                        lastWasSpace = true;
+                    }
+                }
+                else
+                {
+                    sb.Append(c);
+                    lastWasSpace = false;
+                }
+            }
+            return sb.ToString().TrimEnd();
+        }
+
+        private const int TAB_SIZE = 4;
+
+        public static string GetIndentation(int indentLevel, int tabSize = TAB_SIZE)
+        {
+            if (indentLevel <= 0)
+                return string.Empty;
+
+            return new string(' ', tabSize * indentLevel);
+        }
+
+        public static string Indent(this string s, int indentLevel, int tabSize = TAB_SIZE)
+        {
+            if (s == null || indentLevel <= 0)
+                return s;
+
+            return GetIndentation(indentLevel, tabSize) + s;
+        }
+
         /// <summary>
         /// Returns a filter string suitable for a common file dialog (e.g. "CSV (Comma delimited) (*.csv)|*.csv")
         /// </summary>
@@ -616,7 +717,7 @@ namespace pwiz.Skyline.Util.Extensions
         public static string FileDialogFiltersAll(params string[] filters)
         {
             var listFilters = filters.ToList();
-            listFilters.Add(FileDialogFilter(Resources.TextUtil_FileDialogFiltersAll_All_Files, @".*"));
+            listFilters.Add(FileDialogFilter(ExtensionsResources.TextUtil_FileDialogFiltersAll_All_Files, @".*"));
             return string.Join(@"|", listFilters);
         }
 
@@ -627,12 +728,12 @@ namespace pwiz.Skyline.Util.Extensions
         /// </summary>
         public static string EncryptString(string str)
         {
-            return Convert.ToBase64String(ProtectedData.Protect(Encoding.UTF8.GetBytes(str), null, DataProtectionScope.CurrentUser));
+            return CommonTextUtil.EncryptString(str);
         }
 
         public static string DecryptString(string str)
         {
-            return Encoding.UTF8.GetString(ProtectedData.Unprotect(Convert.FromBase64String(str), null, DataProtectionScope.CurrentUser));
+            return CommonTextUtil.DecryptString(str);
         }
 
         /// <summary>
@@ -732,26 +833,49 @@ namespace pwiz.Skyline.Util.Extensions
             }
         }
 
-        // Try to read a string as a double in InvariantCulture, failing that try to read it as a double using "," as the decimal separator
-        public static bool TryParseDoubleUncertainCulture(string valString, out double dval)
-        {
-            if (!double.TryParse(valString, NumberStyles.Float, CultureInfo.InvariantCulture, out dval) &&
-                !double.TryParse(valString.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out dval))
-            {
-                return false;
-            }
-            return true;
-        }
 
-        // Try to read a string as a float in InvariantCulture, failing that try to read it as a float using "," as the decimal separator
-        public static bool TryParseFloatUncertainCulture(string valString, out float fval)
+        /// <summary>
+        /// Insert spaces if necessary to ensure that the string has no regions with
+        /// more than <paramref name="maxWordLength"/> non-whitespace characters.
+        /// This ensures that text measuring code will not spend too long looking for
+        /// word breaks.
+        /// </summary>
+        public static string EnforceMaxWordLength(string str, int maxWordLength)
         {
-            if (!float.TryParse(valString, NumberStyles.Float, CultureInfo.InvariantCulture, out fval) &&
-                !float.TryParse(valString.Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out fval))
+            if (str.Length <= maxWordLength)
             {
-                return false;
+                return str;
             }
-            return true;
+
+            int currentWordLength = 0;
+            StringBuilder stringBuilder = null;
+            
+            for (int i = 0; i < str.Length; i++)
+            {
+                var ch = str[i];
+                if (char.IsWhiteSpace(ch) || ch == '-')
+                {
+                    currentWordLength = 0;
+                }
+                else
+                {
+                    if (currentWordLength == maxWordLength)
+                    {
+                        stringBuilder ??= new StringBuilder(str.Substring(0, i));
+                        stringBuilder.Append(' ');
+                        currentWordLength = 0;
+                    }
+                    currentWordLength++;
+                }
+
+                stringBuilder?.Append(ch);
+            }
+
+            if (stringBuilder == null)
+            {
+                return str;
+            }
+            return stringBuilder.ToString();
         }
     }
 
@@ -778,7 +902,7 @@ namespace pwiz.Skyline.Util.Extensions
     /// the names of the columns, and all following lines contain data for each column.
     /// When ctor's optional hasHeaders arg == false, then columns are named "0", "1","2","3" etc.
     /// </summary>
-    public class DsvFileReader
+    public class DsvFileReader : IDisposable
     {
         private char _separator;
         private string[] _currentFields;
@@ -790,6 +914,8 @@ namespace pwiz.Skyline.Util.Extensions
         
         public int NumberOfFields { get; private set; }
         public Dictionary<string, int> FieldDict { get; private set; }
+        // Small molecule list reader supports multiple fragments per input line
+        public Dictionary<string, List<int>> FieldIndicesMulti { get; private set; } // Tracks all indices for duplicate field names
         public List<string> FieldNames { get; private set; } 
 
         public DsvFileReader(string fileName, char separator, bool hasHeaders=true) : 
@@ -813,6 +939,7 @@ namespace pwiz.Skyline.Util.Extensions
             _reader = reader;
             FieldNames = new List<string>();
             FieldDict = new Dictionary<string, int>();
+            FieldIndicesMulti = new Dictionary<string, List<int>>(); // Some formats allow duplicate column types, e.g. small molecule list reader
             _titleLine = _reader.ReadLine(); // we will re-use this if it's not actually a header line
             string saveTitleLine = _titleLine; // because we can overwrite the first line and might want to use it later, save it
             _rereadTitleLine = !hasHeaders; // tells us whether or not to reuse the supposed header line on first read
@@ -837,7 +964,14 @@ namespace pwiz.Skyline.Util.Extensions
             {
                 var fieldName = fields[i].Trim();
                 FieldNames.Add(fieldName);
-                FieldDict[fieldName] = i;
+                // Track all indices for each field name (supports duplicate column headers as in small molecule list reader)
+                if (!FieldIndicesMulti.TryGetValue(fieldName, out var multiList))
+                {
+                    FieldIndicesMulti[fieldName] = multiList = new List<int>();
+                }
+                multiList.Add(i);
+                if (!FieldDict.ContainsKey(fieldName))
+                    FieldDict[fieldName] = i; // Keep first occurrence for backward compat with single-index lookup
                 // Check to see if the given column name is actually a synonym for the internal canonical (no spaces, serialized) name
                 if (headerSynonyms != null)
                 {
@@ -845,6 +979,17 @@ namespace pwiz.Skyline.Util.Extensions
                     if (!string.IsNullOrEmpty(key))
                     {
                         var syn = headerSynonyms[key];
+                        // Track all indices for canonical synonym name too, but only if it
+                        // differs from the field name (avoid double-counting identity mappings
+                        // like "ProductMz" → "ProductMz" which would inflate FragmentCount)
+                        if (!string.Equals(syn, fieldName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            if (!FieldIndicesMulti.TryGetValue(syn, out var synList))
+                            {
+                                FieldIndicesMulti[syn] = synList = new List<int>();
+                            }
+                            synList.Add(i);
+                        }
                         if (!FieldDict.ContainsKey(syn))
                         {
                             // Note the internal name for this field
@@ -892,7 +1037,6 @@ namespace pwiz.Skyline.Util.Extensions
             return _currentFields;
         }
 
-
         /// <summary>
         /// For the current line, outputs the field corresponding to the column name fieldName, or null if
         /// there is no such field name.
@@ -928,13 +1072,24 @@ namespace pwiz.Skyline.Util.Extensions
         }
 
         /// <summary>
-        /// If loading from a file, use this to dispose the text reader.
+        /// Get all indices for a field name that appears multiple times in the header
+        /// </summary>
+        public List<int> GetFieldIndices(string fieldName)
+        {
+            if (FieldIndicesMulti != null && FieldIndicesMulti.TryGetValue(fieldName, out var indices))
+                return indices;
+            var single = GetFieldIndex(fieldName);
+            return single >= 0 ? new List<int> { single } : new List<int>();
+        }
+
+        /// <summary>
+        /// IDisposable pattern implementation for using clause to dispose of the reader,
+        /// in case it is a StreamReader holding onto a file handle.
         /// </summary>
         public void Dispose()
         {
             _reader.Dispose();
         }
-
     }
 
     public class LineColNumberedIoException : IOException
@@ -966,13 +1121,55 @@ namespace pwiz.Skyline.Util.Extensions
         private static string FormatMessage(string message, long lineNum, int colIndex)
         {
             if (colIndex == -1)
-                return string.Format(Resources.LineColNumberedIoException_FormatMessage__0___line__1__, message, lineNum);
+                return string.Format(ExtensionsResources.LineColNumberedIoException_FormatMessage__0___line__1__, message, lineNum);
             else
-                return string.Format(Resources.LineColNumberedIoException_FormatMessage__0___line__1___col__2__, message, lineNum, colIndex + 1);
+                return string.Format(ExtensionsResources.LineColNumberedIoException_FormatMessage__0___line__1___col__2__, message, lineNum, colIndex + 1);
         }
 
         public string PlainMessage { get; private set; }
         public long LineNumber { get; private set; }
         public int ColumnIndex { get; private set; }
+    }
+
+    /// <summary>
+    /// Natural language text intended as instruction for an LLM consumer,
+    /// not for direct display to end users. Distinguished from user-facing
+    /// text (which must be in .resx for localization) and debug text
+    /// (which is developer-only). Currently English, but marked distinctly
+    /// so it can be localized for LLM prompt translation in the future.
+    /// </summary>
+    public readonly struct LlmInstruction
+    {
+        public static LlmInstruction Format(string formatString, params object[] args)
+        {
+            return new LlmInstruction(string.Format(formatString, args));
+        }
+
+        public static LlmInstruction SpaceSeparate(params string[] values)
+        {
+            return new LlmInstruction(TextUtil.SpaceSeparate(values));
+        }
+
+        public static LlmInstruction TabSeparate(params string[] values)
+        {
+            return new LlmInstruction(values.ToDsvLine(TextUtil.SEPARATOR_TSV));
+        }
+
+        public LlmInstruction(string value)
+        {
+            Value = value;
+        }
+
+        public string Value { get; }
+
+        public static implicit operator string(LlmInstruction instruction)
+        {
+            return instruction.Value;
+        }
+
+        public override string ToString()
+        {
+            return Value;
+        }
     }
 }

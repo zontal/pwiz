@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Linq;
 using pwiz.Common.Collections;
 using pwiz.Common.DataBinding.Internal;
@@ -51,7 +51,7 @@ namespace pwiz.Common.DataBinding
                 return new[] {columnDescriptor.GetPropertyValue(rowItem, null)};
             }
 
-            var pivotedRows = Pivoter.ExpandAndPivot(ViewInfo.DataSchema.QueryLock.CancellationToken, new[] {rowItem});
+            var pivotedRows = Pivoter.ExpandAndPivot(new[] {rowItem});
             return pivotedRows.RowItems.Select(item => columnDescriptor.GetPropertyValue(item, null));
         }
     }

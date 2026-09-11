@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Yuval Boss <yuval .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -24,7 +24,6 @@ using System.IO;
 using System.Windows.Forms;
 using pwiz.Skyline.Alerts;
 using pwiz.Skyline.Model;
-using pwiz.Skyline.Properties;
 using pwiz.Skyline.Util;
 
 namespace pwiz.Skyline.ToolsUI
@@ -126,6 +125,7 @@ namespace pwiz.Skyline.ToolsUI
             }
 
             ((T) bindingSource1[rowIndex]).Color = newColor;
+            dataGridViewColors.InvalidateRow(rowIndex);
         }
 
         public void UpdateBindingSource()
@@ -154,7 +154,7 @@ namespace pwiz.Skyline.ToolsUI
                     var color = RgbHexColor.ParseHtmlColor(line) ?? RgbHexColor.ParseRgb(line);
                     if (color == null)
                     {
-                        MessageDlg.Show(this, string.Format(Resources.EditCustomThemeDlg_DoPaste_Unable_to_parse_the_color___0____Use_HEX_or_RGB_format_, line));
+                        MessageDlg.Show(this, string.Format(ToolsUIResources.EditCustomThemeDlg_DoPaste_Unable_to_parse_the_color___0____Use_HEX_or_RGB_format_, line));
                         return;
                     }
                     var colorRow = new T { Color = color.Value };
@@ -166,6 +166,47 @@ namespace pwiz.Skyline.ToolsUI
         public interface IColorGridOwner
         {
             BindingList<T> GetCurrentBindingList();
+        }
+
+        private int _useColorColumnIndex = -1;
+
+        /// <summary>
+        /// Adds a "Use color" checkbox column bound to <c>UseColor</c> immediately after the color swatch column.
+        /// When the user checks it with no color set the color picker opens automatically.
+        /// </summary>
+        public void AddUseColorColumn(string headerText)
+        {
+            var col = new DataGridViewCheckBoxColumn
+            {
+                DataPropertyName = @"UseColor",
+                HeaderText = headerText,
+                AutoSizeMode = DataGridViewAutoSizeColumnMode.AllCells,
+                SortMode = DataGridViewColumnSortMode.Automatic
+            };
+            dataGridViewColors.Columns.Insert(colorCol.Index + 1, col);
+            _useColorColumnIndex = col.Index;
+            dataGridViewColors.CellContentClick += dataGridViewColors_UseColorCellContentClick;
+        }
+
+        private void dataGridViewColors_UseColorCellContentClick(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.ColumnIndex != _useColorColumnIndex || e.RowIndex < 0 || e.RowIndex >= bindingSource1.Count)
+                return;
+            // CellContentClick fires BEFORE the checkbox toggles, so Value is still the old (pre-click) state.
+            // If the checkbox is about to become checked and no color is set, open the color picker before
+            // CurrentCellDirtyStateChanged calls CommitEdit and the binding round-trips through UseColor.get.
+            var currentlyChecked = (bool)(dataGridViewColors[e.ColumnIndex, e.RowIndex].Value ?? false);
+            var colorRow = (T)bindingSource1[e.RowIndex];
+            if (!currentlyChecked && colorRow.Color == Color.Empty)
+            {
+                colorPickerDlg.Color = Color.Red;
+                if (colorPickerDlg.ShowDialog() == DialogResult.OK)
+                    changeRowColor(e.RowIndex, colorPickerDlg.Color);
+            }
+            // Commit manually here — CurrentCellDirtyStateChanged skips this column to prevent
+            // auto-commit while the color picker modal is open (which would revert the checkbox).
+            dataGridViewColors.CommitEdit(DataGridViewDataErrorContexts.Commit);
+            bindingSource1.ResetItem(e.RowIndex);
         }
 
         private void dataGridViewColors_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
@@ -186,7 +227,7 @@ namespace pwiz.Skyline.ToolsUI
         {
             if (e.Exception is FormatException)
             {
-                MessageDlg.Show(this, Resources.EditCustomThemeDlg_dataGridViewColors_DataError_Colors_must_be_entered_in_HEX_or_RGB_format_);
+                MessageDlg.Show(this, ToolsUIResources.EditCustomThemeDlg_dataGridViewColors_DataError_Colors_must_be_entered_in_HEX_or_RGB_format_);
             }
         }
 
@@ -196,19 +237,19 @@ namespace pwiz.Skyline.ToolsUI
             {
                 var rowIndex = e.RowIndex;
                 var oldColor = ((T)bindingSource1[rowIndex]).Color;
-                colorPickerDlg.Color = oldColor;
-
+                colorPickerDlg.Color = oldColor == Color.Empty ? Color.Red : oldColor;
                 if (colorPickerDlg.ShowDialog() == DialogResult.OK)
-                {
                     changeRowColor(rowIndex, colorPickerDlg.Color);
-                }
             }
         }
 
         private void dataGridViewColors_CurrentCellDirtyStateChanged(object sender, EventArgs e)
         {
             // https://stackoverflow.com/questions/5652957/what-event-catches-a-change-of-value-in-a-combobox-in-a-datagridviewcell
-            if (!(dataGridViewColors.CurrentCell is DataGridViewTextBoxCell) && dataGridViewColors.IsCurrentCellDirty)
+            // Skip the UseColor checkbox — it is committed manually in CellContentClick, after the color picker closes.
+            if (!(dataGridViewColors.CurrentCell is DataGridViewTextBoxCell) &&
+                dataGridViewColors.IsCurrentCellDirty &&
+                dataGridViewColors.CurrentCell?.ColumnIndex != _useColorColumnIndex)
                 dataGridViewColors.CommitEdit(DataGridViewDataErrorContexts.Commit);
         }
 
@@ -252,7 +293,7 @@ namespace pwiz.Skyline.ToolsUI
 
         private void dataGridViewColors_KeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.V && e.Modifiers == Keys.Control)
+            if (ClipboardHelper.IsPaste(e.KeyData))
             {
                 DoPaste();
                 e.Handled = true;

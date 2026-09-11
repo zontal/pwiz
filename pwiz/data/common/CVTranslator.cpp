@@ -96,13 +96,15 @@ namespace {
 inline char alnum_lower(char c)
 {
     // c -> lower-case, whitespace, or +
-    return isalnum(c) ? static_cast<char>(tolower(c)) : c == '+' ? c : ' ';
+    unsigned char uc = static_cast<unsigned char>(c); // Watch out for unicode etc
+    return isalnum(uc) ? static_cast<char>(tolower(uc)) : c == '+' ? c : ' ';
 }
 
 inline char alnum_lower_regex(char c)
 {
     // c -> lower-case, whitespace, +, or _ for things that appear to be part of a regex
-    return isalnum(c) ? static_cast<char>(tolower(c)) : c == '+' ? c : '_';    
+    unsigned char uc = static_cast<unsigned char>(c); // Watch out for unicode etc
+    return isalnum(uc) ? static_cast<char>(tolower(uc)) : c == '+' ? c : '_';    
 }
 
 string preprocess(const string& s)
@@ -165,9 +167,12 @@ void CVTranslator::Impl::insert(const string& text, CVID cvid)
         if (shouldIgnore(key, map_[key], cvid))
             return;
 
+        if (map_[key] == cvid) // ignore exact synonyms that only differ before canonicalization
+            return;
+
         if (!shouldReplace(key, map_[key], cvid))
         {
-            throw runtime_error("[CVTranslator::insert()] Collision: " + 
+            throw runtime_error("[CVTranslator::insert()] Collision: " + key + " " +
                                 lexical_cast<string>(map_[key]) + " " +
                                 lexical_cast<string>(cvid));
         }

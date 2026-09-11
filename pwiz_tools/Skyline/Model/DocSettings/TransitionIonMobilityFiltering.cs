@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Brian Pratt <bspratt .at. uw.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -122,10 +122,10 @@ namespace pwiz.Skyline.Model.DocSettings
                 var dict = IonMobilityLibrary.GetIonMobilityLibKeyMap();
                 var val =
                     dict?.AsDictionary().Values.FirstOrDefault
-                        (v => v.Any(l => l.IonMobility.Units != eIonMobilityUnits.none));
+                        (v => v.Any(l => IonMobilityFilter.IsExplicitIonMobilityMeasurement(l.IonMobility.Units)));
                 if (val != null)
                 {
-                    var item = val.FirstOrDefault(i => i.IonMobility.Units != eIonMobilityUnits.none);
+                    var item = val.FirstOrDefault(i => IonMobilityFilter.IsExplicitIonMobilityMeasurement(i.IonMobility.Units));
                     if (item!=null)
                     {
                         return item.IonMobility.Units;
@@ -134,6 +134,82 @@ namespace pwiz.Skyline.Model.DocSettings
             }
 
             return eIonMobilityUnits.none; // Didn't find anything
+        }
+
+        /// <summary>
+        /// Collect the distinct non-none ion mobility units implied by settings-level sources:
+        /// per-file units from imported results, the ion mobility library, and any active spectral
+        /// libraries. Used to deduce units when only <see cref="SrmSettings"/> is in scope - e.g.
+        /// from within a settings method recovering from an explicit ion mobility value lacking
+        /// units. Zero results means no deduction is possible; exactly one means we can deduce
+        /// unambiguously; more than one means the document contains conflicting evidence (e.g.
+        /// mixed FAIMS and TIMS) and we must not silently pick. Short-circuits once two distinct
+        /// units have been seen, since further scanning can only confirm ambiguity.
+        /// </summary>
+        public static HashSet<eIonMobilityUnits> GetSettingsIonMobilityUnits(SrmSettings settings)
+        {
+            var units = new HashSet<eIonMobilityUnits>();
+
+            // Imported results carry the instrument-native unit per file - most authoritative.
+            var results = settings.MeasuredResults;
+            if (results != null)
+            {
+                foreach (var chromSet in results.Chromatograms)
+                {
+                    foreach (var fileInfo in chromSet.MSDataFileInfos)
+                    {
+                        if (IonMobilityFilter.IsExplicitIonMobilityMeasurement(fileInfo.IonMobilityUnits))
+                            units.Add(fileInfo.IonMobilityUnits);
+                    }
+                    if (units.Count > 1)
+                        return units;
+                }
+            }
+
+            // Ion mobility library.
+            var imFiltering = settings.TransitionSettings.IonMobilityFiltering;
+            if (imFiltering != null)
+            {
+                var libUnits = imFiltering.GetFirstSeenIonMobilityUnits();
+                if (IonMobilityFilter.IsExplicitIonMobilityMeasurement(libUnits))
+                    units.Add(libUnits);
+            }
+
+            if (units.Count > 1)
+                return units; // Already ambiguous - skip the remaining library scan.
+
+            // Active spectral libraries. Each library caches its own distinct-units result so
+            // repeated calls (e.g. during a bulk Document Grid paste) avoid re-scanning.
+            var peptideLibraries = settings.PeptideSettings.Libraries;
+            if (peptideLibraries != null && peptideLibraries.HasLibraries && peptideLibraries.IsLoaded)
+                units.UnionWith(peptideLibraries.GetDistinctIonMobilityUnits());
+
+            return units;
+        }
+
+        /// <summary>
+        /// Extends <see cref="GetSettingsIonMobilityUnits"/> with sibling transition groups that
+        /// already have explicit units set. Used when the full document tree is in scope, e.g.
+        /// the Document Grid setter that writes an explicit ion mobility value. Siblings are
+        /// scanned first as they are cheap and often already carry the answer once the user is
+        /// mid-paste on a large document.
+        /// </summary>
+        public static HashSet<eIonMobilityUnits> GetDocumentIonMobilityUnits(SrmDocument document)
+        {
+            var units = new HashSet<eIonMobilityUnits>();
+            foreach (var nodeGroup in document.MoleculeTransitionGroups)
+            {
+                var u = nodeGroup.ExplicitValues.IonMobilityUnits;
+                if (IonMobilityFilter.IsExplicitIonMobilityMeasurement(u))
+                {
+                    units.Add(u);
+                    if (units.Count > 1)
+                        return units; // Already ambiguous - no need to consult settings sources.
+                }
+            }
+
+            units.UnionWith(GetSettingsIonMobilityUnits(document.Settings));
+            return units;
         }
 
         public IonMobilityAndCCS GetIonMobilityFilter(LibKey ion, double mz,
@@ -153,7 +229,7 @@ namespace pwiz.Skyline.Model.DocSettings
                     {
                         var ionMobilityValue = ionMobilityFunctionsProvider.IonMobilityFromCCS(
                             result.CollisionalCrossSectionSqA.Value,
-                            ion.PrecursorMz ?? mz, ion.Charge);
+                            ion.PrecursorMz ?? mz, ion.Charge, ion);
                         if (ionMobilityValue.HasValue && // Successful CCS->IM conversion
                             !Equals(ionMobilityValue, result.IonMobility))
                         {
@@ -481,7 +557,7 @@ namespace pwiz.Skyline.Model.DocSettings
                     break;
                 case IonMobilityWindowWidthType.fixed_width:
                     if (FixedWindowWidth < 0)
-                        return Resources.DriftTimeWindowWidthCalculator_Validate_Fixed_window_width_must_be_non_negative_;
+                        return DocSettingsResources.DriftTimeWindowWidthCalculator_Validate_Fixed_window_width_must_be_non_negative_;
                     break;
             }
 
@@ -728,6 +804,13 @@ namespace pwiz.Skyline.Model.DocSettings
                 : EMPTY;
         }
 
+        public static IonMobilityAndCCS GetIonMobilityAndCCS(ExplicitTransitionGroupValues values)
+        {
+            return values.IonMobility.HasValue || values.CollisionalCrossSectionSqA.HasValue
+                ? new IonMobilityAndCCS(IonMobilityValue.GetIonMobilityValue(values.IonMobility, values.IonMobilityUnits), values.CollisionalCrossSectionSqA, null)
+                : EMPTY;
+        }
+
         [Track]
         public string Units
         {
@@ -861,9 +944,9 @@ namespace pwiz.Skyline.Model.DocSettings
             return 0;
         }
 
-        public override string ToString() // For debug convenience
+        public override string ToString()
         {
-            return string.Format(@"ccs{0}/{1}/he{2}/{3}", CollisionalCrossSectionSqA, IonMobility, HighEnergyIonMobilityValueOffset, Units);
+            return IonMobilityFilter.GetIonMobilityFilter(this, null).ToString(); // Slightly elaborate, but gives consistent user-facing formatting
         }
     }
 
@@ -997,11 +1080,18 @@ namespace pwiz.Skyline.Model.DocSettings
 
         }
 
-        public IonMobilityFilter ApplyOffset(double offset)
+        public IonMobilityFilter ApplyOffset(double offsetLow, double offsetHigh)
         {
-            if (offset == 0 || !IonMobility.HasValue)
+            if ((offsetLow == 0 && offsetHigh == 0) || !IonMobility.HasValue)
                 return this;
-            return GetIonMobilityFilter(IonMobility.Mobility + offset, IonMobilityUnits, IonMobilityExtractionWindowWidth, CollisionalCrossSectionSqA);
+            // Original bounds
+            var boundsLow = IonMobility.Mobility.Value - 0.5 * IonMobilityExtractionWindowWidth??0;
+            var boundsHigh = boundsLow + IonMobilityExtractionWindowWidth??0;
+            // Apply offsets
+            boundsLow += offsetLow;
+            boundsHigh += offsetHigh;
+            var width = Math.Abs(boundsHigh - boundsLow);
+            return GetIonMobilityFilter(Math.Min(boundsHigh, boundsLow) + 0.5*width, IonMobilityUnits, width, CollisionalCrossSectionSqA);
         }
 
         public bool ContainsIonMobility(double val, bool useHighEnergyOffset)
@@ -1020,14 +1110,14 @@ namespace pwiz.Skyline.Model.DocSettings
             switch (units)
             {
                 case eIonMobilityUnits.inverse_K0_Vsec_per_cm2:
-                    return Resources.IonMobilityFilter_IonMobilityUnitsString__1_K0__Vs_cm_2_;
+                    return DocSettingsResources.IonMobilityFilter_IonMobilityUnitsString__1_K0__Vs_cm_2_;
                 case eIonMobilityUnits.drift_time_msec:
                     return Resources.IonMobilityFilter_IonMobilityUnitsString_Drift_Time__ms_;
                 case eIonMobilityUnits.compensation_V:
-                    return Resources.IonMobilityFilter_IonMobilityUnitsString_Compensation_Voltage__V_;
+                    return DocSettingsResources.IonMobilityFilter_IonMobilityUnitsString_Compensation_Voltage__V_;
                 case eIonMobilityUnits.waters_sonar: // Not really ion mobility, but uses IMS hardware and our IMS filtering code
                 case eIonMobilityUnits.none:
-                    return Resources.IonMobilityFilter_IonMobilityUnitsL10NString_None;
+                    return DocSettingsResources.IonMobilityFilter_IonMobilityUnitsL10NString_None;
                 default:
                     return null;
             }
@@ -1036,6 +1126,29 @@ namespace pwiz.Skyline.Model.DocSettings
         public static bool AcceptNegativeMobilityValues(eIonMobilityUnits units)
         {
             return units == eIonMobilityUnits.compensation_V;
+        }
+
+        /// <summary>
+        /// Units that can appear in a user-facing selection (dropdown, error-message list, etc.).
+        /// <see cref="eIonMobilityUnits.waters_sonar"/> is excluded because it is an internal
+        /// marker for Waters SONAR data (which uses IMS hardware for m/z filtering) and collides
+        /// with <see cref="eIonMobilityUnits.none"/> in <see cref="IonMobilityUnitsL10NString"/>.
+        /// <see cref="eIonMobilityUnits.unknown"/> is excluded because it is only used during
+        /// deserialization of older Skyline documents.
+        /// </summary>
+        public static bool IsUserSelectableIonMobilityUnit(eIonMobilityUnits units)
+        {
+            return units != eIonMobilityUnits.unknown && units != eIonMobilityUnits.waters_sonar;
+        }
+
+        /// <summary>
+        /// Units that represent a real ion mobility measurement. Excludes the "none" sentinel in
+        /// addition to the types excluded by <see cref="IsUserSelectableIonMobilityUnit"/>.
+        /// Used when collecting the distinct units implied by a document or library.
+        /// </summary>
+        public static bool IsExplicitIonMobilityMeasurement(eIonMobilityUnits units)
+        {
+            return IsUserSelectableIonMobilityUnit(units) && units != eIonMobilityUnits.none;
         }
 
         public static eIonMobilityUnits IonMobilityUnitsFromL10NString(string units)
@@ -1054,9 +1167,16 @@ namespace pwiz.Skyline.Model.DocSettings
             }
             foreach (eIonMobilityUnits u in Enum.GetValues(typeof(eIonMobilityUnits)))
             {
-                var ionMobilityUnitsL10NString = IonMobilityUnitsL10NString(u);
-                if (string.Equals(units, ionMobilityUnitsL10NString, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(units, u.ToString(), StringComparison.OrdinalIgnoreCase))
+                if (string.Equals(units, u.ToString(), StringComparison.OrdinalIgnoreCase))
+                {
+                    result = u;
+                    return true;
+                }
+                // Skip the L10N match for non-user-selectable units; waters_sonar shares the
+                // localized "None" with eIonMobilityUnits.none and would otherwise win the match
+                // due to enum iteration order (waters_sonar = -1 visited before none = 0).
+                if (IsUserSelectableIonMobilityUnit(u) &&
+                    string.Equals(units, IonMobilityUnitsL10NString(u), StringComparison.OrdinalIgnoreCase))
                 {
                     result = u;
                     return true;
@@ -1072,7 +1192,7 @@ namespace pwiz.Skyline.Model.DocSettings
                     Thread.CurrentThread.CurrentUICulture = tryCulture;
                     foreach (eIonMobilityUnits u in Enum.GetValues(typeof(eIonMobilityUnits)))
                     {
-                        if (u != eIonMobilityUnits.none)
+                        if (u != eIonMobilityUnits.none && IsUserSelectableIonMobilityUnit(u))
                         {
                             var ionMobilityUnitsL10NString = IonMobilityUnitsL10NString(u);
                             if (string.Equals(units, ionMobilityUnitsL10NString, StringComparison.OrdinalIgnoreCase))
@@ -1106,7 +1226,7 @@ namespace pwiz.Skyline.Model.DocSettings
                     Thread.CurrentThread.CurrentUICulture = tryCulture;
                     foreach (eIonMobilityUnits u in Enum.GetValues(typeof(eIonMobilityUnits)))
                     {
-                        if (u != eIonMobilityUnits.none && u!= eIonMobilityUnits.unknown)
+                        if (IsExplicitIonMobilityMeasurement(u))
                             result.Add(IonMobilityUnitsL10NString(u));
                     }
                 }
@@ -1232,12 +1352,33 @@ namespace pwiz.Skyline.Model.DocSettings
             return Nullable.Compare(IonMobilityExtractionWindowWidth, other.IonMobilityExtractionWindowWidth);
         }
 
-        public override string ToString() // For debugging convenience, not user-facing
+        public override string ToString()
         {
-            return string.Format(@"{0}/w{1:F04}", IonMobilityAndCCS, IonMobilityExtractionWindowWidth );
+            // Construct a string like "CCS=452.225 IM=1.118+/-0.0373 msec High Energy Offset=.002" or "CCS=452.225 IM=1.118 Vs/cm^2" etc
+            var result = string.Empty;
+            if (IonMobilityAndCCS.HasCollisionalCrossSection)
+            {
+                result = string.Format(ResultsResources.IonMobilityAndCCS_DisplayString_CCS_, CollisionalCrossSectionSqA);
+                if (HasIonMobilityValue)
+                {
+                    result += @" "; // Put a space between CCS and IM parts
+                }
+            }
+
+            if (HasIonMobilityValue)
+            {
+                // Write mobility value, and optional tolerance (as half window width)
+                result += string.Format(ResultsResources.IonMobilityAndCCS_DisplayString_IM_And_Tolerance_, IonMobility.Mobility, (IonMobilityExtractionWindowWidth.HasValue ? $@"+/-{(IonMobilityExtractionWindowWidth/2):F04}" : string.Empty), IonMobility.UnitsString);
+            }
+
+            if ((IonMobilityAndCCS.HighEnergyIonMobilityValueOffset??0) != 0)
+            {
+                result += @" "; // Put a space between mobility and high energy offset parts
+                result += string.Format(ResultsResources.IonMobilityAndCCS_DisplayString_HighEnergyOffset_, IonMobilityAndCCS.HighEnergyIonMobilityValueOffset);
+            }
+
+            return result;
         }
 
     }
-
-
 }

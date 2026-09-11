@@ -21,13 +21,15 @@ using System.IO;
 using System.Linq;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using pwiz.Common.Chemistry;
+using pwiz.Common.SystemUtil;
+using pwiz.CommonMsData;
 using pwiz.ProteowizardWrapper;
 using pwiz.Skyline.FileUI;
 using pwiz.Skyline.FileUI.PeptideSearch;
 using pwiz.Skyline.Model;
+using pwiz.Skyline.Model.AuditLog;
 using pwiz.Skyline.Model.DocSettings;
 using pwiz.Skyline.Model.Irt;
-using pwiz.Skyline.Model.Results;
 using pwiz.Skyline.Properties;
 using pwiz.Skyline.SettingsUI;
 using pwiz.Skyline.Util;
@@ -75,7 +77,6 @@ namespace TestPerf
 
         [TestMethod, 
          NoParallelTesting(TestExclusionReason.VENDOR_FILE_LOCKING), // Reader wants exclusive read access to raw data?
-         NoUnicodeTesting(TestExclusionReason.MZ5_UNICODE_ISSUES),
          NoNightlyTesting(TestExclusionReason.EXCESSIVE_TIME)] // Do not run full filesets for nightly tests
         public void TestDiaUmpireWiffFile()
         {
@@ -138,6 +139,10 @@ namespace TestPerf
 
         protected override void DoTest()
         {
+            string[] searchFiles = DiaFiles.Select(GetVendorFileTestPath).ToArray();
+            foreach (var searchFile in searchFiles)
+                Assert.IsTrue(File.Exists(searchFile), string.Format("File {0} does not exist.", searchFile));
+
             // Clean-up before running the test
             RunUI(() => SkylineWindow.ModifyDocument("Set default settings",
                 d => d.ChangeSettings(SrmSettingsList.GetDefault())));
@@ -148,17 +153,10 @@ namespace TestPerf
             RunUI(() => SkylineWindow.SaveDocument(documentFile));
 
             // Launch the wizard
-            var importPeptideSearchDlg = ShowDialog<ImportPeptideSearchDlg>(SkylineWindow.ShowImportPeptideSearchDlg);
+            var importPeptideSearchDlg = ShowDialog<ImportPeptideSearchDlg>(SkylineWindow.ShowRunPeptideSearchDlg);
 
-            string[] searchFiles = DiaFiles.Select(p => GetVendorFileTestPath(p)).ToArray();
-            foreach (var searchFile in searchFiles)
-            {
-                // delete -diaumpire files so they get regenerated instead of reused
-                var searchFileDir = Path.GetDirectoryName(searchFile) ?? string.Empty;
-                foreach (var diaumpireFile in Directory.GetFiles(searchFileDir, "*-diaumpire.*"))
-                    FileEx.SafeDelete(diaumpireFile);
-                Assert.IsTrue(File.Exists(searchFile), string.Format("File {0} does not exist.", searchFile));
-            }
+            // delete -diaumpire files so they get regenerated instead of reused
+            RemoveDiaUmpireFiles();
 
             string fastaPathForImport = GetFastaTestPath(_instrumentValues.FastaPath);
             Assert.IsTrue(File.Exists(fastaPathForImport));
@@ -169,14 +167,15 @@ namespace TestPerf
             RunUI(() =>
             {
                 Assert.IsTrue(importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.spectra_page);
-                importPeptideSearchDlg.BuildPepSearchLibControl.PerformDDASearch = true;
                 importPeptideSearchDlg.BuildPepSearchLibControl.DdaSearchDataSources = searchFiles.Select(f => new MsDataFilePath(f)).ToArray();
                 importPeptideSearchDlg.BuildPepSearchLibControl.IrtStandards = IrtStandard.CIRT_SHORT;
                 importPeptideSearchDlg.BuildPepSearchLibControl.WorkflowType = ImportPeptideSearchDlg.Workflow.dia;
                 importPeptideSearchDlg.BuildPepSearchLibControl.InputFileType = ImportPeptideSearchDlg.InputFile.dia_raw;
                 // Check default settings shown in the tutorial
-                Assert.AreEqual(0.95, importPeptideSearchDlg.BuildPepSearchLibControl.CutOffScore);
                 Assert.IsFalse(importPeptideSearchDlg.BuildPepSearchLibControl.IncludeAmbiguousMatches);
+                Assert.IsTrue(importPeptideSearchDlg.ClickNextButton());
+
+                Assert.AreEqual(ImportPeptideSearchDlg.Pages.chromatograms_page, importPeptideSearchDlg.CurrentPage);
                 Assert.IsTrue(importPeptideSearchDlg.ClickNextButton());
             });
 
@@ -184,13 +183,13 @@ namespace TestPerf
 
             WaitForDocumentLoaded();
 
-            RunUI(() => Assert.IsTrue(importPeptideSearchDlg.CurrentPage == ImportPeptideSearchDlg.Pages.match_modifications_page));
+            RunUI(() => Assert.AreEqual(ImportPeptideSearchDlg.Pages.match_modifications_page, importPeptideSearchDlg.CurrentPage));
 
             var editStructModListUI =
                 ShowDialog<EditListDlg<SettingsListBase<StaticMod>, StaticMod>>(importPeptideSearchDlg.MatchModificationsControl.ClickAddStructuralModification);
             RunDlg<EditStaticModDlg>(editStructModListUI.AddItem, editModDlg =>
             {
-                editModDlg.SetModification(OXIDATION_M, true); // Not L10N
+                editModDlg.SetModification(OXIDATION_M); // Not L10N
                 editModDlg.OkDialog();
             });
             OkDialog(editStructModListUI, editStructModListUI.OkDialog);
@@ -251,7 +250,7 @@ namespace TestPerf
             });
             RunDlg<OpenDataSourceDialog>(isolationScheme.ImportRanges, importRangesDlg =>
             {
-                importRangesDlg.CurrentDirectory = new MsDataFilePath(Path.GetDirectoryName(searchFiles[0]));
+                importRangesDlg.SetCurrentDirectory(new MsDataFilePath(Path.GetDirectoryName(searchFiles[0])));
                 importRangesDlg.SelectFile(Path.GetFileName(DiaFiles[0]));
                 importRangesDlg.Open();
             });
@@ -280,6 +279,7 @@ namespace TestPerf
             {
                 Assert.IsTrue(importPeptideSearchDlg.ClickNextButton());
 
+                importPeptideSearchDlg.ConverterSettingsControl.UseDiaUmpire = true;
                 importPeptideSearchDlg.ConverterSettingsControl.InstrumentPreset = _instrumentValues.InstrumentPreset;
                 importPeptideSearchDlg.ConverterSettingsControl.EstimateBackground = true;
                 importPeptideSearchDlg.ConverterSettingsControl.AdditionalSettings = _instrumentValues.AdditionalSettings;
@@ -294,22 +294,54 @@ namespace TestPerf
                               ImportPeptideSearchDlg.Pages.dda_search_settings_page);
                 importPeptideSearchDlg.SearchSettingsControl.PrecursorTolerance = _instrumentValues.PrecursorTolerance;
                 importPeptideSearchDlg.SearchSettingsControl.FragmentTolerance = _instrumentValues.FragmentTolerance;
-                importPeptideSearchDlg.SearchSettingsControl.FragmentIons = "b, y";
+                importPeptideSearchDlg.SearchSettingsControl.CutoffScore = 0.05;
+                Assert.AreEqual(PropertyNames.CutoffScore_PERCOLATOR_QVALUE, importPeptideSearchDlg.SearchSettingsControl.CutoffLabel);
+                Assert.AreEqual(0.05, importPeptideSearchDlg.SearchSettingsControl.CutoffScore);
             });
 
-            RunUI(() =>
+            // The search runs DiaUmpire, which (re)writes the -diaumpire outputs. Wrap it in try/finally
+            // so they are cleaned from the persistent (shared) source dir even if the search assertion
+            // below fails. (Nothing is generated before this point, so earlier failures leave nothing.)
+            try
             {
-                // Run the search
-                Assert.IsTrue(importPeptideSearchDlg.ClickNextButton());
+                RunUI(() =>
+                {
+                    // Run the search
+                    Assert.IsTrue(importPeptideSearchDlg.ClickNextButton());
 
-                importPeptideSearchDlg.SearchControl.SearchFinished += (success) => searchSucceeded = success;
-                importPeptideSearchDlg.BuildPepSearchLibControl.IncludeAmbiguousMatches = true;
-            });
+                    importPeptideSearchDlg.SearchControl.SearchFinished += (success) => searchSucceeded = success;
+                    importPeptideSearchDlg.BuildPepSearchLibControl.IncludeAmbiguousMatches = true;
+                });
 
-            WaitForConditionUI(120 * 600000, () => searchSucceeded.HasValue);
-            Assert.IsTrue(searchSucceeded.Value);
+                WaitForConditionUI(120 * 600000, () => searchSucceeded.HasValue);
+                Assert.IsTrue(searchSucceeded.Value);
 
-            RunUI(() => importPeptideSearchDlg.ClickCancelButton());
+                RunUI(() => importPeptideSearchDlg.ClickCancelButton());
+            }
+            finally
+            {
+                RemoveDiaUmpireFiles();
+            }
+
+            void RemoveDiaUmpireFiles()
+            {
+                // Delete the generated -diaumpire outputs (found by globbing each input's directory), and
+                // register each one we delete in its persistent dir's PotentialMissingPersistentFileSet so
+                // the persistent-dir modification check tolerates the deletion and stays in sync with the
+                // glob (same pattern as DeleteFilesForScreenshots in DiaSwathTutorialTest).
+                var testFilesDir = TestFilesDirs[0];
+                foreach (var searchFile in searchFiles)
+                {
+                    var searchFileDir = Path.GetDirectoryName(searchFile) ?? string.Empty;
+                    foreach (var diaumpireFile in Directory.GetFiles(searchFileDir, "*-diaumpire.*"))
+                    {
+                        testFilesDir.PotentialMissingPersistentFileSet ??= new HashSet<string>();
+                        testFilesDir.PotentialMissingPersistentFileSet.Add(
+                            PathEx.GetRelativePath(testFilesDir.PersistentFilesDir, diaumpireFile));
+                        FileEx.SafeDelete(diaumpireFile);
+                    }
+                }
+            }
         }
     }
 }

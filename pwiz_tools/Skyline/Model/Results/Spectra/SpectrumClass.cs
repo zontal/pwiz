@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -16,14 +16,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+
+using JetBrains.Annotations;
+using pwiz.Common.DataBinding;
 using pwiz.Common.DataBinding.Attributes;
+using pwiz.Common.DataBinding.Filtering;
 using pwiz.Skyline.Model.Hibernate;
+using pwiz.Skyline.Util;
 
 namespace pwiz.Skyline.Model.Results.Spectra
 {
     /// <summary>
     /// Represents a set of properties which a group of spectra might have in common.
     /// </summary>
+    [UsedImplicitly(ImplicitUseTargetFlags.Members)]
     public class SpectrumClass
     {
         public SpectrumClass(SpectrumClassKey classKey)
@@ -55,7 +61,7 @@ namespace pwiz.Skyline.Model.Results.Spectra
             get; private set;
         }
 
-        public double? CollisionEnergy
+        public FormattableList<PositiveNumber> CollisionEnergy
         {
             get; private set;
         }
@@ -66,6 +72,7 @@ namespace pwiz.Skyline.Model.Results.Spectra
             private set;
         }
 
+        [Format(Formats.Mz)]
         public double? ScanWindowWidth { get; private set; }
 
         public int PresetScanConfiguration { get; private set; }
@@ -73,5 +80,15 @@ namespace pwiz.Skyline.Model.Results.Spectra
         public int MsLevel { get; private set; }
 
         public string Analyzer { get; private set; }
+
+        [Format(Formats.Mz)]
+        public double? IsolationWindowWidth { get; private set; }
+        
+        public ListColumnValue<string> DissociationMethod { get; private set; }
+        
+        [Format(Formats.Mz)]
+        public double? ConstantNeutralLoss { get; private set; } // Negative value means neutral gain
+
+        public double? SourceOffsetVoltage { get; private set; }
     }
 }

@@ -150,11 +150,26 @@
   <data name="TargetedMSMS_Caption" xml:space="preserve">
     <value>ターゲットMS/MS (PRM)</value>
   </data>
+  <data name="PRMOrbitrap_Description" xml:space="preserve">
+    <value>並列反応モニタリング（PRM）を使用してマウス線維芽細胞の19個の目的タンパク質から31個のペプチドを定量化するためのデータ取得メソッドを設定してみましょう。Orbitrapマスアナライザーを搭載するThermo Fusion質量分析装置で9回のランを実施して測定された3回の生物学的繰り返し測定をとりあげます。</value>
+  </data>
+  <data name="PRMOrbitrap_Caption" xml:space="preserve">
+    <value>PRM使用とOrbitrap質量分析装置</value>
+  </data>
+  <data name="DIA_Umpire_TTOF_Description" xml:space="preserve">
+    <value>ベンチマーク論文（Navarroら Nature Biotech 2016）に基づいて本解説用に作成された3つの生物種の混合データセットを使って、SCIEX TripleTOF装置で得られたデータ非依存的取得（DIA）データセットに対してペプチドスペクトル検索を直接実行してみましょう。</value>
+  </data>
+  <data name="DIA_Umpire_TTOF_Caption" xml:space="preserve">
+    <value>ライブラリフリーのDIA/SWATH</value>
+  </data>
   <data name="iRT_Caption" xml:space="preserve">
     <value>iRT保持時間予測</value>
   </data>
   <data name="CustomReports_Caption" xml:space="preserve">
-    <value>カスタムおよびライブレポート</value>
+    <value>カスタムレポート</value>
+  </data>
+  <data name="LiveReports_Caption" xml:space="preserve">
+    <value>ライブレポート</value>
   </data>
   <data name="iRT_Description" xml:space="preserve">
     <value>スケジュール済みの取得やピーク強度検証に対し、保持時間予測に将来使用するためライブラリ内にある校正済みの実験的に測定されたペプチド保持時間の保存テクニックをiRTを使用して実務経験を積みます。このチュートリアルでは、自分のiRTカルキュレータを校正し、さらにiRTキットのペプチド標準に対し、Biognosysが提案するiRT-C18校正について学びます。SRMデータ、探索実験のMS1スキャンからフィルタされたスペクトルライブラリやクロマトグラムピークから新しいiRT値を校正します。また、新しいグラジエントを用いて新しい列でSRM取得をスケジュールするために、これらのiRTの再校正方法も学びます。クロマトグラムピーク強度検証においてさらに信頼性を高めるiRTに基づき、より正確な保持時間予測を確認できます。</value>
@@ -174,7 +189,7 @@
   <data name="DDASearch_Caption" xml:space="preserve">
     <value>MS1フィルタリングに対するDDA検索</value>
   </data>
-  <data name="DDSearch_Description" xml:space="preserve">
+  <data name="DDASearch_Description" xml:space="preserve">
     <value>DDA質量分析計ファイルを開始してMS Amandaでペプチド検索を実行し、検索結果からスペクトルライブラリを構築し、最後にクロマトグラムを抽出してDDAファイルのMS1スペクトルから定量分析を行って実務経験を積みます。本チュートリアルでは、Skylineペプチド検索ウィザードを使用して、安定同位体標識タンパク質が急増したSigma Aldrich UPS1標準混合液を使ったヒト全細胞溶解液から取得した3つのDDAデータファイルを検索します。データファイル中のMS1スペクトルから検出されたすべてのペプチドに対するプリカーサー同位体クロマトグラムを抽出するようにSkylineをセットアップし、Skylineでその結果の検査を開始します。</value>
   </data>
   <data name="PeakPicking_Caption" xml:space="preserve">
@@ -182,6 +197,9 @@
   </data>
   <data name="CustomReports_Description" xml:space="preserve">
     <value>Skylineカスタムライブレポートを使ってSkylineドキュメントからの幅広い値を表示し、編集し、エクスポートする実務経験を積みます。これらのレポートは、ExcelやR、Matlab、Java、C++や他の言語で記述されたカスタムコードで使用し、装置の出力をSkylineで処理した後に詳細な統計的分析を行うのに最適です。また、Skyline結果グリッド表示を使用してこれらの値にアクセスし、Skylineでデータを検査しながらカスタム注釈を追加する方法も学びます。本チュートリアルを進め、Skylineで達成可能な実験範囲を大きく広げましょう。</value>
+  </data>
+  <data name="LiveReports_Description" xml:space="preserve">
+    <value>Skylineライブレポートを実際にご体験ください。カスタマイズ可能な表形式ビューを使用して、定量データの探索やレポート作成を行うことができます。これらのビューは、使用中のSkylineドキュメントが変更されるとリアルタイムで更新されます。また、重要な値に直接アクセスして変更することも可能です。本チュートリアルでは監査ログおよびビューログの有効化、組み込みレポートやユーザー定義レポートの活用、注釈やリストの作成、データの集計（ピボット）やフィルタリング、グループ比較の方法について学びます。さらに、棒グラフやヒートマップなどの図表の作成方法や、カスタマイズレポートの定義をエクスポートして共有したり再利用する方法も紹介します。</value>
   </data>
   <data name="MethodEdit_Caption" xml:space="preserve">
     <value>ターゲットメソッドの編集</value>
@@ -255,8 +273,11 @@
   <data name="Section_Advanced_Topics" xml:space="preserve">
     <value>詳細なトピック</value>
   </data>
+  <data name="Section_Reports_Topics" xml:space="preserve">
+    <value>レポート</value>
+  </data>
   <data name="SmallMoleculeMethodDevCEOpt_Description" xml:space="preserve">
-    <value>文献の引用から、プリカーサーm/z、プロダクトイオンm/z、衝突エネルギー値のみ指定されている安定同位体標識分子をターゲットとするSkylineドキュメントを作成する方法を学びます。Waters Xevo TQ-Sで分析した複数の繰り返し測定データセットをインポートし、Sciex三連四重極計の初期CE値を使用して分子の保持時間スケジュールと衝突エネルギー最適化を実施します。また、元々ターゲットプロテオミクスの使用を目的に作成された多数の既存のSkyline機能が、非プロテオミクス分子データにどのように適用できるかを学習します。</value>
+    <value>プリカーサーm/z、プロダクトイオンm/z、および衝突エネルギー（CE）の値のみが記載された文献情報に基づき、安定同位体標識の分子をターゲットとするSkylineドキュメントを作成する方法を学びます。さらに、Sciex製Triple Quadで設定したCE初期CE値を用い、Waters製Xevo TQ-Sの複数の繰り返し測定データセットをインポートして、分子の保持時間スケジュールおよび衝突エネルギーの最適化を行います。また、当初ターゲットプロテオミクス向けに開発されたSkylineの既存機能の多くが、現在では非プロテオミクス分子データにも適用できることを学びます。</value>
   </data>
   <data name="SmallMoleculeQuantification_Description" xml:space="preserve">
     <value>プリカーサーイオン化学式および付加物、プロダクトイオンm/z値として指定される分子をターゲットとするSkylineドキュメントの作成方法を学びます。三連四重極計LC-MS/MSで収集された複数の繰り返し測定データセットをインポートし、元々ターゲットプロテオミクス使用を目的に作成された既存の多数のSkyline機能が非プロテオミクス分子データにどのように適用できるかを学習します。</value>

@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Max Horowitz-Gelb <maxhg .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -20,6 +20,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Windows.Forms;
@@ -139,10 +140,9 @@ namespace pwiz.Skyline.SettingsUI
             // Initialise the ion mobility units dropdown with L10N values
             foreach (eIonMobilityUnits t in Enum.GetValues(typeof(eIonMobilityUnits)))
             {
-                var displayString = IonMobilityFilter.IonMobilityUnitsL10NString(t);
-                if (displayString != null) // Special value eIonMobilityUnits.unknown must not appear in list
+                if (IonMobilityFilter.IsUserSelectableIonMobilityUnit(t))
                 {
-                    comboBoxIonMobilityUnits.Items.Add(displayString);
+                    comboBoxIonMobilityUnits.Items.Add(IonMobilityFilter.IonMobilityUnitsL10NString(t));
                 }
             }
 
@@ -192,11 +192,11 @@ namespace pwiz.Skyline.SettingsUI
             ResultExplicitTransitionValues = new ExplicitTransitionValues(explicitTransitionAttributes);
 
             string labelAverage = !defaultCharge.IsEmpty
-                ? Resources.EditCustomMoleculeDlg_EditCustomMoleculeDlg_A_verage_m_z_
-                : Resources.EditCustomMoleculeDlg_EditCustomMoleculeDlg_A_verage_mass_;
+                ? SettingsUIResources.EditCustomMoleculeDlg_EditCustomMoleculeDlg_A_verage_m_z_
+                : SettingsUIResources.EditCustomMoleculeDlg_EditCustomMoleculeDlg_A_verage_mass_;
             string labelMono = !defaultCharge.IsEmpty
-                ? Resources.EditCustomMoleculeDlg_EditCustomMoleculeDlg__Monoisotopic_m_z_
-                : Resources.EditCustomMoleculeDlg_EditCustomMoleculeDlg__Monoisotopic_mass_;
+                ? SettingsUIResources.EditCustomMoleculeDlg_EditCustomMoleculeDlg__Monoisotopic_m_z_
+                : SettingsUIResources.EditCustomMoleculeDlg_EditCustomMoleculeDlg__Monoisotopic_mass_;
             var defaultFormula = (molecule == null || molecule.ParsedMolecule.IsMassOnly) ? string.Empty : molecule.ParsedMolecule.ToString();
             var transition = initialId as Transition;
 
@@ -210,7 +210,7 @@ namespace pwiz.Skyline.SettingsUI
             string formulaBoxLabel;
             if (defaultCharge.IsEmpty)
             {
-                formulaBoxLabel = Resources.EditCustomMoleculeDlg_EditCustomMoleculeDlg_Chemi_cal_formula_;
+                formulaBoxLabel = SettingsUIResources.EditCustomMoleculeDlg_EditCustomMoleculeDlg_Chemi_cal_formula_;
             }
             else if (editMode == FormulaBox.EditMode.adduct_only)
             {
@@ -220,12 +220,12 @@ namespace pwiz.Skyline.SettingsUI
                     // Defined by mass only
                     prompt = molecule.ToString();
                 }
-                formulaBoxLabel = string.Format(Resources.EditCustomMoleculeDlg_EditCustomMoleculeDlg_Addu_ct_for__0__,
+                formulaBoxLabel = string.Format(SettingsUIResources.EditCustomMoleculeDlg_EditCustomMoleculeDlg_Addu_ct_for__0__,
                     prompt);
             }
             else
             {
-                formulaBoxLabel = Resources.EditMeasuredIonDlg_EditMeasuredIonDlg_Ion__chemical_formula_;
+                formulaBoxLabel = SettingsUIResources.EditMeasuredIonDlg_EditMeasuredIonDlg_Ion__chemical_formula_;
             }
 
             double? averageMass = null;
@@ -584,25 +584,16 @@ namespace pwiz.Skyline.SettingsUI
         {
             if (!string.IsNullOrEmpty(textIonMobility.Text) && Equals(IonMobilityUnits, eIonMobilityUnits.none))
             {
-                // Try to set a reasonable value for ion mobility units
-
-                // First look for any other explicit ion mobility values in the document
+                // Only auto-populate when the document unambiguously implies a single unit.
+                // FAIMS, TIMS, and drift_time_msec are semantically incompatible - silently
+                // picking the first-seen unit would risk mis-interpreting the user's value.
+                // When ambiguous (or there is no evidence), leave units=none and let the user pick.
                 var doc = _parent?.Document;
-                var node =
-                    doc?.MoleculeTransitionGroups.FirstOrDefault(n =>
-                        n.ExplicitValues.IonMobilityUnits != eIonMobilityUnits.none);
-                if (node != null)
-                {
-                    IonMobilityUnits = node.ExplicitValues.IonMobilityUnits;
+                if (doc == null)
                     return;
-                }
-
-                // Then try the ion mobility library if any
-                var filters = doc?.Settings.TransitionSettings.IonMobilityFiltering;
-                if (filters != null)
-                {
-                    IonMobilityUnits = filters.GetFirstSeenIonMobilityUnits();
-                }
+                var candidates = TransitionIonMobilityFiltering.GetDocumentIonMobilityUnits(doc);
+                if (candidates.Count == 1)
+                    IonMobilityUnits = candidates.Single();
             }
         }
 
@@ -622,11 +613,18 @@ namespace pwiz.Skyline.SettingsUI
         {
             get
             {
-                return comboBoxIonMobilityUnits.SelectedIndex >= 0
-                    ? (eIonMobilityUnits) comboBoxIonMobilityUnits.SelectedIndex
-                    : eIonMobilityUnits.none;
+                // Look up by display string rather than relying on the dropdown index matching
+                // the enum value - they only line up today because the user-selectable enum
+                // members happen to occupy contiguous values starting at 0.
+                return IonMobilityFilter.IonMobilityUnitsFromL10NString(
+                    comboBoxIonMobilityUnits.SelectedItem as string);
             }
-            set { comboBoxIonMobilityUnits.SelectedIndex = (int) value; }
+            set
+            {
+                var idx = comboBoxIonMobilityUnits.Items.IndexOf(IonMobilityFilter.IonMobilityUnitsL10NString(value));
+                // Non-displayable values (waters_sonar, unknown) fall back to "None".
+                comboBoxIonMobilityUnits.SelectedIndex = idx >= 0 ? idx : 0;
+            }
         }
 
         public double? PrecursorCollisionEnergy
@@ -680,6 +678,13 @@ namespace pwiz.Skyline.SettingsUI
                     return;
                 if (!_formulaBox.ValidateMonoText(helper))
                     return;
+            }
+
+            if (_formulaBox.FormulaError != null)
+            {
+                // User must fix the problem before we will admit the new values
+                _formulaBox.ShowTextBoxErrorFormula(helper, _formulaBox.FormulaError);
+                return;
             }
 
             var monoMass = new TypedMass(_formulaBox.MonoMass ?? 0, MassType.Monoisotopic);
@@ -736,6 +741,18 @@ namespace pwiz.Skyline.SettingsUI
             if (_usageMode == UsageMode.precursor)
             {
                 // Only the adduct should be changing
+                if (!string.IsNullOrEmpty(_formulaBox.NeutralFormula))
+                {
+                    try
+                    {
+                        Adduct.ApplyToFormula(_formulaBox.NeutralFormula); // Does adduct make sense with formula?
+                    }
+                    catch (Exception x) when (SmallMoleculeTransitionListReader.IsParserException(x))
+                    {
+                        _formulaBox.ShowTextBoxErrorFormula(helper, x.Message);
+                        return;
+                    }
+                }
                 SetResult(_resultCustomMolecule, Adduct);
             }
             else if (!string.IsNullOrEmpty(_formulaBox.NeutralFormula))
@@ -749,7 +766,7 @@ namespace pwiz.Skyline.SettingsUI
                     }
                     SetResult(new CustomMolecule(_formulaBox.NeutralFormula, name), Adduct);
                 }
-                catch (InvalidDataException x)
+                catch(Exception x) when(SmallMoleculeTransitionListReader.IsParserException(x))
                 {
                     _formulaBox.ShowTextBoxErrorFormula(helper, x.Message);
                     return;
@@ -836,7 +853,7 @@ namespace pwiz.Skyline.SettingsUI
             })))
             {
                 helper.ShowTextBoxError(textName,
-                    Resources.EditCustomMoleculeDlg_OkDialog_A_similar_transition_already_exists_, textName.Text);
+                    SettingsUIResources.EditCustomMoleculeDlg_OkDialog_A_similar_transition_already_exists_, textName.Text);
                 return;
             }
             DialogResult = DialogResult.OK;
@@ -876,10 +893,17 @@ namespace pwiz.Skyline.SettingsUI
             }
             if (Adduct.IsEmpty || Adduct.AdductCharge != charge)
             {
-                Adduct =
-                    Adduct
-                        .ChangeCharge(
-                            charge); // Update the adduct with this new charge - eg for new charge 2, [M+Na] -> [M+2Na] 
+                var z = Adduct.AdductCharge;
+                try
+                {
+                    Adduct = Adduct.ChangeCharge(charge); // Update the adduct with this new charge - eg for new charge 2, [M+Na] -> [M+2Na] 
+                }
+                catch (InvalidDataException x)
+                {
+                    helper = new MessageBoxHelper(this, true); // Now we do want to show the message
+                    helper.ShowTextBoxError(textCharge, x.Message);
+                    textCharge.Text = z.ToString(CultureInfo.CurrentUICulture);
+                }
             }
         }
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
@@ -16,7 +16,7 @@ namespace pwiz.Common.DataBinding.Internal
         }
 
         public IndexedPropertyDescriptor(DataSchema dataSchema, int index, Type propertyType, IColumnCaption displayName, PivotedColumnId pivotedColumnId, Attribute[] attributes)
-            : base(@"property" + index, displayName, dataSchema.DataSchemaLocalizer, MergeAttributes(dataSchema, displayName, attributes))
+            : base(@"property" + index, displayName, dataSchema, MergeAttributes(dataSchema, displayName, attributes))
         {
             PropertyIndex = index;
             _propertyType = propertyType;
@@ -24,7 +24,6 @@ namespace pwiz.Common.DataBinding.Internal
         }
 
         public int PropertyIndex { get; private set; }
-
         public override bool CanResetValue(object component)
         {
             return false;
@@ -81,12 +80,12 @@ namespace pwiz.Common.DataBinding.Internal
 
         public override PivotedColumnId PivotedColumnId => _pivotedColumnId;
         
-        private static Attribute[] GetAttributes(PropertyDescriptor propertyDescriptor)
+        public static Attribute[] GetAttributes(PropertyDescriptor propertyDescriptor)
         {
             return propertyDescriptor.Attributes.OfType<Attribute>().ToArray();
         }
 
-        private static Attribute[] MergeAttributes(DataSchema dataSchema, IColumnCaption columnCaption,
+        public static Attribute[] MergeAttributes(DataSchema dataSchema, IColumnCaption columnCaption,
             Attribute[] existingAttributes)
         {
             var overrideAttributes = new Attribute[]
@@ -97,5 +96,6 @@ namespace pwiz.Common.DataBinding.Internal
             return AttributeCollection.FromExisting(new AttributeCollection(existingAttributes.ToArray()), overrideAttributes)
                 .Cast<Attribute>().ToArray();
         }
+
     }
 }

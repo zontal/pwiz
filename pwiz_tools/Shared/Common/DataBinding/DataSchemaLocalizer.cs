@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -78,6 +78,15 @@ namespace pwiz.Common.DataBinding
                 Thread.CurrentThread.CurrentUICulture = oldUiCulture;
                 Thread.CurrentThread.CurrentCulture = oldCulture;
             }
+        }
+
+        public void CallWithCultureInfo(Action action)
+        {
+            CallWithCultureInfo(() =>
+            {
+                action();
+                return true;
+            });
         }
     }
 }

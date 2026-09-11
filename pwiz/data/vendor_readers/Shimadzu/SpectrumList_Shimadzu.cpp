@@ -130,6 +130,8 @@ PWIZ_API_DECL SpectrumPtr SpectrumList_Shimadzu::spectrum(size_t index, DetailLe
 
     if (msLevel == 1)
         result->set(MS_MS1_spectrum);
+    else if (info.isSrm)
+        result->set(MS_SRM_spectrum);
     else
         result->set(MS_MSn_spectrum); // TODO: get more test data
 
@@ -176,16 +178,17 @@ PWIZ_API_DECL SpectrumPtr SpectrumList_Shimadzu::spectrum(size_t index, DetailLe
             spectrum->getPrecursorInfo(selectedMz, intensity, charge);
 
             Precursor precursor;
-            /*if (spectrum->getHasIsolationInfo())
+            if (spectrum->getHasIsolationInfo())
             {
                 double centerMz, lowerLimit, upperLimit;
                 spectrum->getIsolationInfo(centerMz, lowerLimit, upperLimit);
                 precursor.isolationWindow.set(MS_isolation_window_target_m_z, centerMz, MS_m_z);
-                precursor.isolationWindow.set(MS_isolation_window_lower_offset, centerMz - lowerLimit, MS_m_z);
-                precursor.isolationWindow.set(MS_isolation_window_upper_offset, upperLimit - centerMz, MS_m_z);
-				selectedMz = centerMz;
-            }*/
-            precursor.isolationWindow.set(MS_isolation_window_target_m_z, selectedMz, MS_m_z);
+                precursor.isolationWindow.set(MS_isolation_window_lower_offset, lowerLimit, MS_m_z);
+                precursor.isolationWindow.set(MS_isolation_window_upper_offset, upperLimit, MS_m_z);
+                selectedMz = centerMz;
+            }
+            else
+                precursor.isolationWindow.set(MS_isolation_window_target_m_z, selectedMz, MS_m_z);
 
             SelectedIon selectedIon;
 

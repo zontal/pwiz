@@ -1,4 +1,4 @@
-﻿/*
+/*
  * Original author: Nicholas Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
  *
@@ -89,12 +89,12 @@ namespace pwiz.Skyline.Model.Crosslinking
         }
         public string GetFragmentIonName()
         {
-            return NeutralFragmentIon.GetLabel(PeptideStructure, false);
+            return NeutralFragmentIon.GetLabel(PeptideStructure, false,false);
         }
 
         public string GetTargetsTreeLabel()
         {
-            return NeutralFragmentIon.GetLabel(PeptideStructure, true) + Transition.GetMassIndexText(PrimaryTransition.MassIndex);
+            return NeutralFragmentIon.GetLabel(PeptideStructure, true, true) + Transition.GetMassIndexText(PrimaryTransition.MassIndex);
         }
 
         public ComplexFragmentIon ChangeMassIndex(int massIndex)

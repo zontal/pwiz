@@ -1,4 +1,4 @@
-﻿
+
 /*
  * Original author: Nick Shulman <nicksh .at. u.washington.edu>,
  *                  MacCoss Lab, Department of Genome Sciences, UW
@@ -119,6 +119,7 @@ namespace pwiz.Skyline.FileUI
                 {
                     _changingOptimizeSettings = true;
                     _minimizeResults.Settings = value;
+                    _minStatistics = null; // Reset so IsComplete waits for new worker
                     // ReSharper disable once PossibleNullReferenceException
                     cbxDiscardUnmatchedChromatograms.Checked = Settings.DiscardUnmatchedChromatograms;
                     if (Settings.NoiseTimeRange.HasValue)
@@ -149,7 +150,7 @@ namespace pwiz.Skyline.FileUI
             else
             {
                 btnMinimize.Enabled = btnMinimizeAs.Enabled = false;
-                lblCurrentCacheFileSize.Text = Resources.MinimizeResultsDlg_ChromCacheMinimizer_The_cache_file_has_not_been_loaded_yet;
+                lblCurrentCacheFileSize.Text = FileUIResources.MinimizeResultsDlg_ChromCacheMinimizer_The_cache_file_has_not_been_loaded_yet;
                 lblSpaceSavings.Text = string.Empty;
             }
         }
@@ -167,9 +168,9 @@ namespace pwiz.Skyline.FileUI
             double noiseTime;
             string errorMessage = null;
             if (!double.TryParse(tbxNoiseTimeRange.Text, out noiseTime))
-                errorMessage = Resources.MinimizeResultsDlg_tbxNoiseTimeRange_Leave_The_noise_time_limit_must_be_a_valid_decimal_number;
+                errorMessage = FileUIResources.MinimizeResultsDlg_tbxNoiseTimeRange_Leave_The_noise_time_limit_must_be_a_valid_decimal_number;
             if (noiseTime < 0)
-                errorMessage = Resources.MinimizeResultsDlg_tbxNoiseTimeRange_Leave_The_noise_time_limit_must_be_a_positive_decimal_number;
+                errorMessage = FileUIResources.MinimizeResultsDlg_tbxNoiseTimeRange_Leave_The_noise_time_limit_must_be_a_positive_decimal_number;
             if (errorMessage != null)
             {
                 MessageDlg.Show(this, errorMessage);
@@ -183,9 +184,14 @@ namespace pwiz.Skyline.FileUI
 
         private void cbxLimitNoiseTime_CheckedChanged(object sender, EventArgs e)
         {
+            UpdateLimitNoiseTime();
+        }
+
+        private void UpdateLimitNoiseTime()
+        {
             Settings = cbxLimitNoiseTime.Checked
-                           ? Settings.ChangeNoiseTimeRange(double.Parse(tbxNoiseTimeRange.Text))
-                           : Settings.ChangeNoiseTimeRange(null);
+                ? Settings.ChangeNoiseTimeRange(double.Parse(tbxNoiseTimeRange.Text))
+                : Settings.ChangeNoiseTimeRange(null);
         }
 
         private void btnMinimize_Click(object sender, EventArgs e)
@@ -203,13 +209,13 @@ namespace pwiz.Skyline.FileUI
             var document = DocumentUIContainer.DocumentUI;
             if (!document.Settings.MeasuredResults.IsLoaded)
             {
-                MessageDlg.Show(this, Resources.MinimizeResultsDlg_Minimize_All_results_must_be_completely_imported_before_any_can_be_minimized);
+                MessageDlg.Show(this, FileUIResources.MinimizeResultsDlg_Minimize_All_results_must_be_completely_imported_before_any_can_be_minimized);
                 return;
             }
             if (!Settings.DiscardUnmatchedChromatograms && !Settings.NoiseTimeRange.HasValue)
             {
                 if (MultiButtonMsgDlg.Show(this, 
-                    Resources.MinimizeResultsDlg_Minimize_You_have_not_chosen_any_options_to_minimize_your_cache_file_Are_you_sure_you_want_to_continue, 
+                    FileUIResources.MinimizeResultsDlg_Minimize_You_have_not_chosen_any_options_to_minimize_your_cache_file_Are_you_sure_you_want_to_continue, 
                     MessageBoxButtons.OKCancel) != DialogResult.OK)
                 {
                     return;
@@ -260,7 +266,7 @@ namespace pwiz.Skyline.FileUI
                     longWaitBroker =>
                     {
                         _longWaitBroker = longWaitBroker;
-                        longWaitBroker.Message = Resources.MinimizeResultsDlg_MinimizeToFile_Saving_new_cache_file;
+                        longWaitBroker.Message = FileUIResources.MinimizeResultsDlg_MinimizeToFile_Saving_new_cache_file;
                         _minimizeResults.MinimizeCacheFile(targetFile);
                     });
 
@@ -284,7 +290,7 @@ namespace pwiz.Skyline.FileUI
             {
                 var message = TextUtil.LineSeparate(
                     string.Format(
-                        Resources
+                        FileUIResources
                             .MinimizeResultsDlg_MinimizeToFile_An_unexpected_error_occurred_while_saving_the_data_cache_file__0__,
                         targetFile),
                     e.Message);
@@ -301,16 +307,18 @@ namespace pwiz.Skyline.FileUI
             lock (worker)
             {
                 CheckDisposed();
-                bool updateUi = _minStatistics == null || 
-                                _minStatistics.PercentComplete != minStatistics.PercentComplete ||
-                                _minStatistics.MinimizedRatio != minStatistics.MinimizedRatio;
-                _minStatistics = minStatistics;
-                var _this = this;
+                // Only update statistics from the current collector, not stale workers
+                // that are still running after settings changed and a new worker started
                 if (ReferenceEquals(_minimizeResults.StatisticsCollector, worker))
                 {
+                    bool updateUi = _minStatistics == null ||
+                                    _minStatistics.PercentComplete != minStatistics.PercentComplete ||
+                                    _minStatistics.MinimizedRatio != minStatistics.MinimizedRatio;
+                    _minStatistics = minStatistics;
                     if (updateUi && !_updatePending)
                     {
                         //_updatePending = true;
+                        var _this = this;
                         try
                         {
                             BeginInvoke(new Action(() => UpdateStatistics(worker)));
@@ -349,19 +357,19 @@ namespace pwiz.Skyline.FileUI
             }
 
             lblCurrentCacheFileSize.Text = string.Format(FileSize.FormatProvider,
-                Resources.BackgroundWorker_UpdateStatistics_The_current_size_of_the_cache_file_is__0__fs,
+                FileUIResources.BackgroundWorker_UpdateStatistics_The_current_size_of_the_cache_file_is__0__fs,
                 minStatistics.OriginalFileSize);
             if (minStatistics.PercentComplete == 100)
             {
                 lblSpaceSavings.Text = string.Format(
-                    Resources
+                    FileUIResources
                         .BackgroundWorker_UpdateStatistics_After_minimizing_the_cache_file_will_be_reduced_to__0__its_current_size,
                     minStatistics.MinimizedRatio);
             }
             else
             {
                 lblSpaceSavings.Text = string.Format(
-                    Resources.BackgroundWorker_UpdateStatistics_Computing_space_savings__0__complete,
+                    FileUIResources.BackgroundWorker_UpdateStatistics_Computing_space_savings__0__complete,
                     minStatistics.PercentComplete);
             }
 
@@ -390,17 +398,27 @@ namespace pwiz.Skyline.FileUI
 
         #region Functional Test Support
 
-        public bool LimitNoiseTime
+        public void SetNoiseLimit(bool limitNoiseTime, double? noiseTimeRange = null)
         {
-            get { return cbxLimitNoiseTime.Checked; }
-            set { cbxLimitNoiseTime.Checked = value; }
+            if (noiseTimeRange.HasValue)
+                tbxNoiseTimeRange.Text = noiseTimeRange.Value.ToString(CultureInfo.CurrentCulture);
+            // Make sure the checkbox is the right state and that recalculation happens
+            if (cbxLimitNoiseTime.Checked != limitNoiseTime)
+                cbxLimitNoiseTime.Checked = limitNoiseTime;
+            else
+            {
+                // If already set correctly, then just trigger the update directly
+                UpdateLimitNoiseTime();
+            }
         }
 
-        public double NoiseTimeRange
-        {
-            get { return double.Parse(tbxNoiseTimeRange.Text); }
-            set { tbxNoiseTimeRange.Text = value.ToString(CultureInfo.CurrentCulture); }
-        }
+        public int PercentOfTotalCompression => (int)Math.Round((_minStatistics?.MinimizedRatio ?? 0) * 100);
+
+        /// <summary>
+        /// Returns true when background statistics computation is complete.
+        /// Use this to wait before taking screenshots to ensure consistent compression ratios.
+        /// </summary>
+        public bool IsComplete => _minStatistics?.PercentComplete == 100;
 
         #endregion
 
